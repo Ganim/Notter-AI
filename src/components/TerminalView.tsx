@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { X, RotateCw } from "lucide-react";
+import { useAppStore, TERMINAL_THEMES } from "@/stores/app-store";
 import "@xterm/xterm/css/xterm.css";
 
 export interface TerminalHandle {
@@ -19,6 +20,7 @@ interface TerminalViewProps {
   cwd?: string;
   shell?: ShellType;
   onClose: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 }
 
 interface PtyOutputPayload {
@@ -32,18 +34,26 @@ interface PtyExitPayload {
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ id, name, cwd, shell: initialShell, onClose }, ref) => {
+  ({ id, name, cwd, shell: initialShell, onClose, onRename }, ref) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const [alive, setAlive] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [currentShell, setCurrentShell] = useState<ShellType>(initialShell || 'powershell');
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState(name);
+    const { terminalSettings } = useAppStore();
 
     const shellLabels: Record<ShellType, string> = {
       powershell: 'PS',
       bash: 'Bash',
       cmd: 'CMD',
+    };
+
+    const getTheme = () => {
+      const t = TERMINAL_THEMES.find((th) => th.name === terminalSettings.themeName) || TERMINAL_THEMES[0];
+      return { background: t.background, foreground: t.foreground, cursor: t.cursor, selectionBackground: t.selectionBackground };
     };
 
     useImperativeHandle(ref, () => ({
@@ -73,9 +83,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       const term = new Terminal({
         cursorBlink: true,
         scrollback: 5000,
-        theme: { background: "#09090b", foreground: "#fafafa" },
-        fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
-        fontSize: 13,
+        theme: getTheme(),
+        fontFamily: terminalSettings.fontFamily,
+        fontSize: terminalSettings.fontSize,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
@@ -145,6 +155,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       };
     }, [id]);
 
+    // Update terminal appearance when settings change
+    useEffect(() => {
+      const term = xtermRef.current;
+      if (!term) return;
+      term.options.theme = getTheme();
+      term.options.fontFamily = terminalSettings.fontFamily;
+      term.options.fontSize = terminalSettings.fontSize;
+      fitAddonRef.current?.fit();
+    }, [terminalSettings]);
+
+    const handleRenameSubmit = () => {
+      if (renameValue.trim() && renameValue !== name) {
+        onRename(id, renameValue.trim());
+      }
+      setIsRenaming(false);
+    };
+
     const handleRestart = async () => {
       const term = xtermRef.current;
       if (!term) return;
@@ -173,10 +200,26 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     return (
       <div className="flex flex-col h-full min-h-0 bg-background relative border border-border rounded-md shadow-sm overflow-hidden">
         <div className="h-8 bg-muted flex items-center justify-between px-3 border-b border-border shrink-0">
-          <span className="text-xs font-semibold text-muted-foreground flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${alive ? "bg-green-500" : "bg-red-500"}`} />
-            <span>{name}</span>
-          </span>
+          <div className="text-xs font-semibold text-muted-foreground flex items-center space-x-2 min-w-0">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${alive ? "bg-green-500" : "bg-red-500"}`} />
+            {isRenaming ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); if (e.key === 'Escape') setIsRenaming(false); }}
+                onBlur={handleRenameSubmit}
+                className="bg-background text-foreground text-xs px-1 py-0.5 rounded-sm border border-border outline-none focus:ring-1 focus:ring-ring w-28"
+              />
+            ) : (
+              <span
+                onDoubleClick={() => { setRenameValue(name); setIsRenaming(true); }}
+                className="truncate cursor-default" title="Double-click to rename"
+              >
+                {name}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {/* Shell selector */}
             <div className="flex bg-background rounded-sm border border-border overflow-hidden">
@@ -221,7 +264,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
             </div>
           </div>
         ) : (
-          <div ref={terminalRef} className="flex-1 w-full bg-[#09090b] overflow-hidden" />
+          <div ref={terminalRef} className="flex-1 w-full overflow-hidden" style={{ backgroundColor: getTheme().background }} />
         )}
       </div>
     );

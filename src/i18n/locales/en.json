@@ -90,7 +90,18 @@
     "ready": "Ready",
     "where_to_open": "Where do you want to open the terminal?",
     "open_in_root": "Open in system root",
-    "open_in_project": "Open in project folder"
+    "open_in_project": "Open in project folder",
+    "rename_terminal": "Rename Terminal",
+    "rename_terminal_desc": "Enter the new name for this terminal."
+  },
+  "settings": {
+    "title": "Settings",
+    "terminal": "Terminal",
+    "theme": "Color Theme",
+    "font": "Font Family",
+    "font_size": "Font Size",
+    "ligatures": "Ligatures",
+    "close": "Close"
   },
   "board": {
     "title": "Board",

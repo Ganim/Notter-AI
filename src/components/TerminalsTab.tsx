@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 
 export function TerminalsTab() {
   const { t } = useTranslation();
-  const { consoles, addConsole, removeConsole } = useTerminalsStore();
+  const { consoles, addConsole, renameConsole, removeConsole } = useTerminalsStore();
   const { projects } = usePlannerStore();
   const terminalRefs = useRef<Record<string, TerminalHandle | null>>({});
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -66,6 +66,7 @@ export function TerminalsTab() {
                   cwd={c.cwd}
                   shell={c.shell}
                   onClose={handleRemoveConsole}
+                  onRename={renameConsole}
                   ref={(el) => { terminalRefs.current[c.id] = el; }}
                 />
               </div>
