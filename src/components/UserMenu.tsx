@@ -154,12 +154,17 @@ export function UserMenu() {
             <div className="flex items-center justify-between p-3 rounded-md border border-border bg-background">
               <div className="flex flex-col gap-0.5">
                 <Label className="text-sm font-medium text-foreground">{t('settings.ligatures')}</Label>
-                <span className="text-[11px] text-muted-foreground">{'=> -> != <='}</span>
+                <span className="text-[11px] text-muted-foreground font-mono">{'=> -> != <='}</span>
               </div>
-              <Switch
-                checked={terminalSettings.ligatures}
-                onCheckedChange={(val: boolean) => setTerminalSettings({ ligatures: val })}
-              />
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${terminalSettings.ligatures ? 'bg-green-500/20 text-green-500' : 'bg-muted text-muted-foreground'}`}>
+                  {terminalSettings.ligatures ? 'ON' : 'OFF'}
+                </span>
+                <Switch
+                  checked={terminalSettings.ligatures}
+                  onCheckedChange={(val: boolean) => setTerminalSettings({ ligatures: val })}
+                />
+              </div>
             </div>
 
             {/* Preview */}

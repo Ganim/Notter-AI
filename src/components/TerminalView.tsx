@@ -1,6 +1,7 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { LigaturesAddon } from "@xterm/addon-ligatures";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { X, RotateCw } from "lucide-react";
@@ -89,6 +90,9 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
+      if (terminalSettings.ligatures) {
+        try { term.loadAddon(new LigaturesAddon()); } catch (_) { /* font may not support ligatures */ }
+      }
       term.open(terminalRef.current);
       fit.fit();
 
