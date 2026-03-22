@@ -1,20 +1,20 @@
 import { create } from 'zustand';
-import type { ConsoleInstance } from '@/types';
+import type { ConsoleInstance, ShellType } from '@/types';
 
 interface TerminalsState {
   consoles: ConsoleInstance[];
-  addConsole: (name?: string) => string | null;
+  addConsole: (name: string, cwd?: string, shell?: ShellType) => string | null;
   removeConsole: (id: string) => void;
 }
 
 export const useTerminalsStore = create<TerminalsState>((set, get) => ({
-  consoles: [{ id: 'default', name: 'Agent Shell' }],
+  consoles: [],
 
-  addConsole: (name) => {
+  addConsole: (name, cwd, shell) => {
     if (get().consoles.length >= 4) return null;
     const id = Date.now().toString();
     set((state) => ({
-      consoles: [...state.consoles, { id, name: name || `Terminal ${state.consoles.length + 1}` }],
+      consoles: [...state.consoles, { id, name, cwd, shell }],
     }));
     return id;
   },

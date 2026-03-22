@@ -11,9 +11,13 @@ export interface TerminalHandle {
   writeInput: (data: string) => Promise<void>;
 }
 
+type ShellType = 'powershell' | 'bash' | 'cmd';
+
 interface TerminalViewProps {
   id: string;
   name: string;
+  cwd?: string;
+  shell?: ShellType;
   onClose: (id: string) => void;
 }
 
@@ -28,12 +32,19 @@ interface PtyExitPayload {
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
-  ({ id, name, onClose }, ref) => {
+  ({ id, name, cwd, shell: initialShell, onClose }, ref) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const [alive, setAlive] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [currentShell, setCurrentShell] = useState<ShellType>(initialShell || 'powershell');
+
+    const shellLabels: Record<ShellType, string> = {
+      powershell: 'PS',
+      bash: 'Bash',
+      cmd: 'CMD',
+    };
 
     useImperativeHandle(ref, () => ({
       writeln: (text: string) => {
@@ -49,7 +60,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       setAlive(true);
       try {
         const { cols, rows } = term;
-        await invoke("create_pty", { id, cols, rows });
+        await invoke("create_pty", { id, cols, rows, cwd: cwd || null, shell: currentShell });
       } catch (e) {
         setError(String(e));
         setAlive(false);
@@ -142,6 +153,23 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
       await startPty(term);
     };
 
+    const handleSwitchShell = async (newShell: ShellType) => {
+      setCurrentShell(newShell);
+      const term = xtermRef.current;
+      if (!term) return;
+      term.clear();
+      await invoke("close_pty", { id }).catch(() => {});
+      setError(null);
+      setAlive(true);
+      try {
+        const { cols, rows } = term;
+        await invoke("create_pty", { id, cols, rows, cwd: cwd || null, shell: newShell });
+      } catch (e) {
+        setError(String(e));
+        setAlive(false);
+      }
+    };
+
     return (
       <div className="flex flex-col h-full min-h-0 bg-background relative border border-border rounded-md shadow-sm overflow-hidden">
         <div className="h-8 bg-muted flex items-center justify-between px-3 border-b border-border shrink-0">
@@ -149,7 +177,19 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
             <div className={`w-2 h-2 rounded-full ${alive ? "bg-green-500" : "bg-red-500"}`} />
             <span>{name}</span>
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            {/* Shell selector */}
+            <div className="flex bg-background rounded-sm border border-border overflow-hidden">
+              {(["powershell", "bash", "cmd"] as ShellType[]).map((sh) => (
+                <button
+                  key={sh}
+                  onClick={() => sh !== currentShell && handleSwitchShell(sh)}
+                  className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${currentShell === sh ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                >
+                  {shellLabels[sh]}
+                </button>
+              ))}
+            </div>
             {!alive && (
               <button
                 onClick={handleRestart}

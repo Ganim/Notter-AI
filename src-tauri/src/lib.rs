@@ -38,14 +38,11 @@ struct PtyManager {
 
 // --- Shell detection ---
 
-fn detect_shell() -> (String, Vec<String>) {
-    let ps = ("powershell".to_string(), vec!["-NoLogo".to_string()]);
-
-    match StdCommand::new("wsl").arg("-e").arg("echo").arg("ok").output() {
-        Ok(output) if output.status.success() => {
-            ("wsl".to_string(), vec!["bash".to_string()])
-        }
-        _ => ps,
+fn get_shell(shell_type: &str) -> (String, Vec<String>) {
+    match shell_type {
+        "bash" => ("wsl".to_string(), vec!["bash".to_string()]),
+        "cmd" => ("cmd".to_string(), vec![]),
+        _ => ("powershell".to_string(), vec!["-NoLogo".to_string()]),
     }
 }
 
@@ -56,6 +53,8 @@ fn create_pty(
     id: String,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
+    shell: Option<String>,
     app: AppHandle,
     state: tauri::State<'_, PtyManager>,
 ) -> Result<(), String> {
@@ -70,16 +69,23 @@ fn create_pty(
         })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    let (shell, args) = detect_shell();
-    let mut cmd = CommandBuilder::new(&shell);
+    let shell_type = shell.unwrap_or_else(|| "powershell".to_string());
+    let (shell_bin, args) = get_shell(&shell_type);
+    let mut cmd = CommandBuilder::new(&shell_bin);
     for arg in &args {
         cmd.arg(arg);
+    }
+    if let Some(dir) = &cwd {
+        cmd.cwd(dir);
+    }
+    for (key, value) in std::env::vars() {
+        cmd.env(key, value);
     }
 
     let child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| format!("Failed to spawn shell '{}': {}", shell, e))?;
+        .map_err(|e| format!("Failed to spawn shell '{}': {}", shell_bin, e))?;
 
     // Drop slave — no longer needed after spawn
     drop(pair.slave);

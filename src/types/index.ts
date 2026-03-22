@@ -14,9 +14,13 @@ export interface Project {
   path: string;
 }
 
+export type ShellType = 'powershell' | 'bash' | 'cmd';
+
 export interface ConsoleInstance {
   id: string;
   name: string;
+  cwd?: string;
+  shell?: ShellType;
 }
 
 export interface EditorTheme {

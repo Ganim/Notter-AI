@@ -87,7 +87,10 @@
     "no_consoles": "No console running.",
     "open_terminal": "Open new interactive terminal",
     "cmd_placeholder": "Execute commands natively...",
-    "ready": "Ready"
+    "ready": "Ready",
+    "where_to_open": "Where do you want to open the terminal?",
+    "open_in_root": "Open in system root",
+    "open_in_project": "Open in project folder"
   },
   "board": {
     "title": "Board",
