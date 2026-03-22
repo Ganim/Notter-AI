@@ -1,0 +1,91 @@
+{
+  "nav": {
+    "planner": "Planner",
+    "board": "Board",
+    "agents": "Agents",
+    "terminals": "Terminals"
+  },
+  "user_menu": {
+    "settings": "Settings",
+    "plugins": "Plugins",
+    "login": "Login",
+    "themes": "Themes",
+    "language": "Language",
+    "dark_mode": "Dark Mode"
+  },
+  "planner": {
+    "subjects": "Subjects",
+    "tasks": "Tasks",
+    "create_subject": "Create Subject",
+    "create_task": "Create Task",
+    "no_subjects": "No subjects created.",
+    "select_subject": "Select a Subject first.",
+    "create_first_task": "Press '+' to create the first task.",
+    "select_task_hint": "Select or create a task to open the editor.",
+    "notes_about": "Notes about",
+    "delegate_agent": "Delegate to Agent",
+    "edit": "Edit",
+    "view": "View",
+    "new_subject": "New Subject",
+    "new_subject_desc": "Create a new notes folder.",
+    "subject_placeholder": "E.g.: Feature X",
+    "create": "Create",
+    "new_task_in": "New Task in {{subject}}",
+    "new_task_desc": "Create a new markdown file.",
+    "task_placeholder": "E.g.: research-bug.md",
+    "delete_subject": "Delete Subject",
+    "delete_subject_desc": "This will permanently delete '{{name}}' and all its tasks.",
+    "delete_task": "Delete Task",
+    "delete_task_desc": "Irreversibly remove task '{{name}}'?",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "subject_created": "Subject created successfully!",
+    "subject_deleted": "Subject deleted!",
+    "task_created": "Task created!",
+    "task_deleted": "Task removed!",
+    "error_create_subject": "Error creating subject: {{error}}",
+    "error_delete_subject": "Error deleting subject: {{error}}",
+    "error_create_task": "Error creating task: {{error}}",
+    "error_delete_task": "Error deleting task: {{error}}"
+  },
+  "agents": {
+    "profiles": "Agent Profiles",
+    "config_title": "Agent Configuration",
+    "config_desc": "Set base instructions, LLM provider connectivity (Ollama on localhost, or external), and execution autonomy tolerance.",
+    "agent_name": "Agent Name",
+    "provider": "AI Provider",
+    "select_provider": "Select a Provider",
+    "provider_ollama": "Ollama Native (localhost:11434)",
+    "provider_openai": "OpenAI (ChatGPT)",
+    "provider_anthropic": "Anthropic (Claude)",
+    "provider_gemini": "Google (Gemini)",
+    "api_key": "API Key ({{provider}}) / Bearer Token",
+    "api_key_placeholder": "Your {{provider}} API key...",
+    "autonomous_mode": "Autonomous Execution Mode",
+    "autonomous_desc": "If enabled, this Agent won't request manual permission prompts when injecting interactive Bash commands in the Console Map. Use with mature AI models for uninterrupted work cycles (Overdrive).",
+    "system_prompt": "System Prompt (System Instructions)",
+    "system_prompt_placeholder": "You are specialist agent X responsible for Y...",
+    "no_profile": "No Agent profile in focus.",
+    "select_or_create": "Select or Create New Profile"
+  },
+  "terminals": {
+    "console_map": "Console Map",
+    "new_console": "New Console",
+    "max_consoles": "Maximum limit of 4 consoles reached.",
+    "no_consoles": "No console running.",
+    "open_terminal": "Open new interactive terminal",
+    "cmd_placeholder": "Execute commands natively...",
+    "ready": "Ready"
+  },
+  "board": {
+    "title": "Board",
+    "coming_soon": "Task board coming in Alpha 3.0",
+    "description": "This is where agent topics, task assignments, and workflow status will be visible."
+  },
+  "delegate": {
+    "title": "Delegate Mission",
+    "desc": "Select which Agent will take over the active task. It will inject this Markdown context into its autonomous flow.",
+    "no_profiles": "No profile configured. Create an Agent Profile in the Agents tab first.",
+    "dispatched": "Agent {{name}} dispatched to the task!"
+  }
+}
