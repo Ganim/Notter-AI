@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePlannerStore } from '@/stores/planner-store';
-import { useAgentsStore } from '@/stores/agents-store';
-import { useAppStore } from '@/stores/app-store';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -10,7 +8,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, Trash2, Pen, Eye, Play, PencilLine, Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus } from 'lucide-react';
+import { Plus, Trash2, Pen, Eye, PencilLine, Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus } from 'lucide-react';
 
 export function PlannerTab() {
   const { t } = useTranslation();
@@ -21,12 +19,8 @@ export function PlannerTab() {
     initFilesystem, saveTaskContent, createSubject, renameSubject, deleteSubject, createTask, renameTask, deleteTask,
   } = usePlannerStore();
 
-  const { profiles } = useAgentsStore();
-  const { setActiveTab } = useAppStore();
-
   const [isSubjectDialogOpen, setIsSubjectDialogOpen] = useState(false);
   const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
-  const [isAgentTriggerOpen, setIsAgentTriggerOpen] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<string | null>(null);
@@ -278,14 +272,9 @@ export function PlannerTab() {
           {selectedTask ? (
             <>
               <div className="h-12 border-b border-border flex items-center justify-between px-4 sticky top-0 bg-background z-10 shrink-0">
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold text-sm text-foreground">
-                    {t('planner.notes_about')} <span className="text-primary">{selectedTask.replace('.md', '')}</span>
-                  </span>
-                  <button onClick={() => setIsAgentTriggerOpen(true)} className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-3 py-1 rounded-[4px] font-semibold text-[11px] flex items-center transition-colors ml-2 uppercase tracking-wider shadow-sm focus:ring-1 focus:ring-primary focus:outline-none">
-                    <Play size={12} className="mr-1.5" /> {t('planner.delegate_agent')}
-                  </button>
-                </div>
+                <span className="font-semibold text-sm text-foreground">
+                  {t('planner.notes_about')} <span className="text-primary">{selectedTask.replace('.md', '')}</span>
+                </span>
                 <div className="flex items-center space-x-4">
                   <div className="flex bg-muted rounded-md p-1 border border-border">
                     {bgColors.map((c) => (
@@ -329,7 +318,7 @@ export function PlannerTab() {
                   <button onClick={() => insertLine('1. ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Ordered List"><ListOrdered size={15} /></button>
                   <div className="w-px h-4 bg-border mx-1.5" />
                   <button onClick={() => insertMarkdown('`', '`')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Inline Code"><Code size={15} /></button>
-                  <button onClick={() => insertLine('```\n\n```')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Code Block"><span className="text-xs font-mono font-bold">{'{}'}</span></button>
+                  <button onClick={() => insertLine('```\n\n```')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-center w-[27px] h-[27px]" title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
                   <button onClick={() => insertLine('> ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Quote"><Quote size={15} /></button>
                   <button onClick={() => insertLine('---')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Divider"><Minus size={15} /></button>
                 </div>
@@ -466,48 +455,6 @@ export function PlannerTab() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isAgentTriggerOpen} onOpenChange={setIsAgentTriggerOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('delegate.title')}</DialogTitle>
-            <DialogDescription>{t('delegate.desc')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 mt-2 max-h-[300px] overflow-y-auto pr-2">
-            {profiles.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground bg-muted/30 rounded-md border border-border/50">
-                {t('delegate.no_profiles')}
-              </div>
-            ) : (
-              profiles.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => {
-                    setIsAgentTriggerOpen(false);
-                    setActiveTab('terminals');
-                    toast.success(t('delegate.dispatched', { name: p.name }));
-                    // TODO: Alpha 3.0 — restore triggerAgentLoop with terminal write feedback.
-                    // The original App.tsx wrote ANSI-colored status lines to the terminal.
-                    // This will be reimplemented when the agent pipeline is built.
-                  }}
-                  className="p-3 border border-border/80 rounded-md cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-between group"
-                >
-                  <div className="flex flex-col gap-1">
-                    <p className="font-semibold text-sm group-hover:text-primary transition-colors">{p.name}</p>
-                    <p className="text-[11px] text-muted-foreground font-mono flex gap-2">
-                      <span>{p.provider.toUpperCase()}</span>
-                      <span>|</span>
-                      <span>{p.autonomous ? t('agents.autonomous_mode') : 'Manual'}</span>
-                    </p>
-                  </div>
-                  <button className="bg-background border shadow-sm p-2 rounded-full text-foreground group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary transition-all">
-                    <Play size={14} className="ml-0.5" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
