@@ -427,7 +427,7 @@ export function PlannerTab() {
     <>
       {/* @ts-expect-error shadcn type mismatch */}
       <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
-        <ResizablePanel defaultSize={18} minSize={12} maxSize={25} className="bg-muted/50">
+        <ResizablePanel defaultSize={20} minSize={10} className="bg-muted/50">
           <div className="flex flex-col h-full uppercase font-semibold text-xs text-muted-foreground">
             <div className="p-3 border-b border-border/50 flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
@@ -439,7 +439,7 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={22} minSize={15} maxSize={30} className="bg-muted/20">
+        <ResizablePanel defaultSize={25} minSize={10} className="bg-muted/20">
           <div className="flex flex-col h-full font-semibold text-xs text-muted-foreground">
             <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.tasks')}</span>
@@ -451,7 +451,7 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={60} minSize={35} className="flex flex-col bg-background">
+        <ResizablePanel defaultSize={55} minSize={30} className="flex flex-col bg-background">
           {renderEditorPanel()}
         </ResizablePanel>
       </ResizablePanelGroup>
