@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, Trash2, Pen, Eye, PencilLine, Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus } from 'lucide-react';
+import { Plus, Trash2, Pen, Eye, PencilLine, Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus, ChevronDown } from 'lucide-react';
 
 export function PlannerTab() {
   const { t } = useTranslation();
@@ -28,6 +28,18 @@ export function PlannerTab() {
   const [renameTaskTarget, setRenameTaskTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const editorRef = useRef<any>(null);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setColorPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     initFilesystem();
@@ -276,7 +288,8 @@ export function PlannerTab() {
                   {t('planner.notes_about')} <span className="text-primary">{selectedTask.replace('.md', '')}</span>
                 </span>
                 <div className="flex items-center space-x-4">
-                  <div className="flex bg-muted rounded-md p-1 border border-border">
+                  {/* Color picker: all dots on wide screens, dropdown on narrow */}
+                  <div className="hidden lg:flex bg-muted rounded-md p-1 border border-border">
                     {bgColors.map((c) => (
                       <button
                         key={c.name}
@@ -285,6 +298,29 @@ export function PlannerTab() {
                         className={`w-4 h-4 rounded-full mx-1 border cursor-pointer hover:scale-110 transition-transform ${c.value.split(' ')[0]} ${editorBgClass === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'border-border'}`}
                       />
                     ))}
+                  </div>
+                  <div ref={colorPickerRef} className="relative lg:hidden">
+                    <button
+                      onClick={() => setColorPickerOpen(!colorPickerOpen)}
+                      className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 border border-border hover:bg-muted/80 transition-colors"
+                    >
+                      <div className={`w-4 h-4 rounded-full border ${bgColors.find((c) => c.value === editorBgClass)?.value.split(' ')[0] || ''} ${editorBgClass === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
+                      <ChevronDown size={12} className="text-muted-foreground" />
+                    </button>
+                    {colorPickerOpen && (
+                      <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 p-2 flex flex-col gap-1">
+                        {bgColors.map((c) => (
+                          <button
+                            key={c.name}
+                            onClick={() => { setEditorTheme(c); setColorPickerOpen(false); }}
+                            className={`flex items-center gap-2 px-2 py-1 rounded-sm text-xs hover:bg-muted transition-colors ${editorBgClass === c.value ? 'bg-muted font-medium' : ''}`}
+                          >
+                            <div className={`w-3.5 h-3.5 rounded-full border ${c.value.split(' ')[0]} ${c.value === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
+                            <span>{c.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex bg-muted rounded-md p-1">
                     <button
