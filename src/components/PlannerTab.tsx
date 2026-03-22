@@ -304,19 +304,19 @@ export function PlannerTab() {
     <>
       <div className="hidden xl:flex bg-muted rounded-md p-1 border border-border">
         {bgColors.map((c) => (
-          <button key={c.name} title={c.name} onClick={() => setEditorTheme(c)} className={`w-4 h-4 rounded-full mx-1 border cursor-pointer hover:scale-110 transition-transform ${c.value.split(' ')[0]} ${editorBgClass === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'border-border'}`} />
+          <button key={c.name} title={c.name} onClick={() => setEditorTheme(c)} className={`w-4 h-4 rounded-full mx-1 border cursor-pointer hover:scale-110 transition-transform ${c.value} ${editorBgClass === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'border-border'}`} />
         ))}
       </div>
       <div ref={colorPickerRef} className="relative xl:hidden">
         <button onClick={() => setColorPickerOpen(!colorPickerOpen)} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 border border-border hover:bg-muted/80 transition-colors">
-          <div className={`w-4 h-4 rounded-full border ${bgColors.find((c) => c.value === editorBgClass)?.value.split(' ')[0] || ''} ${editorBgClass === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
+          <div className={`w-4 h-4 rounded-full border ${bgColors.find((c) => c.value === editorBgClass)?.value || ''} ${editorBgClass === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
           <ChevronDown size={12} className="text-muted-foreground" />
         </button>
         {colorPickerOpen && (
           <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 p-2 flex flex-col gap-1">
             {bgColors.map((c) => (
               <button key={c.name} onClick={() => { setEditorTheme(c); setColorPickerOpen(false); }} className={`flex items-center gap-2 px-2 py-1 rounded-sm text-xs hover:bg-muted transition-colors whitespace-nowrap ${editorBgClass === c.value ? 'bg-muted font-medium' : ''}`}>
-                <div className={`w-3.5 h-3.5 rounded-full border ${c.value.split(' ')[0]} ${c.value === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
+                <div className={`w-3.5 h-3.5 rounded-full border ${c.value} ${c.value === 'bg-background' ? 'border-foreground/30' : 'border-border'}`} />
                 <span>{c.name}</span>
               </button>
             ))}
