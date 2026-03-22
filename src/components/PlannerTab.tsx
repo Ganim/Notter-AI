@@ -374,19 +374,17 @@ export function PlannerTab() {
   );
 
   const renderEditorContent = () => (
-    <div className="flex-1 w-full relative overflow-y-auto transition-colors duration-300">
-      {/* Gradient color overlay */}
-      <div className={`absolute inset-0 pointer-events-none z-0 ${editorBgClass}`} style={{ maskImage: 'linear-gradient(to bottom, black 0%, transparent 60%)', WebkitMaskImage: 'linear-gradient(to bottom, black 0%, transparent 60%)' }} />
+    <div className={`flex-1 w-full relative overflow-y-auto transition-colors duration-300 ${editorBgClass}`}>
       {!isViewing ? (
         <Editor
           height="100%" defaultLanguage="markdown" theme={editorTheme}
           beforeMount={handleEditorWillMount} onMount={handleEditorMount}
           value={taskContent} onChange={handleEditorChange}
           options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 } }}
-          className="absolute inset-0 z-10"
+          className="absolute inset-0"
         />
       ) : (
-        <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert relative z-10">
+        <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{taskContent}</ReactMarkdown>
         </div>
       )}
