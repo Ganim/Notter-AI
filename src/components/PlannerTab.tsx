@@ -33,6 +33,7 @@ export function PlannerTab() {
     isViewing, editorBgClass, editorTheme, bgColors,
     setSelectedSubject, setSelectedTask, setTaskContent, setIsViewing, setEditorTheme,
     initFilesystem, saveTaskContent, createSubject, renameSubject, deleteSubject, createTask, renameTask, deleteTask,
+    refreshEditorTheme,
   } = usePlannerStore();
 
   const [isSubjectDialogOpen, setIsSubjectDialogOpen] = useState(false);
@@ -69,6 +70,15 @@ export function PlannerTab() {
   useEffect(() => {
     initFilesystem();
   }, [initFilesystem]);
+
+  // Watch for dark mode changes and refresh editor theme
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      refreshEditorTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [refreshEditorTheme]);
 
   // --- Editor helpers ---
   const handleEditorMount = (editor: any, monaco: any) => {
@@ -180,7 +190,8 @@ export function PlannerTab() {
 
   const handleEditorWillMount = (monaco: any) => {
     bgColors.forEach((c) => {
-      monaco.editor.defineTheme(`theme-${c.name}`, { base: c.base as any, inherit: true, rules: [], colors: { 'editor.background': c.hex } });
+      monaco.editor.defineTheme(`theme-${c.name}-light`, { base: c.light.base as any, inherit: true, rules: [], colors: { 'editor.background': c.light.hex } });
+      monaco.editor.defineTheme(`theme-${c.name}-dark`, { base: c.dark.base as any, inherit: true, rules: [], colors: { 'editor.background': c.dark.hex } });
     });
   };
 

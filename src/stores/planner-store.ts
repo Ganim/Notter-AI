@@ -3,12 +3,12 @@ import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, rem
 import type { EditorTheme } from '@/types';
 
 const BG_COLORS: EditorTheme[] = [
-  { name: 'Zinc', value: 'bg-zinc-50 dark:bg-zinc-900', hex: '#fafafa', base: 'vs' },
-  { name: 'Taupe', value: 'bg-stone-50 dark:bg-stone-900', hex: '#fafaf9', base: 'vs' },
-  { name: 'Mist', value: 'bg-sky-50 dark:bg-sky-950', hex: '#f0f9ff', base: 'vs' },
-  { name: 'Mauve', value: 'bg-purple-50 dark:bg-purple-950', hex: '#faf5ff', base: 'vs' },
-  { name: 'Olive', value: 'bg-lime-50 dark:bg-lime-950', hex: '#f7fee7', base: 'vs' },
-  { name: 'Dark', value: 'bg-background', hex: '#09090b', base: 'vs-dark' },
+  { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
+  { name: 'Taupe', value: 'bg-stone-50 dark:bg-stone-900',   light: { hex: '#fafaf9', base: 'vs' },      dark: { hex: '#1c1917', base: 'vs-dark' } },
+  { name: 'Mist',  value: 'bg-sky-50 dark:bg-sky-950',       light: { hex: '#f0f9ff', base: 'vs' },      dark: { hex: '#082f49', base: 'vs-dark' } },
+  { name: 'Mauve', value: 'bg-purple-50 dark:bg-purple-950', light: { hex: '#faf5ff', base: 'vs' },      dark: { hex: '#3b0764', base: 'vs-dark' } },
+  { name: 'Olive', value: 'bg-lime-50 dark:bg-lime-950',     light: { hex: '#f7fee7', base: 'vs' },      dark: { hex: '#1a2e05', base: 'vs-dark' } },
+  { name: 'Dark',  value: 'bg-background',                    light: { hex: '#09090b', base: 'vs-dark' }, dark: { hex: '#09090b', base: 'vs-dark' } },
 ];
 
 interface PlannerState {
@@ -27,6 +27,8 @@ interface PlannerState {
   setTaskContent: (content: string) => void;
   setIsViewing: (viewing: boolean) => void;
   setEditorTheme: (theme: EditorTheme) => void;
+  refreshEditorTheme: () => void;
+  _activeTheme: EditorTheme | null;
 
   initFilesystem: () => Promise<void>;
   loadTasks: (subject: string) => Promise<void>;
@@ -48,8 +50,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   taskContent: '# Anotações da Tarefa',
   isViewing: false,
   editorBgClass: BG_COLORS[0].value,
-  editorTheme: `theme-${BG_COLORS[0].name}`,
+  editorTheme: `theme-${BG_COLORS[0].name}-light`,
   bgColors: BG_COLORS,
+  _activeTheme: BG_COLORS[0],
 
   setSelectedSubject: (subject) => {
     set({ selectedSubject: subject, selectedTask: null, tasks: [] });
@@ -65,10 +68,23 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   setTaskContent: (content) => set({ taskContent: content }),
   setIsViewing: (viewing) => set({ isViewing: viewing }),
 
-  setEditorTheme: (theme) => set({
-    editorBgClass: theme.value,
-    editorTheme: `theme-${theme.name}`,
-  }),
+  setEditorTheme: (theme) => {
+    const isDark = document.documentElement.classList.contains('dark');
+    set({
+      editorBgClass: theme.value,
+      editorTheme: `theme-${theme.name}-${isDark ? 'dark' : 'light'}`,
+      _activeTheme: theme,
+    });
+  },
+
+  refreshEditorTheme: () => {
+    const theme = get()._activeTheme;
+    if (!theme) return;
+    const isDark = document.documentElement.classList.contains('dark');
+    set({
+      editorTheme: `theme-${theme.name}-${isDark ? 'dark' : 'light'}`,
+    });
+  },
 
   initFilesystem: async () => {
     try {

@@ -17,6 +17,6 @@ export interface ConsoleInstance {
 export interface EditorTheme {
   name: string;
   value: string;
-  hex: string;
-  base: 'vs' | 'vs-dark';
+  light: { hex: string; base: 'vs' | 'vs-dark' };
+  dark: { hex: string; base: 'vs' | 'vs-dark' };
 }
