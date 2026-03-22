@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove } from '@tauri-apps/plugin-fs';
+import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
 import type { EditorTheme } from '@/types';
 
 const BG_COLORS: EditorTheme[] = [
@@ -33,8 +33,10 @@ interface PlannerState {
   loadTaskContent: (subject: string, task: string) => Promise<void>;
   saveTaskContent: (subject: string, task: string, content: string) => Promise<void>;
   createSubject: (name: string) => Promise<void>;
+  renameSubject: (oldName: string, newName: string) => Promise<void>;
   deleteSubject: (name: string) => Promise<void>;
   createTask: (subject: string, name: string) => Promise<void>;
+  renameTask: (subject: string, oldName: string, newName: string) => Promise<void>;
   deleteTask: (subject: string, task: string) => Promise<void>;
 }
 
@@ -112,6 +114,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set((state) => ({ subjects: [...state.subjects, name] }));
   },
 
+  renameSubject: async (oldName, newName) => {
+    await rename(`AgentNotes/${oldName}`, `AgentNotes/${newName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    set((state) => ({
+      subjects: state.subjects.map((s) => (s === oldName ? newName : s)),
+      selectedSubject: state.selectedSubject === oldName ? newName : state.selectedSubject,
+    }));
+  },
+
   deleteSubject: async (name) => {
     await remove(`AgentNotes/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
     set((state) => ({
@@ -129,6 +139,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       { baseDir: BaseDirectory.AppLocalData }
     );
     set((state) => ({ tasks: [...state.tasks, fileName], selectedTask: fileName }));
+  },
+
+  renameTask: async (subject, oldName, newName) => {
+    const newFileName = newName.endsWith('.md') ? newName : `${newName}.md`;
+    await rename(`AgentNotes/${subject}/${oldName}`, `AgentNotes/${subject}/${newFileName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t === oldName ? newFileName : t)),
+      selectedTask: state.selectedTask === oldName ? newFileName : state.selectedTask,
+    }));
   },
 
   deleteTask: async (subject, task) => {

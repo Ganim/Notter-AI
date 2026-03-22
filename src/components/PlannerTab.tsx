@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, Trash2, Pen, Eye, Play } from 'lucide-react';
+import { Plus, Trash2, Pen, Eye, Play, PencilLine } from 'lucide-react';
 
 export function PlannerTab() {
   const { t } = useTranslation();
@@ -18,7 +18,7 @@ export function PlannerTab() {
     subjects, selectedSubject, tasks, selectedTask, taskContent,
     isViewing, editorBgClass, editorTheme, bgColors,
     setSelectedSubject, setSelectedTask, setTaskContent, setIsViewing, setEditorTheme,
-    initFilesystem, saveTaskContent, createSubject, deleteSubject, createTask, deleteTask,
+    initFilesystem, saveTaskContent, createSubject, renameSubject, deleteSubject, createTask, renameTask, deleteTask,
   } = usePlannerStore();
 
   const { profiles } = useAgentsStore();
@@ -30,6 +30,9 @@ export function PlannerTab() {
   const [newItemName, setNewItemName] = useState('');
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<string | null>(null);
+  const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
+  const [renameTaskTarget, setRenameTaskTarget] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   useEffect(() => {
     initFilesystem();
@@ -100,6 +103,30 @@ export function PlannerTab() {
     }
   };
 
+  const handleRenameSubjectSubmit = async () => {
+    if (!renameSubjectTarget || !renameValue.trim() || renameValue === renameSubjectTarget) return;
+    try {
+      await renameSubject(renameSubjectTarget, renameValue);
+      setRenameSubjectTarget(null);
+      setRenameValue('');
+      toast.success(t('planner.subject_renamed'));
+    } catch (e: any) {
+      toast.error(t('planner.error_rename_subject', { error: e }));
+    }
+  };
+
+  const handleRenameTaskSubmit = async () => {
+    if (!renameTaskTarget || !selectedSubject || !renameValue.trim() || renameValue === renameTaskTarget.replace('.md', '')) return;
+    try {
+      await renameTask(selectedSubject, renameTaskTarget, renameValue);
+      setRenameTaskTarget(null);
+      setRenameValue('');
+      toast.success(t('planner.task_renamed'));
+    } catch (e: any) {
+      toast.error(t('planner.error_rename_task', { error: e }));
+    }
+  };
+
   const triggerSubjectDialog = () => { setNewItemName(''); setIsSubjectDialogOpen(true); };
   const triggerTaskDialog = () => { setNewItemName(''); setIsTaskDialogOpen(true); };
 
@@ -125,9 +152,14 @@ export function PlannerTab() {
                     className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === s ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}
                   >
                     <span className="truncate">{s}</span>
-                    <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(s); }} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity">
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => { e.stopPropagation(); setRenameValue(s); setRenameSubjectTarget(s); }} className="text-muted-foreground hover:text-foreground">
+                        <PencilLine size={14} />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(s); }} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {subjects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_subjects')}</div>}
@@ -164,9 +196,14 @@ export function PlannerTab() {
                       <input type="checkbox" className="rounded border-gray-400 bg-transparent pointer-events-none" />
                       <span className="truncate font-normal">{task.replace('.md', '')}</span>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); setDeleteTaskTarget(task); }} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity">
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => { e.stopPropagation(); setRenameValue(task.replace('.md', '')); setRenameTaskTarget(task); }} className="text-muted-foreground hover:text-foreground">
+                        <PencilLine size={14} />
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setDeleteTaskTarget(task); }} className="text-muted-foreground hover:text-destructive">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {tasks.length === 0 && selectedSubject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.create_first_task')}</div>}
@@ -249,6 +286,44 @@ export function PlannerTab() {
       </ResizablePanelGroup>
 
       {/* Dialogs */}
+      <Dialog open={!!renameSubjectTarget} onOpenChange={(open) => { if (!open) setRenameSubjectTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('planner.rename_subject')}</DialogTitle>
+            <DialogDescription>{t('planner.rename_subject_desc', { name: renameSubjectTarget })}</DialogDescription>
+          </DialogHeader>
+          <input
+            autoFocus type="text" value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleRenameSubjectSubmit()}
+            className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+          />
+          <DialogFooter>
+            <button onClick={() => setRenameSubjectTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
+            <button onClick={handleRenameSubjectSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.rename')}</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!renameTaskTarget} onOpenChange={(open) => { if (!open) setRenameTaskTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('planner.rename_task')}</DialogTitle>
+            <DialogDescription>{t('planner.rename_task_desc', { name: renameTaskTarget?.replace('.md', '') })}</DialogDescription>
+          </DialogHeader>
+          <input
+            autoFocus type="text" value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleRenameTaskSubmit()}
+            className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+          />
+          <DialogFooter>
+            <button onClick={() => setRenameTaskTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
+            <button onClick={handleRenameTaskSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.rename')}</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isSubjectDialogOpen} onOpenChange={setIsSubjectDialogOpen}>
         <DialogContent>
           <DialogHeader>
