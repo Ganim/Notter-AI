@@ -1,28 +1,187 @@
-use std::process::Command;
-use std::os::windows::process::CommandExt;
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::process::Command as StdCommand;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
+
+// --- Event payloads ---
+
+#[derive(Clone, Serialize)]
+struct PtyOutputPayload {
+    id: String,
+    data: String,
 }
 
-#[tauri::command]
-fn execute_command(cmd: &str) -> Result<String, String> {
-    let output = Command::new("cmd")
-        .args(["/C", cmd])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-        .map_err(|e| e.to_string())?;
+#[derive(Clone, Serialize)]
+struct PtyExitPayload {
+    id: String,
+    code: i32,
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    
-    if output.status.success() {
-        Ok(stdout.to_string())
-    } else {
-        Err(stderr.to_string())
+// --- PTY Session ---
+
+struct PtySession {
+    writer: Box<dyn Write + Send>,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    cancel: Arc<AtomicBool>,
+}
+
+struct PtyManager {
+    sessions: Mutex<HashMap<String, PtySession>>,
+}
+
+// --- Shell detection ---
+
+fn detect_shell() -> (String, Vec<String>) {
+    let ps = ("powershell".to_string(), vec!["-NoLogo".to_string()]);
+
+    match StdCommand::new("wsl").arg("-e").arg("echo").arg("ok").output() {
+        Ok(output) if output.status.success() => {
+            ("wsl".to_string(), vec!["bash".to_string()])
+        }
+        _ => ps,
     }
 }
+
+// --- Tauri commands ---
+
+#[tauri::command]
+fn create_pty(
+    id: String,
+    cols: u16,
+    rows: u16,
+    app: AppHandle,
+    state: tauri::State<'_, PtyManager>,
+) -> Result<(), String> {
+    let pty_system = native_pty_system();
+
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let (shell, args) = detect_shell();
+    let mut cmd = CommandBuilder::new(&shell);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn shell '{}': {}", shell, e))?;
+
+    // Drop slave — no longer needed after spawn
+    drop(pair.slave);
+
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("Failed to take PTY writer: {}", e))?;
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_clone = cancel.clone();
+    let id_clone = id.clone();
+
+    // Spawn reader thread
+    thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        loop {
+            if cancel_clone.load(Ordering::Relaxed) {
+                break;
+            }
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    // EOF
+                    let _ = app.emit("pty-exit", PtyExitPayload { id: id_clone.clone(), code: 0 });
+                    break;
+                }
+                Ok(n) => {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = app.emit("pty-output", PtyOutputPayload { id: id_clone.clone(), data });
+                }
+                Err(_) => {
+                    let _ = app.emit("pty-exit", PtyExitPayload { id: id_clone.clone(), code: -1 });
+                    break;
+                }
+            }
+        }
+    });
+
+    let session = PtySession {
+        writer,
+        master: pair.master,
+        child,
+        cancel,
+    };
+
+    state
+        .sessions
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?
+        .insert(id, session);
+
+    Ok(())
+}
+
+#[tauri::command]
+fn write_pty(id: String, data: String, state: tauri::State<'_, PtyManager>) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let session = sessions.get_mut(&id).ok_or("Session not found")?;
+    session
+        .writer
+        .write_all(data.as_bytes())
+        .map_err(|e| format!("Write error: {}", e))?;
+    session
+        .writer
+        .flush()
+        .map_err(|e| format!("Flush error: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn resize_pty(id: String, cols: u16, rows: u16, state: tauri::State<'_, PtyManager>) -> Result<(), String> {
+    let sessions = state.sessions.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let session = sessions.get(&id).ok_or("Session not found")?;
+    session
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Resize error: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn close_pty(id: String, state: tauri::State<'_, PtyManager>) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().map_err(|e| format!("Lock error: {}", e))?;
+    if let Some(mut session) = sessions.remove(&id) {
+        session.cancel.store(true, Ordering::Relaxed);
+        let _ = session.child.kill();
+    }
+    Ok(())
+}
+
+// --- Tauri entry ---
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,7 +189,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, execute_command])
+        .manage(PtyManager {
+            sessions: Mutex::new(HashMap::new()),
+        })
+        .invoke_handler(tauri::generate_handler![
+            create_pty,
+            write_pty,
+            resize_pty,
+            close_pty,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
