@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useAgentsStore } from '@/stores/agents-store';
@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Plus, Trash2, Pen, Eye, Play, PencilLine } from 'lucide-react';
+import { Plus, Trash2, Pen, Eye, Play, PencilLine, Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus } from 'lucide-react';
 
 export function PlannerTab() {
   const { t } = useTranslation();
@@ -33,10 +33,68 @@ export function PlannerTab() {
   const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
   const [renameTaskTarget, setRenameTaskTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const editorRef = useRef<any>(null);
 
   useEffect(() => {
     initFilesystem();
   }, [initFilesystem]);
+
+  const handleEditorMount = (editor: any) => {
+    editorRef.current = editor;
+  };
+
+  const insertMarkdown = (prefix: string, suffix = '') => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    const model = editor.getModel();
+    if (!selection || !model) return;
+
+    const selectedText = model.getValueInRange(selection);
+    const replacement = `${prefix}${selectedText}${suffix}`;
+
+    editor.executeEdits('toolbar', [{
+      range: selection,
+      text: replacement,
+    }]);
+
+    // Place cursor after prefix if no text was selected
+    if (!selectedText) {
+      const pos = editor.getPosition();
+      if (pos) {
+        const newCol = pos.column - suffix.length;
+        editor.setPosition({ lineNumber: pos.lineNumber, column: newCol > 0 ? newCol : pos.column });
+      }
+    }
+    editor.focus();
+  };
+
+  const insertLine = (prefix: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const pos = editor.getPosition();
+    if (!pos) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+    const currentLine = model.getLineContent(pos.lineNumber);
+
+    if (currentLine.trim() === '') {
+      // Empty line — insert prefix here
+      editor.executeEdits('toolbar', [{
+        range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: currentLine.length + 1 },
+        text: prefix,
+      }]);
+    } else {
+      // Non-empty — insert on new line below
+      const endCol = currentLine.length + 1;
+      editor.executeEdits('toolbar', [{
+        range: { startLineNumber: pos.lineNumber, startColumn: endCol, endLineNumber: pos.lineNumber, endColumn: endCol },
+        text: `\n${prefix}`,
+      }]);
+    }
+    editor.focus();
+  };
 
   const handleEditorWillMount = (monaco: any) => {
     bgColors.forEach((c) => {
@@ -256,6 +314,27 @@ export function PlannerTab() {
                 </div>
               </div>
 
+              {/* Markdown Toolbar */}
+              {!isViewing && (
+                <div className="h-9 border-b border-border flex items-center px-4 gap-0.5 bg-muted/30 shrink-0">
+                  <button onClick={() => insertLine('# ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="H1"><Heading1 size={15} /></button>
+                  <button onClick={() => insertLine('## ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="H2"><Heading2 size={15} /></button>
+                  <button onClick={() => insertLine('### ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="H3"><Heading3 size={15} /></button>
+                  <div className="w-px h-4 bg-border mx-1.5" />
+                  <button onClick={() => insertMarkdown('**', '**')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Bold"><Bold size={15} /></button>
+                  <button onClick={() => insertMarkdown('*', '*')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Italic"><Italic size={15} /></button>
+                  <button onClick={() => insertMarkdown('<u>', '</u>')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Underline"><Underline size={15} /></button>
+                  <div className="w-px h-4 bg-border mx-1.5" />
+                  <button onClick={() => insertLine('- ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="List"><List size={15} /></button>
+                  <button onClick={() => insertLine('1. ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Ordered List"><ListOrdered size={15} /></button>
+                  <div className="w-px h-4 bg-border mx-1.5" />
+                  <button onClick={() => insertMarkdown('`', '`')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Inline Code"><Code size={15} /></button>
+                  <button onClick={() => insertLine('```\n\n```')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Code Block"><span className="text-xs font-mono font-bold">{'{}'}</span></button>
+                  <button onClick={() => insertLine('> ')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Quote"><Quote size={15} /></button>
+                  <button onClick={() => insertLine('---')} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Divider"><Minus size={15} /></button>
+                </div>
+              )}
+
               <div className={`flex-1 w-full relative overflow-y-auto transition-colors duration-300 ${editorBgClass}`}>
                 {!isViewing ? (
                   <Editor
@@ -263,6 +342,7 @@ export function PlannerTab() {
                     defaultLanguage="markdown"
                     theme={editorTheme}
                     beforeMount={handleEditorWillMount}
+                    onMount={handleEditorMount}
                     value={taskContent}
                     onChange={handleEditorChange}
                     options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 } }}
