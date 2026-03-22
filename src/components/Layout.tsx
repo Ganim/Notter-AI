@@ -41,9 +41,16 @@ export function Layout({ children }: LayoutProps) {
         <UserMenu />
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {children[activeTab]}
+      {/* Content — all tabs stay mounted, only active is visible */}
+      <div className="flex-1 overflow-hidden relative">
+        {TABS.map((tab) => (
+          <div
+            key={tab.key}
+            className={`absolute inset-0 ${activeTab === tab.key ? 'z-10 visible' : 'z-0 invisible'}`}
+          >
+            {children[tab.key]}
+          </div>
+        ))}
       </div>
     </div>
   );
