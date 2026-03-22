@@ -8,8 +8,9 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import {
-  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen,
+  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
 } from 'lucide-react';
 
@@ -46,6 +47,10 @@ export function PlannerTab() {
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('subjects');
+  const subjectsPanelRef = useRef<PanelImperativeHandle>(null);
+  const tasksPanelRef = useRef<PanelImperativeHandle>(null);
+  const [subjectsCollapsed, setSubjectsCollapsed] = useState(false);
+  const [tasksCollapsed, setTasksCollapsed] = useState(false);
 
   const windowWidth = useWindowWidth();
   const isSmall = windowWidth < 640;
@@ -373,12 +378,21 @@ export function PlannerTab() {
       <>
         {/* @ts-expect-error shadcn type mismatch */}
         <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
-          <ResizablePanel defaultSize={35} minSize={25} maxSize={45} className="bg-muted/50">
+          <ResizablePanel
+            panelRef={subjectsPanelRef}
+            defaultSize={35} minSize={20}
+            collapsible collapsedSize={0}
+            onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
+            className="bg-muted/50"
+          >
             <div className="flex flex-col h-full">
               {/* Subjects header */}
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
-                <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                <div className="flex items-center gap-1">
+                  <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
+                </div>
               </div>
               {/* Subjects as compact horizontal pills or short list */}
               <div className="border-b border-border/50">
@@ -412,6 +426,14 @@ export function PlannerTab() {
           <ResizableHandle />
 
           <ResizablePanel defaultSize={65} minSize={40} className="flex flex-col bg-background">
+            {subjectsCollapsed && (
+              <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
+                <button onClick={() => subjectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <PanelLeftOpen size={14} />
+                  <span>{t('planner.subjects')} / {t('planner.tasks')}</span>
+                </button>
+              </div>
+            )}
             {renderEditorPanel()}
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -421,17 +443,26 @@ export function PlannerTab() {
   }
 
   // ============================
-  // LARGE SCREEN: 3 resizable panels
+  // LARGE SCREEN: 3 resizable panels (collapsible sidebars)
   // ============================
   return (
     <>
       {/* @ts-expect-error shadcn type mismatch */}
       <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
-        <ResizablePanel defaultSize={20} minSize={10} className="bg-muted/50">
+        <ResizablePanel
+          panelRef={subjectsPanelRef}
+          defaultSize={20} minSize={10}
+          collapsible collapsedSize={0}
+          onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
+          className="bg-muted/50"
+        >
           <div className="flex flex-col h-full uppercase font-semibold text-xs text-muted-foreground">
             <div className="p-3 border-b border-border/50 flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
-              <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_subject')}><Plus size={14} /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_subject')}><Plus size={14} /></button>
+                <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
+              </div>
             </div>
             {renderSubjectsList((s) => setSelectedSubject(s))}
           </div>
@@ -439,11 +470,20 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={25} minSize={10} className="bg-muted/20">
+        <ResizablePanel
+          panelRef={tasksPanelRef}
+          defaultSize={25} minSize={10}
+          collapsible collapsedSize={0}
+          onResize={(size) => setTasksCollapsed(size.asPercentage === 0)}
+          className="bg-muted/20"
+        >
           <div className="flex flex-col h-full font-semibold text-xs text-muted-foreground">
             <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.tasks')}</span>
-              <button onClick={triggerTaskDialog} disabled={!selectedSubject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_task')}><Plus size={14} /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={triggerTaskDialog} disabled={!selectedSubject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_task')}><Plus size={14} /></button>
+                <button onClick={() => tasksPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
+              </div>
             </div>
             {renderTasksList((task) => setSelectedTask(task))}
           </div>
@@ -452,6 +492,23 @@ export function PlannerTab() {
         <ResizableHandle />
 
         <ResizablePanel defaultSize={55} minSize={30} className="flex flex-col bg-background">
+          {/* Expand buttons when panels are collapsed */}
+          {(subjectsCollapsed || tasksCollapsed) && (
+            <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
+              {subjectsCollapsed && (
+                <button onClick={() => subjectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <PanelLeftOpen size={14} />
+                  <span>{t('planner.subjects')}</span>
+                </button>
+              )}
+              {tasksCollapsed && (
+                <button onClick={() => tasksPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <PanelLeftOpen size={14} />
+                  <span>{t('planner.tasks')}</span>
+                </button>
+              )}
+            </div>
+          )}
           {renderEditorPanel()}
         </ResizablePanel>
       </ResizablePanelGroup>

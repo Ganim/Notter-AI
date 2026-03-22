@@ -30,7 +30,7 @@ export function Layout({ children }: LayoutProps) {
               onClick={() => setActiveTab(tab.key)}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-zinc-200 dark:bg-zinc-700 text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               }`}
             >
