@@ -8,13 +8,15 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
+import type { Project } from '@/types';
 import {
-  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
+  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
 } from 'lucide-react';
 
-type MobilePanel = 'subjects' | 'tasks' | 'editor';
+type MobilePanel = 'projects' | 'subjects' | 'editor';
 
 function useWindowWidth() {
   const [width, setWidth] = useState(window.innerWidth);
@@ -29,34 +31,40 @@ function useWindowWidth() {
 export function PlannerTab() {
   const { t } = useTranslation();
   const {
-    subjects, selectedSubject, tasks, selectedTask, taskContent,
+    projects, selectedProject, subjects, selectedSubject, subjectContent,
     isViewing, editorBgClass, editorTheme, bgColors,
-    setSelectedSubject, setSelectedTask, setTaskContent, setIsViewing, setEditorTheme,
-    initFilesystem, saveTaskContent, createSubject, renameSubject, deleteSubject, createTask, renameTask, deleteTask,
-    refreshEditorTheme,
+    setSelectedProject, setSelectedSubject, setSubjectContent, setIsViewing, setEditorTheme,
+    initFilesystem, saveSubjectContent, createProject, renameProject, deleteProject,
+    createSubject, renameSubject, deleteSubject, refreshEditorTheme,
   } = usePlannerStore();
 
+  // Dialog states
+  const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
   const [isSubjectDialogOpen, setIsSubjectDialogOpen] = useState(false);
-  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
-  const [newItemName, setNewItemName] = useState('');
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectPath, setNewProjectPath] = useState('');
+  const [newSubjectName, setNewSubjectName] = useState('');
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<string | null>(null);
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
-  const [deleteTaskTarget, setDeleteTaskTarget] = useState<string | null>(null);
+  const [renameProjectTarget, setRenameProjectTarget] = useState<string | null>(null);
   const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
-  const [renameTaskTarget, setRenameTaskTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  // Editor & layout refs
   const editorRef = useRef<any>(null);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
-  const [mobilePanel, setMobilePanel] = useState<MobilePanel>('subjects');
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>('projects');
+  const projectsPanelRef = useRef<PanelImperativeHandle>(null);
   const subjectsPanelRef = useRef<PanelImperativeHandle>(null);
-  const tasksPanelRef = useRef<PanelImperativeHandle>(null);
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [subjectsCollapsed, setSubjectsCollapsed] = useState(false);
-  const [tasksCollapsed, setTasksCollapsed] = useState(false);
 
   const windowWidth = useWindowWidth();
   const isSmall = windowWidth < 640;
   const isMedium = windowWidth >= 640 && windowWidth < 1024;
 
+  // --- Effects ---
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
@@ -67,15 +75,10 @@ export function PlannerTab() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    initFilesystem();
-  }, [initFilesystem]);
+  useEffect(() => { initFilesystem(); }, [initFilesystem]);
 
-  // Watch for dark mode changes and refresh editor theme
   useEffect(() => {
-    const observer = new MutationObserver(() => {
-      refreshEditorTheme();
-    });
+    const observer = new MutationObserver(() => { refreshEditorTheme(); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, [refreshEditorTheme]);
@@ -83,8 +86,6 @@ export function PlannerTab() {
   // --- Editor helpers ---
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
-
-    // Auto-continue lists on Enter
     editor.addAction({
       id: 'markdown-list-continue',
       label: 'Continue markdown list',
@@ -94,55 +95,31 @@ export function PlannerTab() {
         const model = ed.getModel();
         if (!pos || !model) return;
         const line = model.getLineContent(pos.lineNumber);
-
-        // Ordered list: "1. text" → next line "2. "
         const orderedMatch = line.match(/^(\s*)(\d+)\.\s(.+)/);
         if (orderedMatch) {
           const [, indent, num] = orderedMatch;
           const next = parseInt(num) + 1;
-          ed.executeEdits('list-continue', [{
-            range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
-            text: `\n${indent}${next}. `,
-          }]);
-          const newPos = { lineNumber: pos.lineNumber + 1, column: indent.length + `${next}. `.length + 1 };
-          ed.setPosition(newPos);
+          ed.executeEdits('list-continue', [{ range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 }, text: `\n${indent}${next}. ` }]);
+          ed.setPosition({ lineNumber: pos.lineNumber + 1, column: indent.length + `${next}. `.length + 1 });
           return;
         }
-
-        // Empty ordered item: "1. " (no text) → remove it
         const emptyOrderedMatch = line.match(/^(\s*)\d+\.\s*$/);
         if (emptyOrderedMatch) {
-          ed.executeEdits('list-continue', [{
-            range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
-            text: '',
-          }]);
+          ed.executeEdits('list-continue', [{ range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 }, text: '' }]);
           return;
         }
-
-        // Bullet list: "- text" or "* text" → next line "- " or "* "
         const bulletMatch = line.match(/^(\s*)([-*])\s(.+)/);
         if (bulletMatch) {
           const [, indent, bullet] = bulletMatch;
-          ed.executeEdits('list-continue', [{
-            range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
-            text: `\n${indent}${bullet} `,
-          }]);
-          const newPos = { lineNumber: pos.lineNumber + 1, column: indent.length + 3 };
-          ed.setPosition(newPos);
+          ed.executeEdits('list-continue', [{ range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 }, text: `\n${indent}${bullet} ` }]);
+          ed.setPosition({ lineNumber: pos.lineNumber + 1, column: indent.length + 3 });
           return;
         }
-
-        // Empty bullet item: "- " or "* " (no text) → remove it
         const emptyBulletMatch = line.match(/^(\s*)[-*]\s*$/);
         if (emptyBulletMatch) {
-          ed.executeEdits('list-continue', [{
-            range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
-            text: '',
-          }]);
+          ed.executeEdits('list-continue', [{ range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 }, text: '' }]);
           return;
         }
-
-        // Default: normal Enter
         ed.trigger('keyboard', 'type', { text: '\n' });
       },
     });
@@ -182,8 +159,7 @@ export function PlannerTab() {
       insertLineNumber = pos.lineNumber + 1;
     }
     if (cursorLineOffset !== undefined) {
-      const targetLine = insertLineNumber + cursorLineOffset;
-      editor.setPosition({ lineNumber: targetLine, column: 1 });
+      editor.setPosition({ lineNumber: insertLineNumber + cursorLineOffset, column: 1 });
     }
     editor.focus();
   };
@@ -197,105 +173,103 @@ export function PlannerTab() {
 
   const handleEditorChange = (value: string | undefined) => {
     const val = value || '';
-    setTaskContent(val);
-    if (selectedSubject && selectedTask) saveTaskContent(selectedSubject, selectedTask, val);
+    setSubjectContent(val);
+    if (selectedProject && selectedSubject) saveSubjectContent(selectedProject.name, selectedSubject, val);
   };
 
   // --- CRUD handlers ---
+  const handleBrowseFolder = async () => {
+    const selected = await openDialog({ directory: true, multiple: false, title: t('planner.project_path_label') });
+    if (selected) setNewProjectPath(selected as string);
+  };
+
+  const handleCreateProjectSubmit = async () => {
+    if (!newProjectName.trim() || !newProjectPath.trim()) return;
+    try {
+      await createProject(newProjectName, newProjectPath);
+      setIsProjectDialogOpen(false);
+      setNewProjectName('');
+      setNewProjectPath('');
+      toast.success(t('planner.project_created'));
+    } catch (e: any) { toast.error(t('planner.error_create_project', { error: e })); }
+  };
+
+  const confirmDeleteProject = async () => {
+    if (!deleteProjectTarget) return;
+    try { await deleteProject(deleteProjectTarget); setDeleteProjectTarget(null); toast.success(t('planner.project_deleted')); }
+    catch (e: any) { toast.error(t('planner.error_delete_project', { error: e })); }
+  };
+
+  const handleRenameProjectSubmit = async () => {
+    if (!renameProjectTarget || !renameValue.trim() || renameValue === renameProjectTarget) return;
+    try { await renameProject(renameProjectTarget, renameValue); setRenameProjectTarget(null); setRenameValue(''); toast.success(t('planner.project_renamed')); }
+    catch (e: any) { toast.error(t('planner.error_rename_project', { error: e })); }
+  };
+
   const handleCreateSubjectSubmit = async () => {
-    if (!newItemName.trim()) return;
-    try { await createSubject(newItemName); setIsSubjectDialogOpen(false); setNewItemName(''); toast.success(t('planner.subject_created')); }
+    if (!selectedProject || !newSubjectName.trim()) return;
+    try { await createSubject(selectedProject.name, newSubjectName); setIsSubjectDialogOpen(false); setNewSubjectName(''); toast.success(t('planner.subject_created')); }
     catch (e: any) { toast.error(t('planner.error_create_subject', { error: e })); }
   };
 
   const confirmDeleteSubject = async () => {
-    if (!deleteSubjectTarget) return;
-    try { await deleteSubject(deleteSubjectTarget); setDeleteSubjectTarget(null); toast.success(t('planner.subject_deleted')); }
+    if (!deleteSubjectTarget || !selectedProject) return;
+    try { await deleteSubject(selectedProject.name, deleteSubjectTarget); setDeleteSubjectTarget(null); toast.success(t('planner.subject_deleted')); }
     catch (e: any) { toast.error(t('planner.error_delete_subject', { error: e })); }
   };
 
-  const handleCreateTaskSubmit = async () => {
-    if (!selectedSubject || !newItemName.trim()) return;
-    try { await createTask(selectedSubject, newItemName); setIsTaskDialogOpen(false); setNewItemName(''); toast.success(t('planner.task_created')); }
-    catch (e: any) { toast.error(t('planner.error_create_task', { error: e })); }
-  };
-
-  const confirmDeleteTask = async () => {
-    if (!deleteTaskTarget || !selectedSubject) return;
-    try { await deleteTask(selectedSubject, deleteTaskTarget); setDeleteTaskTarget(null); toast.success(t('planner.task_deleted')); }
-    catch (e: any) { toast.error(t('planner.error_delete_task', { error: e })); }
-  };
-
   const handleRenameSubjectSubmit = async () => {
-    if (!renameSubjectTarget || !renameValue.trim() || renameValue === renameSubjectTarget) return;
-    try { await renameSubject(renameSubjectTarget, renameValue); setRenameSubjectTarget(null); setRenameValue(''); toast.success(t('planner.subject_renamed')); }
+    if (!renameSubjectTarget || !selectedProject || !renameValue.trim() || renameValue === renameSubjectTarget.replace('.md', '')) return;
+    try { await renameSubject(selectedProject.name, renameSubjectTarget, renameValue); setRenameSubjectTarget(null); setRenameValue(''); toast.success(t('planner.subject_renamed')); }
     catch (e: any) { toast.error(t('planner.error_rename_subject', { error: e })); }
   };
 
-  const handleRenameTaskSubmit = async () => {
-    if (!renameTaskTarget || !selectedSubject || !renameValue.trim() || renameValue === renameTaskTarget.replace('.md', '')) return;
-    try { await renameTask(selectedSubject, renameTaskTarget, renameValue); setRenameTaskTarget(null); setRenameValue(''); toast.success(t('planner.task_renamed')); }
-    catch (e: any) { toast.error(t('planner.error_rename_task', { error: e })); }
-  };
-
-  const triggerSubjectDialog = () => { setNewItemName(''); setIsSubjectDialogOpen(true); };
-  const triggerTaskDialog = () => { setNewItemName(''); setIsTaskDialogOpen(true); };
+  const triggerProjectDialog = () => { setNewProjectName(''); setNewProjectPath(''); setIsProjectDialogOpen(true); };
+  const triggerSubjectDialog = () => { setNewSubjectName(''); setIsSubjectDialogOpen(true); };
 
   // --- Mobile navigation ---
-  const selectSubjectMobile = (s: string) => {
-    setSelectedSubject(s);
-    setMobilePanel('tasks');
-  };
-  const selectTaskMobile = (task: string) => {
-    setSelectedTask(task);
-    setMobilePanel('editor');
-  };
-  const goBackToSubjects = () => {
-    setMobilePanel('subjects');
-    setSelectedSubject(null);
-  };
-  const goBackToTasks = () => {
-    setMobilePanel('tasks');
-    setSelectedTask(null);
-  };
+  const selectProjectMobile = (p: Project) => { setSelectedProject(p); setMobilePanel('subjects'); };
+  const selectSubjectMobile = (s: string) => { setSelectedSubject(s); setMobilePanel('editor'); };
+  const goBackToProjects = () => { setMobilePanel('projects'); setSelectedProject(null); };
+  const goBackToSubjects = () => { setMobilePanel('subjects'); setSelectedSubject(null); };
 
-  // --- Shared UI pieces ---
+  // --- Shared UI ---
   const tbBtn = 'p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors';
 
-  const renderSubjectsList = (onSelect: (s: string) => void) => (
+  const renderProjectsList = (onSelect: (p: Project) => void) => (
     <ScrollArea className="flex-1">
       <div className="p-2 space-y-1">
-        {subjects.map((s) => (
-          <div key={s} onClick={() => onSelect(s)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === s ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
-            <span className="truncate">{s}</span>
+        {projects.map((p) => (
+          <div key={p.name} onClick={() => onSelect(p)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
+            <div className="flex flex-col gap-0.5 truncate">
+              <span className="truncate">{p.name}</span>
+              <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">{p.path}</span>
+            </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(s); setRenameSubjectTarget(s); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(s); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
             </div>
           </div>
         ))}
-        {subjects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_subjects')}</div>}
+        {projects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
       </div>
     </ScrollArea>
   );
 
-  const renderTasksList = (onSelect: (t: string) => void) => (
+  const renderSubjectsList = (onSelect: (s: string) => void) => (
     <ScrollArea className="flex-1">
       <div className="p-2 space-y-2">
-        {tasks.map((task) => (
-          <div key={task} onClick={() => onSelect(task)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedTask === task ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
-            <div className="flex items-center space-x-2 truncate">
-              <input type="checkbox" className="rounded border-gray-400 bg-transparent pointer-events-none" />
-              <span className="truncate font-normal">{task.replace('.md', '')}</span>
-            </div>
+        {subjects.map((subject) => (
+          <div key={subject} onClick={() => onSelect(subject)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === subject ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
+            <span className="truncate font-normal">{subject.replace('.md', '')}</span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(task.replace('.md', '')); setRenameTaskTarget(task); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteTaskTarget(task); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setRenameValue(subject.replace('.md', '')); setRenameSubjectTarget(subject); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(subject); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
             </div>
           </div>
         ))}
-        {tasks.length === 0 && selectedSubject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.create_first_task')}</div>}
-        {!selectedSubject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.select_subject')}</div>}
+        {subjects.length === 0 && selectedProject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.create_first_subject')}</div>}
+        {!selectedProject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.select_project')}</div>}
       </div>
     </ScrollArea>
   );
@@ -350,14 +324,13 @@ export function PlannerTab() {
 
   const renderEditorHeader = () => (
     <div className="h-10 sm:h-12 border-b border-border flex items-center justify-between px-2 sm:px-4 bg-background z-10 shrink-0 gap-2">
-      {/* Back button on small/medium */}
-      {(isSmall || isMedium) && (
-        <button onClick={isSmall ? goBackToTasks : () => {}} className={`shrink-0 p-1 rounded-sm hover:bg-muted transition-colors ${isSmall ? '' : 'hidden'}`}>
+      {isSmall && (
+        <button onClick={goBackToSubjects} className="shrink-0 p-1 rounded-sm hover:bg-muted transition-colors">
           <ArrowLeft size={16} />
         </button>
       )}
       <span className="font-semibold text-xs sm:text-sm text-foreground truncate min-w-0">
-        {t('planner.notes_about')} <span className="text-primary">{selectedTask?.replace('.md', '')}</span>
+        {t('planner.notes_about')} <span className="text-primary">{selectedSubject?.replace('.md', '')}</span>
       </span>
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         {renderColorPicker()}
@@ -379,20 +352,20 @@ export function PlannerTab() {
         <Editor
           height="100%" defaultLanguage="markdown" theme={editorTheme}
           beforeMount={handleEditorWillMount} onMount={handleEditorMount}
-          value={taskContent} onChange={handleEditorChange}
+          value={subjectContent} onChange={handleEditorChange}
           options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 } }}
           className="absolute inset-0"
         />
       ) : (
         <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{taskContent}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{subjectContent}</ReactMarkdown>
         </div>
       )}
     </div>
   );
 
   const renderEditorPanel = () => (
-    selectedTask ? (
+    selectedSubject ? (
       <div className="flex flex-col h-full">
         {renderEditorHeader()}
         {!isViewing && renderToolbar()}
@@ -400,46 +373,44 @@ export function PlannerTab() {
       </div>
     ) : (
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4 text-center">
-        {t('planner.select_task_hint')}
+        {t('planner.select_subject_hint')}
       </div>
     )
   );
 
   // ============================
-  // SMALL SCREEN: single panel drill-down
+  // SMALL SCREEN
   // ============================
   if (isSmall) {
     return (
       <>
         <div className="flex flex-col h-full">
+          {mobilePanel === 'projects' && (
+            <>
+              <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 bg-muted/50 shrink-0">
+                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.projects')}</span>
+                <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+              </div>
+              {renderProjectsList(selectProjectMobile)}
+            </>
+          )}
           {mobilePanel === 'subjects' && (
             <>
               <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 bg-muted/50 shrink-0">
-                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
-                <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                <div className="flex items-center gap-2">
+                  <button onClick={goBackToProjects} className="p-1 rounded-sm hover:bg-muted transition-colors"><ArrowLeft size={14} /></button>
+                  <span className="font-semibold text-xs text-foreground truncate">{selectedProject?.name}</span>
+                </div>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
               </div>
               {renderSubjectsList(selectSubjectMobile)}
             </>
           )}
-
-          {mobilePanel === 'tasks' && (
-            <>
-              <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 bg-muted/50 shrink-0">
-                <div className="flex items-center gap-2">
-                  <button onClick={goBackToSubjects} className="p-1 rounded-sm hover:bg-muted transition-colors"><ArrowLeft size={14} /></button>
-                  <span className="font-semibold text-xs text-foreground truncate">{selectedSubject}</span>
-                </div>
-                <button onClick={triggerTaskDialog} disabled={!selectedSubject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
-              </div>
-              {renderTasksList(selectTaskMobile)}
-            </>
-          )}
-
           {mobilePanel === 'editor' && (
             <>
               <div className="h-10 border-b border-border/50 flex items-center px-3 bg-muted/50 shrink-0 gap-2">
-                <button onClick={goBackToTasks} className="p-1 rounded-sm hover:bg-muted transition-colors shrink-0"><ArrowLeft size={14} /></button>
-                <span className="font-semibold text-xs text-foreground truncate">{selectedSubject} / {selectedTask?.replace('.md', '')}</span>
+                <button onClick={goBackToSubjects} className="p-1 rounded-sm hover:bg-muted transition-colors shrink-0"><ArrowLeft size={14} /></button>
+                <span className="font-semibold text-xs text-foreground truncate">{selectedProject?.name} / {selectedSubject?.replace('.md', '')}</span>
               </div>
               {renderEditorHeader()}
               {!isViewing && renderToolbar()}
@@ -453,7 +424,7 @@ export function PlannerTab() {
   }
 
   // ============================
-  // MEDIUM SCREEN: 2 columns (combined sidebar + editor)
+  // MEDIUM SCREEN
   // ============================
   if (isMedium) {
     return (
@@ -461,58 +432,52 @@ export function PlannerTab() {
         {/* @ts-expect-error shadcn type mismatch */}
         <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
           <ResizablePanel
-            panelRef={subjectsPanelRef}
-            defaultSize={35} minSize={20}
+            panelRef={projectsPanelRef} defaultSize={35} minSize={20}
             collapsible collapsedSize={0}
-            onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
+            onResize={(size) => setProjectsCollapsed(size.asPercentage === 0)}
             className="bg-muted/50"
           >
             <div className="flex flex-col h-full">
-              {/* Subjects header */}
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
-                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
+                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.projects')}</span>
                 <div className="flex items-center gap-1">
-                  <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
-                  <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
+                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
                 </div>
               </div>
-              {/* Subjects as compact horizontal pills or short list */}
               <div className="border-b border-border/50">
                 <ScrollArea className="max-h-[120px]">
                   <div className="p-1.5 space-y-0.5">
-                    {subjects.map((s) => (
-                      <div key={s} onClick={() => setSelectedSubject(s)} className={`group flex items-center justify-between px-2 py-1.5 text-xs rounded cursor-pointer ${selectedSubject === s ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-muted text-foreground'}`}>
+                    {projects.map((p) => (
+                      <div key={p.name} onClick={() => setSelectedProject(p)} className={`group flex items-center justify-between px-2 py-1.5 text-xs rounded cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-muted text-foreground'}`}>
                         <div className="flex items-center gap-1.5 truncate">
                           <FolderOpen size={12} className="shrink-0 opacity-50" />
-                          <span className="truncate">{s}</span>
+                          <span className="truncate">{p.name}</span>
                         </div>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); setRenameValue(s); setRenameSubjectTarget(s); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(s); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
                         </div>
                       </div>
                     ))}
-                    {subjects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_subjects')}</div>}
+                    {projects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_projects')}</div>}
                   </div>
                 </ScrollArea>
               </div>
-              {/* Tasks */}
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
-                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.tasks')}</span>
-                <button onClick={triggerTaskDialog} disabled={!selectedSubject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
               </div>
-              {renderTasksList((task) => setSelectedTask(task))}
+              {renderSubjectsList((s) => setSelectedSubject(s))}
             </div>
           </ResizablePanel>
-
           <ResizableHandle />
-
           <ResizablePanel defaultSize={65} minSize={40} className="flex flex-col bg-background">
-            {subjectsCollapsed && (
+            {projectsCollapsed && (
               <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
-                <button onClick={() => subjectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button onClick={() => projectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   <PanelLeftOpen size={14} />
-                  <span>{t('planner.subjects')} / {t('planner.tasks')}</span>
+                  <span>{t('planner.projects')} / {t('planner.subjects')}</span>
                 </button>
               </div>
             )}
@@ -525,24 +490,43 @@ export function PlannerTab() {
   }
 
   // ============================
-  // LARGE SCREEN: 3 resizable panels (collapsible sidebars)
+  // LARGE SCREEN
   // ============================
   return (
     <>
       {/* @ts-expect-error shadcn type mismatch */}
       <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
         <ResizablePanel
-          panelRef={subjectsPanelRef}
-          defaultSize={20} minSize={10}
+          panelRef={projectsPanelRef} defaultSize={20} minSize={10}
           collapsible collapsedSize={0}
-          onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
+          onResize={(size) => setProjectsCollapsed(size.asPercentage === 0)}
           className="bg-muted/50"
         >
           <div className="flex flex-col h-full uppercase font-semibold text-xs text-muted-foreground">
             <div className="p-3 border-b border-border/50 flex items-center justify-between">
+              <span>{t('planner.projects')}</span>
+              <div className="flex items-center gap-1">
+                <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_project')}><Plus size={14} /></button>
+                <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
+              </div>
+            </div>
+            {renderProjectsList((p) => setSelectedProject(p))}
+          </div>
+        </ResizablePanel>
+
+        <ResizableHandle />
+
+        <ResizablePanel
+          panelRef={subjectsPanelRef} defaultSize={25} minSize={10}
+          collapsible collapsedSize={0}
+          onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
+          className="bg-muted/20"
+        >
+          <div className="flex flex-col h-full font-semibold text-xs text-muted-foreground">
+            <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
               <div className="flex items-center gap-1">
-                <button onClick={triggerSubjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_subject')}><Plus size={14} /></button>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
                 <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>
             </div>
@@ -552,41 +536,17 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel
-          panelRef={tasksPanelRef}
-          defaultSize={25} minSize={10}
-          collapsible collapsedSize={0}
-          onResize={(size) => setTasksCollapsed(size.asPercentage === 0)}
-          className="bg-muted/20"
-        >
-          <div className="flex flex-col h-full font-semibold text-xs text-muted-foreground">
-            <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
-              <span>{t('planner.tasks')}</span>
-              <div className="flex items-center gap-1">
-                <button onClick={triggerTaskDialog} disabled={!selectedSubject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_task')}><Plus size={14} /></button>
-                <button onClick={() => tasksPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
-              </div>
-            </div>
-            {renderTasksList((task) => setSelectedTask(task))}
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle />
-
         <ResizablePanel defaultSize={55} minSize={30} className="flex flex-col bg-background">
-          {/* Expand buttons when panels are collapsed */}
-          {(subjectsCollapsed || tasksCollapsed) && (
+          {(projectsCollapsed || subjectsCollapsed) && (
             <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
-              {subjectsCollapsed && (
-                <button onClick={() => subjectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <PanelLeftOpen size={14} />
-                  <span>{t('planner.subjects')}</span>
+              {projectsCollapsed && (
+                <button onClick={() => projectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <PanelLeftOpen size={14} /><span>{t('planner.projects')}</span>
                 </button>
               )}
-              {tasksCollapsed && (
-                <button onClick={() => tasksPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <PanelLeftOpen size={14} />
-                  <span>{t('planner.tasks')}</span>
+              {subjectsCollapsed && (
+                <button onClick={() => subjectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <PanelLeftOpen size={14} /><span>{t('planner.subjects')}</span>
                 </button>
               )}
             </div>
@@ -598,15 +558,84 @@ export function PlannerTab() {
     </>
   );
 
-  // --- Dialogs (shared across all layouts) ---
+  // --- Dialogs ---
   function renderDialogs() {
     return (
       <>
+        {/* Create Project */}
+        <Dialog open={isProjectDialogOpen} onOpenChange={setIsProjectDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('planner.new_project')}</DialogTitle>
+              <DialogDescription>{t('planner.new_project_desc')}</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
+              <input autoFocus type="text" placeholder={t('planner.project_name_placeholder')} value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newProjectPath && handleCreateProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('planner.project_path_label')}</label>
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={newProjectPath} placeholder={t('planner.project_path_placeholder')} className="flex-1 bg-muted/50 border border-input rounded-md p-2 text-sm text-foreground outline-none cursor-pointer truncate" onClick={handleBrowseFolder} />
+                  <button onClick={handleBrowseFolder} className="bg-muted hover:bg-muted/80 border border-border px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5">
+                    <Folder size={14} />{t('planner.browse')}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <button onClick={handleCreateProjectSubmit} disabled={!newProjectName.trim() || !newProjectPath.trim()} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50">{t('planner.create')}</button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rename Project */}
+        <Dialog open={!!renameProjectTarget} onOpenChange={(open) => { if (!open) setRenameProjectTarget(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('planner.rename_project')}</DialogTitle>
+              <DialogDescription>{t('planner.rename_project_desc', { name: renameProjectTarget })}</DialogDescription>
+            </DialogHeader>
+            <input autoFocus type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
+            <DialogFooter>
+              <button onClick={() => setRenameProjectTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
+              <button onClick={handleRenameProjectSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.rename')}</button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Project */}
+        <Dialog open={!!deleteProjectTarget} onOpenChange={(open) => !open && setDeleteProjectTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('planner.delete_project')}</DialogTitle>
+              <DialogDescription>{t('planner.delete_project_desc', { name: deleteProjectTarget })}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <button onClick={() => setDeleteProjectTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
+              <button onClick={confirmDeleteProject} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.delete')}</button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Subject */}
+        <Dialog open={isSubjectDialogOpen} onOpenChange={setIsSubjectDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('planner.new_subject_in', { project: selectedProject?.name })}</DialogTitle>
+              <DialogDescription>{t('planner.new_subject_desc')}</DialogDescription>
+            </DialogHeader>
+            <input autoFocus type="text" placeholder={t('planner.subject_placeholder')} value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
+            <DialogFooter>
+              <button onClick={handleCreateSubjectSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.create')}</button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rename Subject */}
         <Dialog open={!!renameSubjectTarget} onOpenChange={(open) => { if (!open) setRenameSubjectTarget(null); }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('planner.rename_subject')}</DialogTitle>
-              <DialogDescription>{t('planner.rename_subject_desc', { name: renameSubjectTarget })}</DialogDescription>
+              <DialogDescription>{t('planner.rename_subject_desc', { name: renameSubjectTarget?.replace('.md', '') })}</DialogDescription>
             </DialogHeader>
             <input autoFocus type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameSubjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
             <DialogFooter>
@@ -616,46 +645,7 @@ export function PlannerTab() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={!!renameTaskTarget} onOpenChange={(open) => { if (!open) setRenameTaskTarget(null); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('planner.rename_task')}</DialogTitle>
-              <DialogDescription>{t('planner.rename_task_desc', { name: renameTaskTarget?.replace('.md', '') })}</DialogDescription>
-            </DialogHeader>
-            <input autoFocus type="text" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameTaskSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
-            <DialogFooter>
-              <button onClick={() => setRenameTaskTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
-              <button onClick={handleRenameTaskSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.rename')}</button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={isSubjectDialogOpen} onOpenChange={setIsSubjectDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('planner.new_subject')}</DialogTitle>
-              <DialogDescription>{t('planner.new_subject_desc')}</DialogDescription>
-            </DialogHeader>
-            <input autoFocus type="text" placeholder={t('planner.subject_placeholder')} value={newItemName} onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
-            <DialogFooter>
-              <button onClick={handleCreateSubjectSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.create')}</button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={isTaskDialogOpen} onOpenChange={setIsTaskDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('planner.new_task_in', { subject: selectedSubject })}</DialogTitle>
-              <DialogDescription>{t('planner.new_task_desc')}</DialogDescription>
-            </DialogHeader>
-            <input autoFocus type="text" placeholder={t('planner.task_placeholder')} value={newItemName} onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateTaskSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
-            <DialogFooter>
-              <button onClick={handleCreateTaskSubmit} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.create')}</button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
+        {/* Delete Subject */}
         <Dialog open={!!deleteSubjectTarget} onOpenChange={(open) => !open && setDeleteSubjectTarget(null)}>
           <DialogContent>
             <DialogHeader>
@@ -665,19 +655,6 @@ export function PlannerTab() {
             <DialogFooter>
               <button onClick={() => setDeleteSubjectTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
               <button onClick={confirmDeleteSubject} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.delete')}</button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={!!deleteTaskTarget} onOpenChange={(open) => !open && setDeleteTaskTarget(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('planner.delete_task')}</DialogTitle>
-              <DialogDescription>{t('planner.delete_task_desc', { name: deleteTaskTarget })}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <button onClick={() => setDeleteTaskTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
-              <button onClick={confirmDeleteTask} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.delete')}</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

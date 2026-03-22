@@ -9,6 +9,11 @@ export interface AgentProfile {
   autonomous: boolean;
 }
 
+export interface Project {
+  name: string;
+  path: string;
+}
+
 export interface ConsoleInstance {
   id: string;
   name: string;

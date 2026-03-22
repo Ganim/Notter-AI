@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
-import type { EditorTheme } from '@/types';
+import type { EditorTheme, Project } from '@/types';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -11,61 +11,190 @@ const BG_COLORS: EditorTheme[] = [
   { name: 'Dark',  value: 'bg-background',                    light: { hex: '#09090b', base: 'vs-dark' }, dark: { hex: '#09090b', base: 'vs-dark' } },
 ];
 
+const PROJECTS_FILE = 'NotterProjects/projects.json';
+
 interface PlannerState {
+  // Projects (formerly "subjects/assuntos")
+  projects: Project[];
+  selectedProject: Project | null;
+
+  // Subjects/notes (formerly "tasks/tarefas")
   subjects: string[];
   selectedSubject: string | null;
-  tasks: string[];
-  selectedTask: string | null;
-  taskContent: string;
+
+  // Editor
+  subjectContent: string;
   isViewing: boolean;
   editorBgClass: string;
   editorTheme: string;
   bgColors: EditorTheme[];
+  _activeTheme: EditorTheme | null;
 
+  // Project actions
+  setSelectedProject: (project: Project | null) => void;
+  initFilesystem: () => Promise<void>;
+  createProject: (name: string, path: string) => Promise<void>;
+  renameProject: (oldName: string, newName: string) => Promise<void>;
+  updateProjectPath: (name: string, newPath: string) => Promise<void>;
+  deleteProject: (name: string) => Promise<void>;
+
+  // Subject actions
   setSelectedSubject: (subject: string | null) => void;
-  setSelectedTask: (task: string | null) => void;
-  setTaskContent: (content: string) => void;
+  loadSubjects: (projectName: string) => Promise<void>;
+  loadSubjectContent: (projectName: string, subject: string) => Promise<void>;
+  setSubjectContent: (content: string) => void;
+  saveSubjectContent: (projectName: string, subject: string, content: string) => Promise<void>;
+  createSubject: (projectName: string, name: string) => Promise<void>;
+  renameSubject: (projectName: string, oldName: string, newName: string) => Promise<void>;
+  deleteSubject: (projectName: string, subject: string) => Promise<void>;
+
+  // Editor actions
   setIsViewing: (viewing: boolean) => void;
   setEditorTheme: (theme: EditorTheme) => void;
   refreshEditorTheme: () => void;
-  _activeTheme: EditorTheme | null;
-
-  initFilesystem: () => Promise<void>;
-  loadTasks: (subject: string) => Promise<void>;
-  loadTaskContent: (subject: string, task: string) => Promise<void>;
-  saveTaskContent: (subject: string, task: string, content: string) => Promise<void>;
-  createSubject: (name: string) => Promise<void>;
-  renameSubject: (oldName: string, newName: string) => Promise<void>;
-  deleteSubject: (name: string) => Promise<void>;
-  createTask: (subject: string, name: string) => Promise<void>;
-  renameTask: (subject: string, oldName: string, newName: string) => Promise<void>;
-  deleteTask: (subject: string, task: string) => Promise<void>;
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
+  projects: [],
+  selectedProject: null,
   subjects: [],
   selectedSubject: null,
-  tasks: [],
-  selectedTask: null,
-  taskContent: '# Anotações da Tarefa',
+  subjectContent: '# Nova Anotação',
   isViewing: false,
   editorBgClass: BG_COLORS[0].value,
   editorTheme: `theme-${BG_COLORS[0].name}-light`,
   bgColors: BG_COLORS,
   _activeTheme: BG_COLORS[0],
 
+  // --- Projects ---
+
+  setSelectedProject: (project) => {
+    set({ selectedProject: project, selectedSubject: null, subjects: [] });
+    if (project) get().loadSubjects(project.name);
+  },
+
+  initFilesystem: async () => {
+    try {
+      const hasDir = await exists('NotterProjects', { baseDir: BaseDirectory.AppLocalData });
+      if (!hasDir) await mkdir('NotterProjects', { baseDir: BaseDirectory.AppLocalData, recursive: true });
+
+      if (await exists(PROJECTS_FILE, { baseDir: BaseDirectory.AppLocalData })) {
+        const contents = await readTextFile(PROJECTS_FILE, { baseDir: BaseDirectory.AppLocalData });
+        const parsed: Project[] = JSON.parse(contents);
+        set({ projects: parsed });
+      } else {
+        await writeTextFile(PROJECTS_FILE, '[]', { baseDir: BaseDirectory.AppLocalData });
+      }
+    } catch (e) {
+      console.error('Failed to init planner filesystem:', e);
+    }
+  },
+
+  createProject: async (name, path) => {
+    await mkdir(`NotterProjects/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    const newProject: Project = { name, path };
+    const newProjects = [...get().projects, newProject];
+    set({ projects: newProjects });
+    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+  },
+
+  renameProject: async (oldName, newName) => {
+    await rename(`NotterProjects/${oldName}`, `NotterProjects/${newName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    const newProjects = get().projects.map((p) => (p.name === oldName ? { ...p, name: newName } : p));
+    set({
+      projects: newProjects,
+      selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
+    });
+    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+  },
+
+  updateProjectPath: async (name, newPath) => {
+    const newProjects = get().projects.map((p) => (p.name === name ? { ...p, path: newPath } : p));
+    set({
+      projects: newProjects,
+      selectedProject: get().selectedProject?.name === name ? { ...get().selectedProject!, path: newPath } : get().selectedProject,
+    });
+    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+  },
+
+  deleteProject: async (name) => {
+    await remove(`NotterProjects/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    const newProjects = get().projects.filter((p) => p.name !== name);
+    set({
+      projects: newProjects,
+      selectedProject: get().selectedProject?.name === name ? null : get().selectedProject,
+      selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
+    });
+    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+  },
+
+  // --- Subjects (notes) ---
+
   setSelectedSubject: (subject) => {
-    set({ selectedSubject: subject, selectedTask: null, tasks: [] });
-    if (subject) get().loadTasks(subject);
+    set({ selectedSubject: subject });
+    const project = get().selectedProject;
+    if (project && subject) get().loadSubjectContent(project.name, subject);
   },
 
-  setSelectedTask: (task) => {
-    set({ selectedTask: task });
-    const subject = get().selectedSubject;
-    if (subject && task) get().loadTaskContent(subject, task);
+  loadSubjects: async (projectName) => {
+    try {
+      const entries = await readDir(`NotterProjects/${projectName}`, { baseDir: BaseDirectory.AppLocalData });
+      const files = entries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => e.name);
+      set({ subjects: files });
+    } catch (e) {
+      console.error('Failed to load subjects:', e);
+    }
   },
 
-  setTaskContent: (content) => set({ taskContent: content }),
+  loadSubjectContent: async (projectName, subject) => {
+    try {
+      const content = await readTextFile(`NotterProjects/${projectName}/${subject}`, { baseDir: BaseDirectory.AppLocalData });
+      set({ subjectContent: content });
+    } catch (e) {
+      set({ subjectContent: '# Erro ao carregar' });
+    }
+  },
+
+  setSubjectContent: (content) => set({ subjectContent: content }),
+
+  saveSubjectContent: async (projectName, subject, content) => {
+    try {
+      await writeTextFile(`NotterProjects/${projectName}/${subject}`, content, { baseDir: BaseDirectory.AppLocalData });
+    } catch (e) {
+      console.error('Failed to save subject content:', e);
+    }
+  },
+
+  createSubject: async (projectName, name) => {
+    const fileName = name.endsWith('.md') ? name : `${name}.md`;
+    await writeTextFile(
+      `NotterProjects/${projectName}/${fileName}`,
+      '# Nova Anotação\n\nDescreva o assunto...',
+      { baseDir: BaseDirectory.AppLocalData }
+    );
+    set((state) => ({ subjects: [...state.subjects, fileName], selectedSubject: fileName }));
+  },
+
+  renameSubject: async (projectName, oldName, newName) => {
+    const newFileName = newName.endsWith('.md') ? newName : `${newName}.md`;
+    await rename(`NotterProjects/${projectName}/${oldName}`, `NotterProjects/${projectName}/${newFileName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    set((state) => ({
+      subjects: state.subjects.map((s) => (s === oldName ? newFileName : s)),
+      selectedSubject: state.selectedSubject === oldName ? newFileName : state.selectedSubject,
+    }));
+  },
+
+  deleteSubject: async (projectName, subject) => {
+    await remove(`NotterProjects/${projectName}/${subject}`, { baseDir: BaseDirectory.AppLocalData });
+    set((state) => ({
+      subjects: state.subjects.filter((s) => s !== subject),
+      selectedSubject: state.selectedSubject === subject ? null : state.selectedSubject,
+      subjectContent: state.selectedSubject === subject ? '' : state.subjectContent,
+    }));
+  },
+
+  // --- Editor ---
+
   setIsViewing: (viewing) => set({ isViewing: viewing }),
 
   setEditorTheme: (theme) => {
@@ -84,94 +213,5 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({
       editorTheme: `theme-${theme.name}-${isDark ? 'dark' : 'light'}`,
     });
-  },
-
-  initFilesystem: async () => {
-    try {
-      const hasDir = await exists('AgentNotes', { baseDir: BaseDirectory.AppLocalData });
-      if (!hasDir) await mkdir('AgentNotes', { baseDir: BaseDirectory.AppLocalData, recursive: true });
-      const entries = await readDir('AgentNotes', { baseDir: BaseDirectory.AppLocalData });
-      const dirs = entries.filter((e) => e.isDirectory).map((e) => e.name);
-      set({ subjects: dirs });
-    } catch (e) {
-      console.error('Failed to init planner filesystem:', e);
-    }
-  },
-
-  loadTasks: async (subject) => {
-    try {
-      const entries = await readDir(`AgentNotes/${subject}`, { baseDir: BaseDirectory.AppLocalData });
-      const files = entries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => e.name);
-      set({ tasks: files });
-    } catch (e) {
-      console.error('Failed to load tasks:', e);
-    }
-  },
-
-  loadTaskContent: async (subject, task) => {
-    try {
-      const content = await readTextFile(`AgentNotes/${subject}/${task}`, { baseDir: BaseDirectory.AppLocalData });
-      set({ taskContent: content });
-    } catch (e) {
-      set({ taskContent: '# Erro ao carregar' });
-    }
-  },
-
-  saveTaskContent: async (subject, task, content) => {
-    try {
-      await writeTextFile(`AgentNotes/${subject}/${task}`, content, { baseDir: BaseDirectory.AppLocalData });
-    } catch (e) {
-      console.error('Failed to save task content:', e);
-    }
-  },
-
-  createSubject: async (name) => {
-    await mkdir(`AgentNotes/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    set((state) => ({ subjects: [...state.subjects, name] }));
-  },
-
-  renameSubject: async (oldName, newName) => {
-    await rename(`AgentNotes/${oldName}`, `AgentNotes/${newName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
-    set((state) => ({
-      subjects: state.subjects.map((s) => (s === oldName ? newName : s)),
-      selectedSubject: state.selectedSubject === oldName ? newName : state.selectedSubject,
-    }));
-  },
-
-  deleteSubject: async (name) => {
-    await remove(`AgentNotes/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    set((state) => ({
-      subjects: state.subjects.filter((s) => s !== name),
-      selectedSubject: state.selectedSubject === name ? null : state.selectedSubject,
-      selectedTask: state.selectedSubject === name ? null : state.selectedTask,
-    }));
-  },
-
-  createTask: async (subject, name) => {
-    const fileName = name.endsWith('.md') ? name : `${name}.md`;
-    await writeTextFile(
-      `AgentNotes/${subject}/${fileName}`,
-      '# Nova Anotação\n\nDescreva a tarefa...',
-      { baseDir: BaseDirectory.AppLocalData }
-    );
-    set((state) => ({ tasks: [...state.tasks, fileName], selectedTask: fileName }));
-  },
-
-  renameTask: async (subject, oldName, newName) => {
-    const newFileName = newName.endsWith('.md') ? newName : `${newName}.md`;
-    await rename(`AgentNotes/${subject}/${oldName}`, `AgentNotes/${subject}/${newFileName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
-    set((state) => ({
-      tasks: state.tasks.map((t) => (t === oldName ? newFileName : t)),
-      selectedTask: state.selectedTask === oldName ? newFileName : state.selectedTask,
-    }));
-  },
-
-  deleteTask: async (subject, task) => {
-    await remove(`AgentNotes/${subject}/${task}`, { baseDir: BaseDirectory.AppLocalData });
-    set((state) => ({
-      tasks: state.tasks.filter((t) => t !== task),
-      selectedTask: state.selectedTask === task ? null : state.selectedTask,
-      taskContent: state.selectedTask === task ? '' : state.taskContent,
-    }));
   },
 }));
