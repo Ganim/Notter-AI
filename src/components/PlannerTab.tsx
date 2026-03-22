@@ -91,18 +91,24 @@ export function PlannerTab() {
     editor.focus();
   };
 
-  const insertLine = (prefix: string) => {
+  const insertLine = (prefix: string, cursorLineOffset?: number) => {
     const editor = editorRef.current;
     if (!editor) return;
     const pos = editor.getPosition();
     const model = editor.getModel();
     if (!pos || !model) return;
     const currentLine = model.getLineContent(pos.lineNumber);
+    let insertLineNumber = pos.lineNumber;
     if (currentLine.trim() === '') {
       editor.executeEdits('toolbar', [{ range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: currentLine.length + 1 }, text: prefix }]);
     } else {
       const endCol = currentLine.length + 1;
       editor.executeEdits('toolbar', [{ range: { startLineNumber: pos.lineNumber, startColumn: endCol, endLineNumber: pos.lineNumber, endColumn: endCol }, text: `\n${prefix}` }]);
+      insertLineNumber = pos.lineNumber + 1;
+    }
+    if (cursorLineOffset !== undefined) {
+      const targetLine = insertLineNumber + cursorLineOffset;
+      editor.setPosition({ lineNumber: targetLine, column: 1 });
     }
     editor.focus();
   };
@@ -259,7 +265,7 @@ export function PlannerTab() {
         <button onClick={() => insertLine('1. ')} className={tbBtn} title="Ordered List"><ListOrdered size={15} /></button>
         <div className="w-px h-4 bg-border mx-1" />
         <button onClick={() => insertMarkdown('`', '`')} className={tbBtn} title="Inline Code"><Code size={15} /></button>
-        <button onClick={() => insertLine('```\n\n```')} className={`${tbBtn} flex items-center justify-center w-[27px] h-[27px]`} title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
+        <button onClick={() => insertLine('```\n\n```', 1)} className={`${tbBtn} flex items-center justify-center w-[27px] h-[27px]`} title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
         <button onClick={() => insertLine('> ')} className={tbBtn} title="Quote"><Quote size={15} /></button>
         <button onClick={() => insertLine('---')} className={tbBtn} title="Divider"><Minus size={15} /></button>
       </div>
