@@ -4,10 +4,10 @@ import type { EditorTheme } from '@/types';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
-  { name: 'Taupe', value: 'bg-stone-50 dark:bg-stone-900',   light: { hex: '#fafaf9', base: 'vs' },      dark: { hex: '#1c1917', base: 'vs-dark' } },
-  { name: 'Mist',  value: 'bg-sky-50 dark:bg-sky-950',       light: { hex: '#f0f9ff', base: 'vs' },      dark: { hex: '#082f49', base: 'vs-dark' } },
-  { name: 'Mauve', value: 'bg-purple-50 dark:bg-purple-950', light: { hex: '#faf5ff', base: 'vs' },      dark: { hex: '#3b0764', base: 'vs-dark' } },
-  { name: 'Olive', value: 'bg-lime-50 dark:bg-lime-950',     light: { hex: '#f7fee7', base: 'vs' },      dark: { hex: '#1a2e05', base: 'vs-dark' } },
+  { name: 'Taupe', value: 'bg-stone-50 dark:bg-stone-900/10', light: { hex: '#fafaf9', base: 'vs' },      dark: { hex: '#131211', base: 'vs-dark' } },
+  { name: 'Mist',  value: 'bg-sky-50 dark:bg-sky-950/10',    light: { hex: '#f0f9ff', base: 'vs' },      dark: { hex: '#0a1219', base: 'vs-dark' } },
+  { name: 'Mauve', value: 'bg-purple-50 dark:bg-purple-950/10', light: { hex: '#faf5ff', base: 'vs' },   dark: { hex: '#0e0a15', base: 'vs-dark' } },
+  { name: 'Olive', value: 'bg-lime-50 dark:bg-lime-950/10',  light: { hex: '#f7fee7', base: 'vs' },      dark: { hex: '#0d1209', base: 'vs-dark' } },
   { name: 'Dark',  value: 'bg-background',                    light: { hex: '#09090b', base: 'vs-dark' }, dark: { hex: '#09090b', base: 'vs-dark' } },
 ];
 
