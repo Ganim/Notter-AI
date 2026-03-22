@@ -71,7 +71,72 @@ export function PlannerTab() {
   }, [initFilesystem]);
 
   // --- Editor helpers ---
-  const handleEditorMount = (editor: any) => { editorRef.current = editor; };
+  const handleEditorMount = (editor: any, monaco: any) => {
+    editorRef.current = editor;
+
+    // Auto-continue lists on Enter
+    editor.addAction({
+      id: 'markdown-list-continue',
+      label: 'Continue markdown list',
+      keybindings: [monaco.KeyCode.Enter],
+      run: (ed: any) => {
+        const pos = ed.getPosition();
+        const model = ed.getModel();
+        if (!pos || !model) return;
+        const line = model.getLineContent(pos.lineNumber);
+
+        // Ordered list: "1. text" → next line "2. "
+        const orderedMatch = line.match(/^(\s*)(\d+)\.\s(.+)/);
+        if (orderedMatch) {
+          const [, indent, num] = orderedMatch;
+          const next = parseInt(num) + 1;
+          ed.executeEdits('list-continue', [{
+            range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
+            text: `\n${indent}${next}. `,
+          }]);
+          const newPos = { lineNumber: pos.lineNumber + 1, column: indent.length + `${next}. `.length + 1 };
+          ed.setPosition(newPos);
+          return;
+        }
+
+        // Empty ordered item: "1. " (no text) → remove it
+        const emptyOrderedMatch = line.match(/^(\s*)\d+\.\s*$/);
+        if (emptyOrderedMatch) {
+          ed.executeEdits('list-continue', [{
+            range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
+            text: '',
+          }]);
+          return;
+        }
+
+        // Bullet list: "- text" or "* text" → next line "- " or "* "
+        const bulletMatch = line.match(/^(\s*)([-*])\s(.+)/);
+        if (bulletMatch) {
+          const [, indent, bullet] = bulletMatch;
+          ed.executeEdits('list-continue', [{
+            range: { startLineNumber: pos.lineNumber, startColumn: line.length + 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
+            text: `\n${indent}${bullet} `,
+          }]);
+          const newPos = { lineNumber: pos.lineNumber + 1, column: indent.length + 3 };
+          ed.setPosition(newPos);
+          return;
+        }
+
+        // Empty bullet item: "- " or "* " (no text) → remove it
+        const emptyBulletMatch = line.match(/^(\s*)[-*]\s*$/);
+        if (emptyBulletMatch) {
+          ed.executeEdits('list-continue', [{
+            range: { startLineNumber: pos.lineNumber, startColumn: 1, endLineNumber: pos.lineNumber, endColumn: line.length + 1 },
+            text: '',
+          }]);
+          return;
+        }
+
+        // Default: normal Enter
+        ed.trigger('keyboard', 'type', { text: '\n' });
+      },
+    });
+  };
 
   const insertMarkdown = (prefix: string, suffix = '') => {
     const editor = editorRef.current;
