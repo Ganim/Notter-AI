@@ -126,7 +126,7 @@ export function UserMenu() {
               <select
                 value={terminalSettings.fontFamily}
                 onChange={(e) => setTerminalSettings({ fontFamily: e.target.value })}
-                className="w-full bg-muted/50 border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                className="w-full bg-background text-foreground border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="'Cascadia Code', 'Fira Code', 'Consolas', monospace">Cascadia Code</option>
                 <option value="'Fira Code', 'Cascadia Code', 'Consolas', monospace">Fira Code</option>
@@ -151,8 +151,11 @@ export function UserMenu() {
             </div>
 
             {/* Ligatures */}
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">{t('settings.ligatures')}</Label>
+            <div className="flex items-center justify-between p-3 rounded-md border border-border bg-background">
+              <div className="flex flex-col gap-0.5">
+                <Label className="text-sm font-medium text-foreground">{t('settings.ligatures')}</Label>
+                <span className="text-[11px] text-muted-foreground">{'=> -> != <='}</span>
+              </div>
               <Switch
                 checked={terminalSettings.ligatures}
                 onCheckedChange={(val: boolean) => setTerminalSettings({ ligatures: val })}
