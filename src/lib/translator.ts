@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import type { AgentProfile, TaskPriority } from '@/types';
 
 export interface TranslatedTask {
@@ -28,11 +29,18 @@ interface TranslatorResponse {
   error?: string;
 }
 
+async function proxyFetch(url: string, method: string, headers: Record<string, string>, body: string): Promise<string> {
+  return await invoke('llm_request', {
+    payload: { url, method, headers, body },
+  });
+}
+
 async function callOllama(noteContent: string, model: string): Promise<string> {
-  const res = await fetch('http://localhost:11434/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return proxyFetch(
+    'http://localhost:11434/api/chat',
+    'POST',
+    { 'Content-Type': 'application/json' },
+    JSON.stringify({
       model: model || 'llama3.2',
       messages: [
         { role: 'system', content: TRANSLATOR_PROMPT },
@@ -42,17 +50,15 @@ async function callOllama(noteContent: string, model: string): Promise<string> {
       format: 'json',
       options: { temperature: 0.3 },
     }),
-  });
-  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-  const data = await res.json();
-  return data.message?.content || '{}';
+  );
 }
 
 async function callOpenAI(noteContent: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
+  return proxyFetch(
+    'https://api.openai.com/v1/chat/completions',
+    'POST',
+    { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    JSON.stringify({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: TRANSLATOR_PROMPT },
@@ -61,22 +67,19 @@ async function callOpenAI(noteContent: string, apiKey: string): Promise<string> 
       temperature: 0.3,
       response_format: { type: 'json_object' },
     }),
-  });
-  if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '{}';
+  );
 }
 
 async function callAnthropic(noteContent: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
+  return proxyFetch(
+    'https://api.anthropic.com/v1/messages',
+    'POST',
+    {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({
+    JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system: TRANSLATOR_PROMPT,
@@ -84,75 +87,92 @@ async function callAnthropic(noteContent: string, apiKey: string): Promise<strin
         { role: 'user', content: `Here is the note to translate into tasks:\n\n${noteContent}` },
       ],
     }),
-  });
-  if (!res.ok) throw new Error(`Anthropic HTTP ${res.status}`);
-  const data = await res.json();
-  const text = data.content?.[0]?.text || '{}';
-  return text;
+  );
 }
 
 async function callGemini(noteContent: string, apiKey: string): Promise<string> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return proxyFetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    'POST',
+    { 'Content-Type': 'application/json' },
+    JSON.stringify({
       contents: [{ parts: [{ text: `${TRANSLATOR_PROMPT}\n\nHere is the note to translate into tasks:\n\n${noteContent}` }] }],
       generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
     }),
-  });
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  );
 }
 
-function parseResponse(raw: string): TranslatedTask[] {
-  try {
-    // Try extracting JSON from markdown code blocks
-    const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const jsonStr = match ? match[1].trim() : raw.trim();
-    const parsed = JSON.parse(jsonStr);
+function parseOllamaResponse(raw: string): TranslatedTask[] {
+  const data = JSON.parse(raw);
+  const content = data.message?.content || '{}';
+  return extractTasks(content);
+}
 
-    if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
-      throw new Error('No tasks array in response');
-    }
+function parseOpenAIResponse(raw: string): TranslatedTask[] {
+  const data = JSON.parse(raw);
+  const content = data.choices?.[0]?.message?.content || '{}';
+  return extractTasks(content);
+}
 
-    return parsed.tasks
-      .filter((t: any) => t.title && typeof t.title === 'string')
-      .map((t: any) => ({
-        title: t.title,
-        description: t.description || '',
-        priority: (['low', 'medium', 'high'].includes(t.priority) ? t.priority : 'medium') as TaskPriority,
-      }));
-  } catch {
-    throw new Error(`Failed to parse LLM response: ${raw.slice(0, 200)}`);
+function parseAnthropicResponse(raw: string): TranslatedTask[] {
+  const data = JSON.parse(raw);
+  const content = data.content?.[0]?.text || '{}';
+  return extractTasks(content);
+}
+
+function parseGeminiResponse(raw: string): TranslatedTask[] {
+  const data = JSON.parse(raw);
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  return extractTasks(content);
+}
+
+function extractTasks(content: string): TranslatedTask[] {
+  const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const jsonStr = match ? match[1].trim() : content.trim();
+  const parsed = JSON.parse(jsonStr);
+
+  if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
+    throw new Error('No tasks array in response');
   }
+
+  return parsed.tasks
+    .filter((t: any) => t.title && typeof t.title === 'string')
+    .map((t: any) => ({
+      title: t.title,
+      description: t.description || '',
+      priority: (['low', 'medium', 'high'].includes(t.priority) ? t.priority : 'medium') as TaskPriority,
+    }));
 }
 
 export async function translateNote(profile: AgentProfile, noteContent: string): Promise<TranslatorResponse> {
   try {
     let raw: string;
+    let tasks: TranslatedTask[];
 
     switch (profile.provider) {
       case 'ollama':
         raw = await callOllama(noteContent, 'llama3.2');
+        tasks = parseOllamaResponse(raw);
         break;
       case 'openai':
         if (!profile.apiKey) throw new Error('OpenAI API key not configured');
         raw = await callOpenAI(noteContent, profile.apiKey);
+        tasks = parseOpenAIResponse(raw);
         break;
       case 'anthropic':
         if (!profile.apiKey) throw new Error('Anthropic API key not configured');
         raw = await callAnthropic(noteContent, profile.apiKey);
+        tasks = parseAnthropicResponse(raw);
         break;
       case 'gemini':
         if (!profile.apiKey) throw new Error('Gemini API key not configured');
         raw = await callGemini(noteContent, profile.apiKey);
+        tasks = parseGeminiResponse(raw);
         break;
       default:
         throw new Error(`Provider ${profile.provider} not supported`);
     }
 
-    const tasks = parseResponse(raw);
     if (tasks.length === 0) throw new Error('No tasks extracted from the note');
     return { tasks };
   } catch (e: any) {

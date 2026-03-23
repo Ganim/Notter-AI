@@ -187,6 +187,51 @@ fn close_pty(id: String, state: tauri::State<'_, PtyManager>) -> Result<(), Stri
     Ok(())
 }
 
+// --- LLM proxy (avoids CORS issues from webview) ---
+
+#[derive(serde::Deserialize)]
+struct LlmRequestPayload {
+    url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+#[tauri::command]
+async fn llm_request(payload: LlmRequestPayload) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let mut req = match payload.method.to_uppercase().as_str() {
+        "POST" => client.post(&payload.url),
+        "GET" => client.get(&payload.url),
+        _ => return Err(format!("Unsupported method: {}", payload.method)),
+    };
+
+    for (key, value) in &payload.headers {
+        req = req.header(key.as_str(), value.as_str());
+    }
+
+    if !payload.body.is_empty() {
+        req = req.body(payload.body);
+    }
+
+    let res = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    let status = res.status();
+    let text = res
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {}", status.as_u16(), text));
+    }
+
+    Ok(text)
+}
+
 // --- Tauri entry ---
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -203,6 +248,7 @@ pub fn run() {
             write_pty,
             resize_pty,
             close_pty,
+            llm_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
