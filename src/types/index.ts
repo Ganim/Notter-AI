@@ -29,3 +29,27 @@ export interface EditorTheme {
   light: { hex: string; base: 'vs' | 'vs-dark' };
   dark: { hex: string; base: 'vs' | 'vs-dark' };
 }
+
+export type TaskStatus = 'open' | 'in_progress' | 'in_review' | 'done' | 'cancelled' | 'stuck';
+export type TaskPriority = 'low' | 'medium' | 'high';
+
+export interface TaskMessage {
+  id: string;
+  author: string;
+  content: string;
+  timestamp: string;
+  type: 'comment' | 'action' | 'status_change';
+}
+
+export interface BoardTask {
+  id: string;
+  projectName: string;
+  subjectName: string | null;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  createdAt: string;
+  updatedAt: string;
+  messages: TaskMessage[];
+}
