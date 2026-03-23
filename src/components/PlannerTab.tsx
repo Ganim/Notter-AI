@@ -13,6 +13,9 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
 import { useWindowWidth } from '@/hooks/useWindowWidth';
 import { useBoardStore } from '@/stores/board-store';
+import { useAgentsStore } from '@/stores/agents-store';
+import { translateNote } from '@/lib/translator';
+import { Wand2, Loader2 } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -47,7 +50,10 @@ export function PlannerTab() {
   const [boardTaskTitle, setBoardTaskTitle] = useState('');
   const [boardTaskDesc, setBoardTaskDesc] = useState('');
   const [boardTaskPriority, setBoardTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
-  const { createTaskFromPlanner } = useBoardStore();
+  const { createTaskFromPlanner, createTasksFromNote } = useBoardStore();
+  const { profiles } = useAgentsStore();
+  const [isTransformOpen, setIsTransformOpen] = useState(false);
+  const [isTransforming, setIsTransforming] = useState(false);
 
   // Editor & layout refs
   const editorRef = useRef<any>(null);
@@ -226,6 +232,25 @@ export function PlannerTab() {
   const triggerProjectDialog = () => { setNewProjectName(''); setNewProjectPath(''); setIsProjectDialogOpen(true); };
   const triggerSubjectDialog = () => { setNewSubjectName(''); setIsSubjectDialogOpen(true); };
 
+  const handleTransform = async (profile: import('@/types').AgentProfile) => {
+    if (!selectedProject || !selectedSubject || !subjectContent.trim()) return;
+    setIsTransformOpen(false);
+    setIsTransforming(true);
+    try {
+      const result = await translateNote(profile, subjectContent);
+      if (result.error) {
+        toast.error(t('board.transform_error', { error: result.error }));
+      } else {
+        createTasksFromNote(selectedProject.name, selectedSubject, result.tasks);
+        toast.success(t('board.transform_success', { count: result.tasks.length }));
+      }
+    } catch (e: any) {
+      toast.error(t('board.transform_error', { error: e.message }));
+    } finally {
+      setIsTransforming(false);
+    }
+  };
+
   // --- Mobile navigation ---
   const selectProjectMobile = (p: Project) => { setSelectedProject(p); setMobilePanel('subjects'); };
   const selectSubjectMobile = (s: string) => { setSelectedSubject(s); setMobilePanel('editor'); };
@@ -332,17 +357,37 @@ export function PlannerTab() {
         {t('planner.notes_about')} <span className="text-primary">{selectedSubject?.replace('.md', '')}</span>
       </span>
       {selectedProject && selectedSubject && (
-        <button
-          onClick={() => {
-            setBoardTaskTitle(selectedSubject.replace('.md', ''));
-            setBoardTaskDesc('');
-            setBoardTaskPriority('medium');
-            setIsBoardDialogOpen(true);
-          }}
-          className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 border border-blue-500/20 px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider transition-colors ml-2 shrink-0"
-        >
-          {t('board.add_to_board')}
-        </button>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <button
+            onClick={() => {
+              setBoardTaskTitle(selectedSubject.replace('.md', ''));
+              setBoardTaskDesc('');
+              setBoardTaskPriority('medium');
+              setIsBoardDialogOpen(true);
+            }}
+            className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 border border-blue-500/20 px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider transition-colors"
+          >
+            {t('board.add_to_board')}
+          </button>
+          <button
+            onClick={() => {
+              if (profiles.length === 0) {
+                toast.error(t('board.transform_no_agent'));
+                return;
+              }
+              if (profiles.length === 1) {
+                handleTransform(profiles[0]);
+              } else {
+                setIsTransformOpen(true);
+              }
+            }}
+            disabled={isTransforming}
+            className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-500 border border-purple-500/20 px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider transition-colors flex items-center gap-1 disabled:opacity-50"
+          >
+            {isTransforming ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+            {isTransforming ? t('board.transforming') : t('board.transform_tasks')}
+          </button>
+        </div>
       )}
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         {renderColorPicker()}
@@ -719,6 +764,33 @@ export function PlannerTab() {
                 {t('board.create_task')}
               </button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Select Agent for Transform */}
+        <Dialog open={isTransformOpen} onOpenChange={setIsTransformOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{t('board.select_agent')}</DialogTitle>
+              <DialogDescription>{t('board.select_agent_desc')}</DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-2 mt-2">
+              {profiles.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => handleTransform(p)}
+                  className="w-full flex items-center gap-3 p-3 border border-border rounded-md hover:border-purple-500/50 hover:bg-purple-500/5 transition-all text-left group"
+                >
+                  <div className="p-2 rounded-md bg-purple-500/10 text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
+                    <Wand2 size={16} />
+                  </div>
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-sm font-semibold truncate group-hover:text-purple-500 transition-colors">{p.name}</span>
+                    <span className="text-[10px] text-muted-foreground">{p.provider.toUpperCase()}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           </DialogContent>
         </Dialog>
       </>
