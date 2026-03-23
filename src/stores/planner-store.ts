@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
 import type { EditorTheme, Project } from '@/types';
+import { useBoardStore } from './board-store';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -106,6 +107,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    useBoardStore.getState().onProjectRenamed(oldName, newName);
   },
 
   updateProjectPath: async (name, newPath) => {
@@ -126,6 +128,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    useBoardStore.getState().onProjectDeleted(name);
   },
 
   // --- Subjects (notes) ---
