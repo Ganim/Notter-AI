@@ -11,22 +11,13 @@ import remarkGfm from 'remark-gfm';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
+import { useWindowWidth } from '@/hooks/useWindowWidth';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
 } from 'lucide-react';
 
 type MobilePanel = 'projects' | 'subjects' | 'editor';
-
-function useWindowWidth() {
-  const [width, setWidth] = useState(window.innerWidth);
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-  return width;
-}
 
 export function PlannerTab() {
   const { t } = useTranslation();
