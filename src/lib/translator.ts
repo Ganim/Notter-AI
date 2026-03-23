@@ -127,19 +127,51 @@ function parseGeminiResponse(raw: string): TranslatedTask[] {
 }
 
 function extractTasks(content: string): TranslatedTask[] {
-  const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = match ? match[1].trim() : content.trim();
-  const parsed = JSON.parse(jsonStr);
+  console.log('[Translator] extractTasks input:', content.slice(0, 300));
 
-  if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
-    throw new Error('No tasks array in response');
+  // Try parsing as-is first
+  let parsed: any;
+  try {
+    parsed = JSON.parse(content.trim());
+  } catch {
+    // Try extracting from markdown code block
+    const match = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) {
+      parsed = JSON.parse(match[1].trim());
+    } else {
+      // Try finding JSON object in the text
+      const jsonMatch = content.match(/\{[\s\S]*"tasks"[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error(`Cannot find JSON in response: ${content.slice(0, 200)}`);
+      }
+    }
   }
 
-  return parsed.tasks
+  // Handle case where the response IS the tasks array directly
+  let tasksArray: any[];
+  if (Array.isArray(parsed)) {
+    tasksArray = parsed;
+  } else if (parsed.tasks && Array.isArray(parsed.tasks)) {
+    tasksArray = parsed.tasks;
+  } else {
+    // Maybe it returned a single task object
+    if (parsed.title) {
+      tasksArray = [parsed];
+    } else {
+      console.error('[Translator] Unexpected parsed structure:', parsed);
+      throw new Error(`Unexpected response structure. Keys: ${Object.keys(parsed).join(', ')}`);
+    }
+  }
+
+  console.log('[Translator] Tasks array before filter:', tasksArray);
+
+  return tasksArray
     .filter((t: any) => t.title && typeof t.title === 'string')
     .map((t: any) => ({
-      title: t.title,
-      description: t.description || '',
+      title: String(t.title).trim(),
+      description: String(t.description || '').trim(),
       priority: (['low', 'medium', 'high'].includes(t.priority) ? t.priority : 'medium') as TaskPriority,
     }));
 }
@@ -149,33 +181,42 @@ export async function translateNote(profile: AgentProfile, noteContent: string):
     let raw: string;
     let tasks: TranslatedTask[];
 
+    console.log('[Translator] Using provider:', profile.provider);
+
     switch (profile.provider) {
       case 'ollama':
         raw = await callOllama(noteContent, 'llama3.2');
+        console.log('[Translator] Ollama raw response:', raw.slice(0, 500));
         tasks = parseOllamaResponse(raw);
         break;
       case 'openai':
         if (!profile.apiKey) throw new Error('OpenAI API key not configured');
         raw = await callOpenAI(noteContent, profile.apiKey);
+        console.log('[Translator] OpenAI raw response:', raw.slice(0, 500));
         tasks = parseOpenAIResponse(raw);
         break;
       case 'anthropic':
         if (!profile.apiKey) throw new Error('Anthropic API key not configured');
         raw = await callAnthropic(noteContent, profile.apiKey);
+        console.log('[Translator] Anthropic raw response:', raw.slice(0, 500));
         tasks = parseAnthropicResponse(raw);
         break;
       case 'gemini':
         if (!profile.apiKey) throw new Error('Gemini API key not configured');
         raw = await callGemini(noteContent, profile.apiKey);
+        console.log('[Translator] Gemini raw response:', raw.slice(0, 500));
         tasks = parseGeminiResponse(raw);
         break;
       default:
         throw new Error(`Provider ${profile.provider} not supported`);
     }
 
-    if (tasks.length === 0) throw new Error('No tasks extracted from the note');
+    console.log('[Translator] Extracted tasks:', tasks.length, tasks);
+
+    if (tasks.length === 0) throw new Error('No tasks extracted from the note. The AI may not have understood the format.');
     return { tasks };
   } catch (e: any) {
+    console.error('[Translator] Error:', e);
     return { tasks: [], error: e.message };
   }
 }
