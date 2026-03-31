@@ -1,12 +1,20 @@
+import { useEffect } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
 import { BoardTab } from '@/components/BoardTab';
 import { AgentsTab } from '@/components/AgentsTab';
 import { TerminalsTab } from '@/components/TerminalsTab';
+import { useAuthStore } from '@/stores/auth-store';
 import './App.css';
 
 function App() {
+  const initialize = useAuthStore((s) => s.initialize);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
   return (
     <>
       <Toaster />
