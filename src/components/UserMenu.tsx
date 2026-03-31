@@ -10,13 +10,12 @@ import { AuthDialog } from '@/components/AuthDialog';
 import { toast } from 'sonner';
 
 export function UserMenu() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const menuRef = useRef<HTMLDivElement>(null);
-  const { terminalSettings, setTerminalSettings } = useAppStore();
+  const { darkMode, setDarkMode, language, setLanguage, terminalSettings, setTerminalSettings } = useAppStore();
   const { user, signOut } = useAuthStore();
 
   useEffect(() => {
@@ -30,14 +29,11 @@ export function UserMenu() {
   }, []);
 
   const toggleDarkMode = () => {
-    const next = !isDark;
-    setIsDark(next);
-    document.documentElement.classList.toggle('dark', next);
+    setDarkMode(!darkMode);
   };
 
   const toggleLanguage = () => {
-    const next = i18n.language === 'pt-BR' ? 'en' : 'pt-BR';
-    i18n.changeLanguage(next);
+    setLanguage(language === 'pt-BR' ? 'en' : 'pt-BR');
   };
 
   const openSettings = () => {
@@ -105,10 +101,10 @@ export function UserMenu() {
               className="w-full flex items-center justify-between px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
             >
               <span className="flex items-center gap-3">
-                {isDark ? <Sun size={14} /> : <Moon size={14} />}
+                {darkMode ? <Sun size={14} /> : <Moon size={14} />}
                 {t('user_menu.dark_mode')}
               </span>
-              <span className="text-xs text-muted-foreground">{isDark ? 'ON' : 'OFF'}</span>
+              <span className="text-xs text-muted-foreground">{darkMode ? 'ON' : 'OFF'}</span>
             </button>
 
             <button
@@ -119,7 +115,7 @@ export function UserMenu() {
                 <Globe size={14} />
                 {t('user_menu.language')}
               </span>
-              <span className="text-xs text-muted-foreground">{i18n.language === 'pt-BR' ? 'PT' : 'EN'}</span>
+              <span className="text-xs text-muted-foreground">{language === 'pt-BR' ? 'PT' : 'EN'}</span>
             </button>
           </div>
         )}
