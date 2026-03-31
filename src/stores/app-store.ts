@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import i18n from '@/i18n';
+import { pushPreferences, type UserPreferences } from '@/lib/sync';
+import { useAuthStore } from '@/stores/auth-store';
 
 type Tab = 'planner' | 'board' | 'agents' | 'terminals';
 
@@ -28,22 +31,86 @@ export interface TerminalSettings {
   ligatures: boolean;
 }
 
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSync(prefs: UserPreferences) {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushPreferences(userId, prefs);
+  }, 1000);
+}
+
 interface AppState {
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
+  darkMode: boolean;
+  language: string;
   terminalSettings: TerminalSettings;
+  setDarkMode: (dark: boolean) => void;
+  setLanguage: (lang: string) => void;
   setTerminalSettings: (settings: Partial<TerminalSettings>) => void;
+  applyRemotePreferences: (prefs: UserPreferences) => void;
+  getPreferences: () => UserPreferences;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'planner',
   setActiveTab: (tab) => set({ activeTab: tab }),
+
+  darkMode: document.documentElement.classList.contains('dark'),
+  language: i18n.language || 'en',
+
   terminalSettings: {
     themeName: 'Default',
     fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
     fontSize: 13,
     ligatures: false,
   },
-  setTerminalSettings: (updates) =>
-    set((state) => ({ terminalSettings: { ...state.terminalSettings, ...updates } })),
+
+  setDarkMode: (dark) => {
+    document.documentElement.classList.toggle('dark', dark);
+    set({ darkMode: dark });
+    debouncedSync(get().getPreferences());
+  },
+
+  setLanguage: (lang) => {
+    i18n.changeLanguage(lang);
+    set({ language: lang });
+    debouncedSync(get().getPreferences());
+  },
+
+  setTerminalSettings: (updates) => {
+    set((state) => ({
+      terminalSettings: { ...state.terminalSettings, ...updates },
+    }));
+    setTimeout(() => debouncedSync(get().getPreferences()), 0);
+  },
+
+  applyRemotePreferences: (prefs) => {
+    document.documentElement.classList.toggle('dark', prefs.darkMode);
+    i18n.changeLanguage(prefs.language);
+    set({
+      darkMode: prefs.darkMode,
+      language: prefs.language,
+      terminalSettings: {
+        themeName: prefs.terminalTheme,
+        fontFamily: prefs.terminalFont,
+        fontSize: prefs.terminalFontSize,
+        ligatures: prefs.terminalLigatures,
+      },
+    });
+  },
+
+  getPreferences: () => {
+    const state = get();
+    return {
+      darkMode: state.darkMode,
+      language: state.language,
+      terminalTheme: state.terminalSettings.themeName,
+      terminalFont: state.terminalSettings.fontFamily,
+      terminalFontSize: state.terminalSettings.fontSize,
+      terminalLigatures: state.terminalSettings.ligatures,
+    };
+  },
 }));
