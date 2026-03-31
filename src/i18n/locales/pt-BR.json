@@ -172,5 +172,29 @@
     "desc": "Selecione qual Agente assumirá a tarefa ativa. Ele injetará o contexto deste Markdown em seu fluxo autônomo.",
     "no_profiles": "Nenhum perfil configurado. Crie um Agent Profile na aba Agentes primeiro.",
     "dispatched": "Agente {{name}} despachado para a tarefa!"
+  },
+  "auth": {
+    "login": "Entrar",
+    "sign_up": "Criar Conta",
+    "logout": "Sair",
+    "email": "Email",
+    "password": "Senha",
+    "confirm_password": "Confirmar Senha",
+    "login_button": "Entrar",
+    "signup_button": "Criar Conta",
+    "or_continue_with": "Ou continue com",
+    "google": "Google",
+    "github": "GitHub",
+    "logging_in": "Entrando...",
+    "signing_up": "Criando conta...",
+    "login_success": "Login realizado com sucesso!",
+    "signup_success": "Conta criada! Verifique seu email para confirmar.",
+    "logout_success": "Desconectado.",
+    "error_invalid_credentials": "Email ou senha inválidos.",
+    "error_email_taken": "Este email já está cadastrado.",
+    "error_passwords_mismatch": "As senhas não conferem.",
+    "error_generic": "Algo deu errado. Tente novamente.",
+    "error_not_configured": "Autenticação não configurada. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env.",
+    "logged_in_as": "Logado como"
   }
 }

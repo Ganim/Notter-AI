@@ -172,5 +172,29 @@
     "desc": "Select which Agent will take over the active task. It will inject this Markdown context into its autonomous flow.",
     "no_profiles": "No profile configured. Create an Agent Profile in the Agents tab first.",
     "dispatched": "Agent {{name}} dispatched to the task!"
+  },
+  "auth": {
+    "login": "Login",
+    "sign_up": "Sign Up",
+    "logout": "Logout",
+    "email": "Email",
+    "password": "Password",
+    "confirm_password": "Confirm Password",
+    "login_button": "Login",
+    "signup_button": "Create Account",
+    "or_continue_with": "Or continue with",
+    "google": "Google",
+    "github": "GitHub",
+    "logging_in": "Logging in...",
+    "signing_up": "Creating account...",
+    "login_success": "Logged in successfully!",
+    "signup_success": "Account created! Check your email to confirm.",
+    "logout_success": "Logged out.",
+    "error_invalid_credentials": "Invalid email or password.",
+    "error_email_taken": "This email is already registered.",
+    "error_passwords_mismatch": "Passwords do not match.",
+    "error_generic": "Something went wrong. Try again.",
+    "error_not_configured": "Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env file.",
+    "logged_in_as": "Logged in as"
   }
 }
