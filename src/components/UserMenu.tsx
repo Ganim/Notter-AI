@@ -1,18 +1,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, Globe, Moon, Sun, User } from 'lucide-react';
+import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
+import { useAuthStore } from '@/stores/auth-store';
+import { AuthDialog } from '@/components/AuthDialog';
+import { toast } from 'sonner';
 
 export function UserMenu() {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const menuRef = useRef<HTMLDivElement>(null);
   const { terminalSettings, setTerminalSettings } = useAppStore();
+  const { user, signOut } = useAuthStore();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -40,6 +45,17 @@ export function UserMenu() {
     setSettingsOpen(true);
   };
 
+  const openAuthDialog = () => {
+    setOpen(false);
+    setAuthDialogOpen(true);
+  };
+
+  const handleLogout = async () => {
+    setOpen(false);
+    await signOut();
+    toast.success(t('auth.logout_success'));
+  };
+
   return (
     <>
       <div ref={menuRef} className="relative">
@@ -48,11 +64,19 @@ export function UserMenu() {
           className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
           <User size={16} />
-          <span className="hidden sm:inline">User</span>
+          <span className="hidden sm:inline">{user?.email ? user.email.split('@')[0] : 'User'}</span>
         </button>
 
         {open && (
           <div className="absolute right-0 top-full mt-1 w-56 bg-popover border border-border rounded-md shadow-lg z-50 py-1">
+            {user && (
+              <>
+                <div className="px-3 py-2 text-xs text-muted-foreground truncate border-b border-border mb-1">
+                  {t('auth.logged_in_as')} <span className="font-medium text-foreground">{user.email}</span>
+                </div>
+              </>
+            )}
+
             <button onClick={openSettings} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
               <Settings size={14} />
               {t('user_menu.settings')}
@@ -61,10 +85,18 @@ export function UserMenu() {
               <Puzzle size={14} />
               {t('user_menu.plugins')}
             </button>
-            <button disabled className="w-full flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground cursor-not-allowed">
-              <LogIn size={14} />
-              {t('user_menu.login')}
-            </button>
+
+            {user ? (
+              <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                <LogOut size={14} />
+                {t('auth.logout')}
+              </button>
+            ) : (
+              <button onClick={openAuthDialog} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                <LogIn size={14} />
+                {t('auth.login')}
+              </button>
+            )}
 
             <div className="border-t border-border my-1" />
 
@@ -92,6 +124,9 @@ export function UserMenu() {
           </div>
         )}
       </div>
+
+      {/* Auth Dialog */}
+      <AuthDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
 
       {/* Settings Dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
