@@ -110,7 +110,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="bg-muted/50 border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
+                  className="bg-background border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
 
@@ -122,7 +122,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="bg-muted/50 border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
+                  className="bg-background border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
 
@@ -135,7 +135,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="bg-muted/50 border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
+                    className="bg-background border border-border px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-ring"
                   />
                 </div>
               )}
