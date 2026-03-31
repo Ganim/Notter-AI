@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
+import { fetchPreferences, pushPreferences, fetchAgentProfiles, pushAgentProfiles } from '@/lib/sync';
+import { useAppStore } from '@/stores/app-store';
+import { useAgentsStore } from '@/stores/agents-store';
 
 interface AuthState {
   user: User | null;
@@ -13,6 +16,28 @@ interface AuthState {
   signUpWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
   signInWithOAuth: (provider: 'google' | 'github') => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
+}
+
+async function syncOnLogin(userId: string) {
+  try {
+    const remotePrefs = await fetchPreferences(userId);
+    if (remotePrefs) {
+      useAppStore.getState().applyRemotePreferences(remotePrefs);
+    } else {
+      const localPrefs = useAppStore.getState().getPreferences();
+      await pushPreferences(userId, localPrefs);
+    }
+
+    const remoteProfiles = await fetchAgentProfiles(userId);
+    if (remoteProfiles.length > 0) {
+      useAgentsStore.getState().applyRemoteProfiles(remoteProfiles);
+    } else {
+      const localProfiles = useAgentsStore.getState().profiles;
+      await pushAgentProfiles(userId, localProfiles);
+    }
+  } catch (e) {
+    console.error('Sync on login failed:', e);
+  }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -34,12 +59,18 @@ export const useAuthStore = create<AuthState>((set) => ({
         user: session?.user ?? null,
         loading: false,
       });
+      if (session?.user) {
+        syncOnLogin(session.user.id);
+      }
 
-      supabase.auth.onAuthStateChange((_event, session) => {
+      supabase.auth.onAuthStateChange((event, session) => {
         set({
           session,
           user: session?.user ?? null,
         });
+        if (event === 'SIGNED_IN' && session?.user) {
+          syncOnLogin(session.user.id);
+        }
       });
     } catch (e) {
       console.error('Auth initialization failed:', e);
