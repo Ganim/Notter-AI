@@ -78,7 +78,18 @@
     "system_prompt": "System Prompt (System Instructions)",
     "system_prompt_placeholder": "You are specialist agent X responsible for Y...",
     "no_profile": "No Agent profile in focus.",
-    "select_or_create": "Select or Create New Profile"
+    "select_or_create": "Select or Create New Profile",
+    "model": "Model",
+    "select_model": "Select a model",
+    "fetch_models_error": "Could not fetch Ollama models. Is Ollama running?",
+    "test_chat": "Test Chat",
+    "chat_placeholder": "Send a message to test this agent's configuration...",
+    "chat_clear": "Clear",
+    "chat_send": "Send",
+    "chat_empty": "Send a message to start testing.",
+    "status_connected": "Connected",
+    "status_error": "Error",
+    "status_loading": "Loading..."
   },
   "terminals": {
     "console_map": "Console Map",

@@ -78,7 +78,18 @@
     "system_prompt": "Prompt de Sistema (System Instructions)",
     "system_prompt_placeholder": "Você é o agente especialista X responsável por Y...",
     "no_profile": "Nenhum perfil de Agente em evidência.",
-    "select_or_create": "Selecionar ou Criar Novo Perfil"
+    "select_or_create": "Selecionar ou Criar Novo Perfil",
+    "model": "Modelo",
+    "select_model": "Selecione um modelo",
+    "fetch_models_error": "Não foi possível buscar modelos do Ollama. O Ollama está rodando?",
+    "test_chat": "Chat de Teste",
+    "chat_placeholder": "Envie uma mensagem para testar a configuração deste agente...",
+    "chat_clear": "Limpar",
+    "chat_send": "Enviar",
+    "chat_empty": "Envie uma mensagem para começar a testar.",
+    "status_connected": "Conectado",
+    "status_error": "Erro",
+    "status_loading": "Carregando..."
   },
   "terminals": {
     "console_map": "Console Map",
