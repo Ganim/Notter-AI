@@ -4,6 +4,7 @@ export interface AgentProfile {
   id: string;
   name: string;
   provider: AIProvider;
+  model: string;
   apiKey: string;
   systemPrompt: string;
   autonomous: boolean;
