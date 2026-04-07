@@ -7,6 +7,9 @@
   ],
   "permissions": [
     "core:default",
+    "deep-link:default",
+    "updater:default",
+    "process:default",
     "opener:default",
     "fs:default",
     "fs:allow-exists",

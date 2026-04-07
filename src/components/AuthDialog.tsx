@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,6 +14,7 @@ interface AuthDialogProps {
 export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
   const { t } = useTranslation();
   const { signInWithEmail, signUpWithEmail, signInWithOAuth, configured } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,6 +29,16 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     setError('');
     setLoading(false);
   };
+
+  // Auto-close dialog when user becomes authenticated (covers OAuth deep-link flow)
+  useEffect(() => {
+    if (open && user) {
+      onOpenChange(false);
+      toast.success(t('auth.login_success'));
+      resetForm();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, open]);
 
   const handleLogin = async () => {
     setError('');

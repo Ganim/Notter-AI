@@ -6,8 +6,8 @@ type Tab = 'planner' | 'board' | 'agents' | 'terminals';
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'planner', labelKey: 'nav.planner' },
-  { key: 'board', labelKey: 'nav.board' },
-  { key: 'agents', labelKey: 'nav.agents' },
+  // { key: 'board', labelKey: 'nav.board' },    // v2
+  // { key: 'agents', labelKey: 'nav.agents' },  // v2
   { key: 'terminals', labelKey: 'nav.terminals' },
 ];
 

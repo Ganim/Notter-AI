@@ -107,12 +107,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   signInWithOAuth: async (provider) => {
     if (!isSupabaseConfigured) return { error: 'not_configured' };
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: 'notterai://auth/callback',
+        skipBrowserRedirect: true,
+      },
     });
-    if (error) {
-      return { error: 'generic' };
+    if (error) return { error: 'generic' };
+    if (data?.url) {
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(data.url);
     }
     return {};
   },

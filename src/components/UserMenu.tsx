@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User } from 'lucide-react';
+import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
+import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
 
 export function UserMenu() {
@@ -14,6 +15,8 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
   const menuRef = useRef<HTMLDivElement>(null);
   const { darkMode, setDarkMode, language, setLanguage, terminalSettings, setTerminalSettings } = useAppStore();
   const { user, signOut } = useAuthStore();
@@ -52,6 +55,19 @@ export function UserMenu() {
     toast.success(t('auth.logout_success'));
   };
 
+  const handleCheckUpdates = async () => {
+    setOpen(false);
+    setUpdateDialogOpen(true);
+    setUpdateState({ kind: 'checking' });
+    const result = await checkForUpdates();
+    setUpdateState(result);
+  };
+
+  const handleInstallUpdate = async () => {
+    if (updateState.kind !== 'available') return;
+    await downloadAndInstall(updateState.update, setUpdateState);
+  };
+
   return (
     <>
       <div ref={menuRef} className="relative">
@@ -76,6 +92,10 @@ export function UserMenu() {
             <button onClick={openSettings} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
               <Settings size={14} />
               {t('user_menu.settings')}
+            </button>
+            <button onClick={handleCheckUpdates} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+              <Download size={14} />
+              {t('user_menu.check_updates')}
             </button>
             <button disabled className="w-full flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground cursor-not-allowed">
               <Puzzle size={14} />
@@ -123,6 +143,67 @@ export function UserMenu() {
 
       {/* Auth Dialog */}
       <AuthDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
+
+      {/* Update Dialog */}
+      <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('updater.title')}</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 flex flex-col items-center gap-3 text-center">
+            {updateState.kind === 'checking' && (
+              <>
+                <Loader2 size={32} className="animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{t('updater.checking')}</p>
+              </>
+            )}
+            {updateState.kind === 'up-to-date' && (
+              <>
+                <CheckCircle2 size={32} className="text-green-500" />
+                <p className="text-sm">{t('updater.up_to_date')}</p>
+                <p className="text-xs text-muted-foreground">v{updateState.current}</p>
+              </>
+            )}
+            {updateState.kind === 'available' && (
+              <>
+                <Download size={32} className="text-primary" />
+                <p className="text-sm font-medium">{t('updater.available')}</p>
+                <p className="text-xs text-muted-foreground">
+                  v{updateState.current} → <span className="text-foreground font-medium">v{updateState.next}</span>
+                </p>
+                <button
+                  onClick={handleInstallUpdate}
+                  className="mt-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
+                >
+                  {t('updater.install')}
+                </button>
+              </>
+            )}
+            {updateState.kind === 'downloading' && (
+              <>
+                <Loader2 size={32} className="animate-spin text-primary" />
+                <p className="text-sm">{t('updater.downloading')} {updateState.progress}%</p>
+                <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${updateState.progress}%` }} />
+                </div>
+              </>
+            )}
+            {updateState.kind === 'installing' && (
+              <>
+                <Loader2 size={32} className="animate-spin text-primary" />
+                <p className="text-sm">{t('updater.installing')}</p>
+              </>
+            )}
+            {updateState.kind === 'error' && (
+              <>
+                <AlertCircle size={32} className="text-destructive" />
+                <p className="text-sm text-destructive">{t('updater.error')}</p>
+                <p className="text-xs text-muted-foreground break-all">{updateState.message}</p>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Settings Dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

@@ -6,6 +6,7 @@ import { BoardTab } from '@/components/BoardTab';
 import { AgentsTab } from '@/components/AgentsTab';
 import { TerminalsTab } from '@/components/TerminalsTab';
 import { useAuthStore } from '@/stores/auth-store';
+import { initDeepLinkHandler } from '@/lib/deep-link';
 import './App.css';
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
 
   useEffect(() => {
     initialize();
+    initDeepLinkHandler().catch(console.error);
   }, [initialize]);
 
   return (

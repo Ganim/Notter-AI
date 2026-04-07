@@ -21,9 +21,25 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["notterai"]
+      }
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://raw.githubusercontent.com/Ganim/Notter-AI/main/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGQzVEQTM5MUZBNkI1NTEKUldSUnRhWWZPZHJGNytpRUZ4d0ppbUhJcms3Tk9WTGxqRFVqbUkvM1BRZ1BJSkI0eXdVVWxuNWIK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -8,10 +8,21 @@
   "user_menu": {
     "settings": "Configurações",
     "plugins": "Plugins",
+    "check_updates": "Verificar atualizações",
     "login": "Login",
     "themes": "Temas",
     "language": "Idioma",
     "dark_mode": "Modo Escuro"
+  },
+  "updater": {
+    "title": "Atualizações",
+    "checking": "Verificando atualizações...",
+    "up_to_date": "Você está na versão mais recente",
+    "available": "Uma nova versão está disponível",
+    "install": "Instalar e reiniciar",
+    "downloading": "Baixando...",
+    "installing": "Instalando, o app vai reiniciar...",
+    "error": "Falha na atualização"
   },
   "planner": {
     "projects": "Projetos",
