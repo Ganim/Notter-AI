@@ -72,7 +72,13 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       const raw = await readTextFile(path);
       try {
         const parsed = JSON.parse(raw) as PersistedShape;
-        const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+        const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+        // Reset stale 'running' tasks back to 'waiting' since the terminal
+        // they were attached to is gone after a process restart.
+        const actions = rawActions.map((a) => ({
+          ...a,
+          tasks: a.tasks.map((t) => (t.status === 'running' ? { ...t, status: 'waiting' as const } : t)),
+        }));
         set({ actions, loaded: true });
       } catch (parseErr) {
         console.error('[actions-store] parse error, backing up corrupted file', parseErr);

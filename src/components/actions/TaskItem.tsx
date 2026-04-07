@@ -65,15 +65,22 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
       toast.error('Select a terminal first');
       return;
     }
+    // Normalize line endings: PowerShell/cmd PTYs expect \r (CR) for Enter,
+    // not \n (LF). Multi-line prompts need each line separated by \r.
+    const normalized = task.prompt.replace(/\r?\n/g, '\r');
+    const data = normalized.endsWith('\r') ? normalized : normalized + '\r';
     try {
-      await invoke('write_pty', { id: selectedTerminal, data: task.prompt + '\r' });
+      console.log('[TaskItem] inject', { terminal: selectedTerminal, bytes: data.length });
+      await invoke('write_pty', { id: selectedTerminal, data });
       await updateTask(actionId, task.id, {
         terminalId: selectedTerminal,
         status: 'running',
       });
       toast.success('Prompt injected into terminal');
     } catch (err) {
-      toast.error(`Failed to inject: ${(err as Error).message ?? String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[TaskItem] write_pty failed', err);
+      toast.error(`Failed to inject: ${msg}`);
     }
   }
 
