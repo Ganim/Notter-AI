@@ -138,7 +138,17 @@
     "error_create_subject": "Error creating subject: {{error}}",
     "error_rename_subject": "Error renaming subject: {{error}}",
     "error_delete_subject": "Error deleting subject: {{error}}",
-    "project_path": "Folder"
+    "project_path": "Folder",
+    "process": "Process",
+    "processing": "Processing...",
+    "process_no_model": "Set a default AI model first (UserMenu → Manage AI)",
+    "process_empty_note": "Note is empty",
+    "process_success": "Action created with {{count}} tasks",
+    "process_error": "Failed to process note: {{error}}",
+    "history": "History",
+    "history_empty": "No previous versions",
+    "history_open_confirm": "Load this version? Current unsaved changes will be lost.",
+    "clear_after_process": "Note cleared after processing"
   },
   "agents": {
     "profiles": "Agent Profiles",
