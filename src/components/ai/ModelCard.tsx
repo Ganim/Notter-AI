@@ -43,7 +43,7 @@ export function ModelCard({ model }: ModelCardProps) {
 
   return (
     <div className="rounded-md border border-border p-3 flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-semibold text-foreground truncate">{model.name}</h4>
@@ -79,41 +79,45 @@ export function ModelCard({ model }: ModelCardProps) {
           )}
           <p className="text-[11px] text-muted-foreground mt-1.5">{model.sizeGb} GB</p>
         </div>
+
+        {/* Action button — top-right, fixed width */}
+        <div className="shrink-0 w-24 flex flex-col items-stretch gap-1">
+          {!installed && !progress && (
+            <button
+              onClick={handleInstall}
+              disabled={anyPulling}
+              className="h-7 inline-flex items-center justify-center gap-1 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download size={12} /> {t('manage_ai.install')}
+            </button>
+          )}
+          {installed && !progress && (
+            <>
+              {!isActive ? (
+                <button
+                  onClick={handleSetDefault}
+                  className="h-7 rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 truncate"
+                >
+                  {t('manage_ai.set_default')}
+                </button>
+              ) : (
+                <span className="inline-flex items-center justify-center gap-1 h-7 text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <Check size={12} /> {t('manage_ai.default_badge')}
+                </span>
+              )}
+              <button
+                onClick={handleRemove}
+                className="h-6 inline-flex items-center justify-center gap-1 rounded-md text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                title={t('manage_ai.remove')}
+              >
+                <Trash2 size={11} /> {t('manage_ai.remove')}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {progress ? (
-        <ProgressView progress={progress} />
-      ) : installed ? (
-        <div className="flex items-center gap-2">
-          {!isActive ? (
-            <button
-              onClick={handleSetDefault}
-              className="flex-1 h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              {t('manage_ai.set_default')}
-            </button>
-          ) : (
-            <span className="flex-1 inline-flex items-center justify-center gap-1 h-8 text-xs text-emerald-600 dark:text-emerald-400">
-              <Check size={14} /> {t('manage_ai.default_badge')}
-            </span>
-          )}
-          <button
-            onClick={handleRemove}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            title={t('manage_ai.remove')}
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={handleInstall}
-          disabled={anyPulling}
-          className="h-8 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Download size={14} /> {t('manage_ai.install')}
-        </button>
-      )}
+      {progress && <ProgressView progress={progress} />}
     </div>
   );
 }
