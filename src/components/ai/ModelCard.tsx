@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Check, Download, Loader2, Trash2 } from 'lucide-react';
 import type { BuiltinModel } from '@/lib/ai-models';
+import { CAPABILITY_COLORS, CAPABILITY_LABELS } from '@/lib/ai-models';
 import { useAiStore, type PullProgress } from '@/stores/ai-store';
 
 interface ModelCardProps {
@@ -58,7 +59,25 @@ export function ModelCard({ model }: ModelCardProps) {
             )}
           </div>
           <p className="text-xs text-muted-foreground">{model.description}</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">{model.sizeGb} GB</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            <span className="font-semibold uppercase tracking-wider text-[9px]">
+              {t('manage_ai.best_for')}:
+            </span>{' '}
+            {model.bestFor}
+          </p>
+          {model.capabilities.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {model.capabilities.map((cap) => (
+                <span
+                  key={cap}
+                  className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${CAPABILITY_COLORS[cap]}`}
+                >
+                  {CAPABILITY_LABELS[cap]}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground mt-1.5">{model.sizeGb} GB</p>
         </div>
       </div>
 

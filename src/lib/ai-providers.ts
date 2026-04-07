@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-export type CloudProviderId = 'gemini' | 'claude' | 'openai' | 'deepseek';
+export type CloudProviderId = 'claude' | 'groq' | 'gemini' | 'openai' | 'deepseek';
 export type ProviderId = 'ollama' | CloudProviderId;
 
 export interface ProviderPreset {
@@ -13,18 +13,25 @@ export interface ProviderPreset {
 
 export const CLOUD_PROVIDERS: ProviderPreset[] = [
   {
-    id: 'gemini',
-    name: 'Google Gemini',
-    defaultModel: 'gemini-2.0-flash',
-    docsUrl: 'https://aistudio.google.com/apikey',
-    keyPlaceholder: 'AIza...',
-  },
-  {
     id: 'claude',
     name: 'Anthropic Claude',
     defaultModel: 'claude-sonnet-4-5-20250929',
     docsUrl: 'https://console.anthropic.com/',
     keyPlaceholder: 'sk-ant-...',
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    defaultModel: 'llama-3.3-70b-versatile',
+    docsUrl: 'https://console.groq.com/keys',
+    keyPlaceholder: 'gsk_...',
+  },
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    defaultModel: 'gemini-2.0-flash',
+    docsUrl: 'https://aistudio.google.com/apikey',
+    keyPlaceholder: 'AIza...',
   },
   {
     id: 'openai',
@@ -111,12 +118,15 @@ export async function generateCloud(
       return text;
     }
 
+    case 'groq':
     case 'openai':
     case 'deepseek': {
       const url =
         providerId === 'openai'
           ? 'https://api.openai.com/v1/chat/completions'
-          : 'https://api.deepseek.com/v1/chat/completions';
+          : providerId === 'deepseek'
+          ? 'https://api.deepseek.com/v1/chat/completions'
+          : 'https://api.groq.com/openai/v1/chat/completions';
       const body = JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],

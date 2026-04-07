@@ -112,10 +112,19 @@
     "retry": "Tentar novamente",
     "manual_download": "Download manual",
     "cloud_providers": "Provedores em nuvem",
-    "cloud_hint": "Use suas próprias API keys. O provedor ativo é usado em todas as chamadas de IA. As chaves ficam armazenadas localmente neste navegador.",
+    "cloud_hint": "As chaves ficam armazenadas localmente neste navegador. Use sua própria API key.",
     "get_api_key": "Obter API key",
     "set_active": "Definir como ativo",
-    "active_provider": "Provedor ativo"
+    "active_provider": "Provedor ativo",
+    "local_providers": "Provedores locais",
+    "online_providers": "Provedores online",
+    "configured": "Configurado",
+    "not_configured": "Não configurado",
+    "api_key": "API Key",
+    "model": "Modelo",
+    "model_default_hint": "Padrão: {{model}}",
+    "best_for": "Recomendado para",
+    "ollama_not_installed_hint": "Ollama não está instalado. Clique em \"Instalar Ollama\" acima para baixar e instalar automaticamente. O instalador roda silenciosamente — sem janelas popup."
   },
   "updater": {
     "title": "Atualizações",

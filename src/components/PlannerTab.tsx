@@ -202,6 +202,29 @@ export function PlannerTab() {
       monaco.editor.defineTheme(`theme-${c.name}-light`, { base: c.light.base as any, inherit: true, rules: [], colors: { 'editor.background': c.light.hex } });
       monaco.editor.defineTheme(`theme-${c.name}-dark`, { base: c.dark.base as any, inherit: true, rules: [], colors: { 'editor.background': c.dark.hex } });
     });
+    // Define surrounding pairs for markdown so typing a quote/bracket while
+    // text is selected wraps it (VSCode-style) instead of replacing.
+    monaco.languages.setLanguageConfiguration('markdown', {
+      surroundingPairs: [
+        { open: '"', close: '"' },
+        { open: "'", close: "'" },
+        { open: '`', close: '`' },
+        { open: '(', close: ')' },
+        { open: '[', close: ']' },
+        { open: '{', close: '}' },
+        { open: '*', close: '*' },
+        { open: '_', close: '_' },
+        { open: '<', close: '>' },
+      ],
+      autoClosingPairs: [
+        { open: '(', close: ')' },
+        { open: '[', close: ']' },
+        { open: '{', close: '}' },
+        { open: '"', close: '"' },
+        { open: "'", close: "'" },
+        { open: '`', close: '`' },
+      ],
+    });
   };
 
   const handleEditorChange = (value: string | undefined) => {
@@ -449,66 +472,7 @@ export function PlannerTab() {
       <span className="font-semibold text-xs sm:text-sm text-foreground truncate min-w-0">
         {t('planner.notes_about')} <span className="text-primary">{selectedSubject?.replace('.md', '')}</span>
       </span>
-      {selectedProject && selectedSubject && (
-        <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button
-            onClick={handleProcess}
-            disabled={isProcessing || !subjectContent.trim() || !canProcess}
-            title={
-              !canProcess
-                ? t('planner.process_no_model')
-                : !subjectContent.trim()
-                ? t('planner.process_empty_note')
-                : t('planner.process')
-            }
-            className="inline-flex items-center gap-1 h-7 rounded-md bg-emerald-500 px-2.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {isProcessing ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Play size={12} fill="currentColor" />
-            )}
-            {isProcessing ? t('planner.processing') : t('planner.process')}
-          </button>
-          <div ref={historyRef} className="relative">
-            <button
-              onClick={() => setHistoryOpen((v) => !v)}
-              title={t('planner.history')}
-              className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <History size={12} />
-            </button>
-            {historyOpen && (
-              <div className="absolute right-0 top-8 z-50 w-80 bg-popover border border-border rounded-md shadow-lg py-1 max-h-96 overflow-auto">
-                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
-                  {t('planner.history')}
-                </div>
-                {subjectHistory.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
-                    {t('planner.history_empty')}
-                  </div>
-                ) : (
-                  subjectHistory.map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={() => handleOpenHistoryVersion(a.id)}
-                      className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border/50 last:border-b-0"
-                    >
-                      <div className="text-xs font-medium text-foreground truncate">
-                        {a.title || '(untitled)'}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {new Date(a.createdAt).toLocaleString()} · {a.tasks.length} tasks
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
         {renderColorPicker()}
         <div className="flex bg-muted rounded-md p-0.5 sm:p-1">
           <button onClick={() => setIsViewing(false)} className={`flex items-center gap-1 px-2 sm:px-3 py-1 rounded-sm text-xs font-medium transition-colors ${!isViewing ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
@@ -518,6 +482,64 @@ export function PlannerTab() {
             <Eye size={12} /><span className="hidden sm:inline">{t('planner.view')}</span>
           </button>
         </div>
+        {selectedProject && selectedSubject && (
+          <>
+            <div ref={historyRef} className="relative">
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                title={t('planner.history')}
+                className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <History size={12} />
+              </button>
+              {historyOpen && (
+                <div className="absolute right-0 top-8 z-50 w-80 bg-popover border border-border rounded-md shadow-lg py-1 max-h-96 overflow-auto">
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
+                    {t('planner.history')}
+                  </div>
+                  {subjectHistory.length === 0 ? (
+                    <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
+                      {t('planner.history_empty')}
+                    </div>
+                  ) : (
+                    subjectHistory.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => handleOpenHistoryVersion(a.id)}
+                        className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border/50 last:border-b-0"
+                      >
+                        <div className="text-xs font-medium text-foreground truncate">
+                          {a.title || '(untitled)'}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          {new Date(a.createdAt).toLocaleString()} · {a.tasks.length} tasks
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleProcess}
+              disabled={isProcessing || !subjectContent.trim() || !canProcess}
+              title={
+                !canProcess
+                  ? t('planner.process_no_model')
+                  : !subjectContent.trim()
+                  ? t('planner.process_empty_note')
+                  : t('planner.process')
+              }
+              className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {isProcessing ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Play size={12} fill="currentColor" />
+              )}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -529,7 +551,7 @@ export function PlannerTab() {
           height="100%" defaultLanguage="markdown" theme={editorTheme}
           beforeMount={handleEditorWillMount} onMount={handleEditorMount}
           value={subjectContent} onChange={handleEditorChange}
-          options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 } }}
+          options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 }, autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined' }}
           className="absolute inset-0"
         />
       ) : (

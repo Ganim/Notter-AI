@@ -112,10 +112,19 @@
     "retry": "Retry",
     "manual_download": "Manual download",
     "cloud_providers": "Cloud providers",
-    "cloud_hint": "Bring your own API keys. Active provider is used for all AI calls. Keys are stored locally in this browser.",
+    "cloud_hint": "Keys are stored locally in this browser. Use your own API key.",
     "get_api_key": "Get API key",
     "set_active": "Set as active",
-    "active_provider": "Active provider"
+    "active_provider": "Active provider",
+    "local_providers": "Local providers",
+    "online_providers": "Online providers",
+    "configured": "Configured",
+    "not_configured": "Not configured",
+    "api_key": "API Key",
+    "model": "Model",
+    "model_default_hint": "Default: {{model}}",
+    "best_for": "Best for",
+    "ollama_not_installed_hint": "Ollama is not installed. Click \"Install Ollama\" above to download and install it automatically. The installer runs silently — no popup windows."
   },
   "updater": {
     "title": "Updates",

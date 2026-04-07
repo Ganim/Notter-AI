@@ -4,7 +4,6 @@ import { useAiStore } from '@/stores/ai-store';
 import { BUILTIN_MODELS } from '@/lib/ai-models';
 import { ModelCard } from './ModelCard';
 import { TestConnection } from './TestConnection';
-import { CloudProvidersSection } from './CloudProvidersSection';
 
 export function OllamaPanel() {
   const { t } = useTranslation();
@@ -96,10 +95,7 @@ export function OllamaPanel() {
         {status === 'not-installed' && !installingOllama && (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 flex items-start gap-2">
             <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 mt-0.5" />
-            <p className="text-xs text-muted-foreground">
-              Ollama is not installed. Click "Install Ollama" above to download and install it
-              automatically. The installer runs silently — no popup windows.
-            </p>
+            <p className="text-xs text-muted-foreground">{t('manage_ai.ollama_not_installed_hint')}</p>
           </div>
         )}
 
@@ -113,8 +109,6 @@ export function OllamaPanel() {
         </section>
 
         <TestConnection />
-
-        <CloudProvidersSection />
       </div>
     </div>
   );

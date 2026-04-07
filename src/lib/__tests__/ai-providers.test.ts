@@ -12,14 +12,18 @@ beforeEach(() => {
 });
 
 describe('CLOUD_PROVIDERS registry', () => {
-  it('exposes 4 providers with required fields', () => {
-    expect(CLOUD_PROVIDERS).toHaveLength(4);
+  it('exposes 5 providers with required fields', () => {
+    expect(CLOUD_PROVIDERS).toHaveLength(5);
     for (const p of CLOUD_PROVIDERS) {
       expect(p.id).toBeTruthy();
       expect(p.name).toBeTruthy();
       expect(p.defaultModel).toBeTruthy();
       expect(p.docsUrl).toMatch(/^https?:\/\//);
     }
+  });
+
+  it('includes Groq', () => {
+    expect(CLOUD_PROVIDERS.find((p) => p.id === 'groq')).toBeDefined();
   });
 
   it('Claude default model has the correct shape (no broken claude-sonnet-4-6)', () => {
@@ -97,6 +101,20 @@ describe('generateCloud — deepseek', () => {
     const call = vi.mocked(invoke).mock.calls[0];
     const payload = (call[1] as { payload: { url: string } }).payload;
     expect(payload.url).toBe('https://api.deepseek.com/v1/chat/completions');
+  });
+});
+
+describe('generateCloud — groq', () => {
+  it('uses groq endpoint with OpenAI-compatible shape', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(
+      JSON.stringify({ choices: [{ message: { content: 'groq response' } }] }),
+    );
+    const out = await generateCloud('groq', 'llama-3.3-70b-versatile', 'gsk_test', 'hi');
+    expect(out).toBe('groq response');
+    const call = vi.mocked(invoke).mock.calls[0];
+    const payload = (call[1] as { payload: { url: string; headers: Record<string, string> } }).payload;
+    expect(payload.url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(payload.headers.Authorization).toBe('Bearer gsk_test');
   });
 });
 
