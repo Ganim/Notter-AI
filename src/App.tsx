@@ -4,9 +4,11 @@ import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
 import { BoardTab } from '@/components/BoardTab';
 import { AgentsTab } from '@/components/AgentsTab';
+import { ActionsTab } from '@/components/ActionsTab';
 import { TerminalsTab } from '@/components/TerminalsTab';
 import { useAuthStore } from '@/stores/auth-store';
 import { useAiStore } from '@/stores/ai-store';
+import { useActionsStore } from '@/stores/actions-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
 import './App.css';
 
@@ -16,6 +18,7 @@ function App() {
   useEffect(() => {
     initialize();
     useAiStore.getState().initialize().catch(console.error);
+    useActionsStore.getState().load().catch(console.error);
     initDeepLinkHandler().catch(console.error);
   }, [initialize]);
 
@@ -27,6 +30,7 @@ function App() {
           planner: <PlannerTab />,
           board: <BoardTab />,
           agents: <AgentsTab />,
+          actions: <ActionsTab />,
           terminals: <TerminalsTab />,
         }}
       </Layout>

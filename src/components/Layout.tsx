@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
 
-type Tab = 'planner' | 'board' | 'agents' | 'terminals';
+type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
 const isDev = import.meta.env.DEV;
 
@@ -11,6 +11,7 @@ const TABS: { key: Tab; labelKey: string }[] = isDev
       { key: 'planner', labelKey: 'nav.planner' },
       { key: 'board', labelKey: 'nav.board' },
       { key: 'agents', labelKey: 'nav.agents' },
+      { key: 'actions', labelKey: 'nav.actions' },
       { key: 'terminals', labelKey: 'nav.terminals' },
     ]
   : [
@@ -31,11 +32,6 @@ export function Layout({ children }: LayoutProps) {
       {/* Navbar */}
       <div className="h-12 shrink-0 border-b flex items-center justify-between px-4 bg-muted/40">
         <div className="flex items-center gap-2">
-          {isDev && (
-            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40">
-              DEV-MODE
-            </span>
-          )}
           {TABS.map((tab) => (
             <button
               key={tab.key}
@@ -49,6 +45,11 @@ export function Layout({ children }: LayoutProps) {
               {t(tab.labelKey)}
             </button>
           ))}
+          {isDev && (
+            <span className="ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40">
+              DEV-MODE
+            </span>
+          )}
         </div>
         <UserMenu />
       </div>
