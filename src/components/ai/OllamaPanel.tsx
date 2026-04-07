@@ -4,6 +4,7 @@ import { useAiStore } from '@/stores/ai-store';
 import { BUILTIN_MODELS } from '@/lib/ai-models';
 import { ModelCard } from './ModelCard';
 import { TestConnection } from './TestConnection';
+import { CloudProvidersSection } from './CloudProvidersSection';
 
 export function OllamaPanel() {
   const { t } = useTranslation();
@@ -112,6 +113,8 @@ export function OllamaPanel() {
         </section>
 
         <TestConnection />
+
+        <CloudProvidersSection />
       </div>
     </div>
   );

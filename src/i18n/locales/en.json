@@ -81,7 +81,12 @@
     "error_pull": "Pull failed: {{error}}",
     "try_again": "Try again",
     "retry": "Retry",
-    "manual_download": "Manual download"
+    "manual_download": "Manual download",
+    "cloud_providers": "Cloud providers",
+    "cloud_hint": "Bring your own API keys. Active provider is used for all AI calls. Keys are stored locally in this browser.",
+    "get_api_key": "Get API key",
+    "set_active": "Set as active",
+    "active_provider": "Active provider"
   },
   "updater": {
     "title": "Updates",

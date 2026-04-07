@@ -1,11 +1,14 @@
-import { generate } from '@/lib/ollama';
+import { generateText } from '@/lib/ai-client';
+import type { ProviderId } from '@/lib/ai-providers';
 import type { Action, ActionTask } from '@/types/actions';
 
 export interface ProcessInput {
   projectName: string;
   subjectName: string;
   noteMarkdown: string;
+  providerId: ProviderId;
   modelTag: string;
+  apiKey?: string;
 }
 
 export interface RawAiResponse {
@@ -89,7 +92,12 @@ export async function processNoteToAction(input: ProcessInput): Promise<Action> 
   const userPrompt = buildUserPrompt(input);
   const fullPrompt = `${SYSTEM_PROMPT}\n\n${userPrompt}`;
 
-  const rawResponse = await generate(input.modelTag, fullPrompt);
+  const rawResponse = await generateText({
+    providerId: input.providerId,
+    model: input.modelTag,
+    apiKey: input.apiKey,
+    prompt: fullPrompt,
+  });
   const { title, summary, tasks: rawTasks } = parseAiResponse(rawResponse);
 
   const now = new Date().toISOString();

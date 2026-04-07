@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/ollama', () => ({
-  generate: vi.fn(),
+vi.mock('@/lib/ai-client', () => ({
+  generateText: vi.fn(),
 }));
 
-import * as ollama from '@/lib/ollama';
+import * as aiClient from '@/lib/ai-client';
 import { buildUserPrompt, parseAiResponse, processNoteToAction } from '@/lib/action-processor';
 
 beforeEach(() => {
@@ -17,6 +17,7 @@ describe('buildUserPrompt', () => {
       projectName: 'proj',
       subjectName: 'sub.md',
       noteMarkdown: '# Hello',
+      providerId: 'ollama',
       modelTag: 'q:4b',
     });
     expect(prompt).toContain('proj');
@@ -87,7 +88,7 @@ describe('parseAiResponse', () => {
 
 describe('processNoteToAction', () => {
   it('returns an Action built from the AI response', async () => {
-    vi.mocked(ollama.generate).mockResolvedValueOnce(
+    vi.mocked(aiClient.generateText).mockResolvedValueOnce(
       JSON.stringify({
         title: 'Setup auth',
         summary: 'Add login flow',
@@ -99,6 +100,7 @@ describe('processNoteToAction', () => {
       projectName: 'p',
       subjectName: 's.md',
       noteMarkdown: 'Need auth',
+      providerId: 'ollama',
       modelTag: 'qwen3-vl:4b',
     });
 
@@ -113,27 +115,46 @@ describe('processNoteToAction', () => {
   });
 
   it('falls back to default title when AI omits it', async () => {
-    vi.mocked(ollama.generate).mockResolvedValueOnce(
+    vi.mocked(aiClient.generateText).mockResolvedValueOnce(
       JSON.stringify({ summary: 'S', tasks: [{ objective: 'o', prompt: 'p' }] }),
     );
     const action = await processNoteToAction({
       projectName: 'p',
       subjectName: 's.md',
       noteMarkdown: 'n',
+      providerId: 'ollama',
       modelTag: 'm',
     });
     expect(action.title).toBe('Process of s.md');
   });
 
   it('propagates AI errors', async () => {
-    vi.mocked(ollama.generate).mockRejectedValueOnce(new Error('network down'));
+    vi.mocked(aiClient.generateText).mockRejectedValueOnce(new Error('network down'));
     await expect(
       processNoteToAction({
         projectName: 'p',
         subjectName: 's',
         noteMarkdown: 'n',
+        providerId: 'ollama',
         modelTag: 'm',
       }),
     ).rejects.toThrow('network down');
+  });
+
+  it('passes providerId and apiKey to the client', async () => {
+    vi.mocked(aiClient.generateText).mockResolvedValueOnce(
+      JSON.stringify({ title: 'X', summary: 'S', tasks: [{ objective: 'o', prompt: 'p' }] }),
+    );
+    await processNoteToAction({
+      projectName: 'p',
+      subjectName: 's',
+      noteMarkdown: 'n',
+      providerId: 'gemini',
+      modelTag: 'gemini-2.0-flash',
+      apiKey: 'AIza-test',
+    });
+    expect(aiClient.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'gemini', model: 'gemini-2.0-flash', apiKey: 'AIza-test' }),
+    );
   });
 });

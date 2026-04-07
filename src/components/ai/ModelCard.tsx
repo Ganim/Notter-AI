@@ -10,12 +10,20 @@ interface ModelCardProps {
 export function ModelCard({ model }: ModelCardProps) {
   const { t } = useTranslation();
   const installed = useAiStore((s) => s.installedModels.includes(model.tag));
-  const isActive = useAiStore((s) => s.activeModelTag === model.tag);
+  const isActive = useAiStore(
+    (s) => s.activeModelTag === model.tag && s.activeProviderId === 'ollama',
+  );
   const progress = useAiStore((s) => s.pulling[model.tag]);
   const anyPulling = useAiStore((s) => Object.keys(s.pulling).length > 0);
   const pullModel = useAiStore((s) => s.pullModel);
   const removeModel = useAiStore((s) => s.removeModel);
   const setActiveModel = useAiStore((s) => s.setActiveModel);
+  const setActiveProvider = useAiStore((s) => s.setActiveProvider);
+
+  function handleSetDefault() {
+    setActiveModel(model.tag);
+    setActiveProvider('ollama');
+  }
 
   function handleInstall() {
     pullModel(model.tag).catch((e) => console.error('pull failed', e));
@@ -60,7 +68,7 @@ export function ModelCard({ model }: ModelCardProps) {
         <div className="flex items-center gap-2">
           {!isActive ? (
             <button
-              onClick={() => setActiveModel(model.tag)}
+              onClick={handleSetDefault}
               className="flex-1 h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
             >
               {t('manage_ai.set_default')}

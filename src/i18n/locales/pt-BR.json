@@ -81,7 +81,12 @@
     "error_pull": "Falha no download: {{error}}",
     "try_again": "Tentar de novo",
     "retry": "Tentar novamente",
-    "manual_download": "Download manual"
+    "manual_download": "Download manual",
+    "cloud_providers": "Provedores em nuvem",
+    "cloud_hint": "Use suas próprias API keys. O provedor ativo é usado em todas as chamadas de IA. As chaves ficam armazenadas localmente neste navegador.",
+    "get_api_key": "Obter API key",
+    "set_active": "Definir como ativo",
+    "active_provider": "Provedor ativo"
   },
   "updater": {
     "title": "Atualizações",

@@ -2,21 +2,26 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Loader2 } from 'lucide-react';
 import { useAiStore } from '@/stores/ai-store';
-import { generate } from '@/lib/ollama';
+import { generateText } from '@/lib/ai-client';
 
 type State = 'idle' | 'generating' | 'loading-model' | 'received' | 'error';
 
 export function TestConnection() {
   const { t } = useTranslation();
   const activeTag = useAiStore((s) => s.activeModelTag);
+  const activeProviderId = useAiStore((s) => s.activeProviderId);
+  const cloudConfigs = useAiStore((s) => s.cloudConfigs);
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
   const [state, setState] = useState<State>('idle');
 
-  const disabled = !activeTag;
+  const disabled =
+    activeProviderId === 'ollama'
+      ? !activeTag
+      : !cloudConfigs[activeProviderId].apiKey.trim();
 
   async function handleSend() {
-    if (!activeTag || !prompt.trim()) return;
+    if (disabled || !prompt.trim()) return;
     setState('generating');
     setResponse('');
 
@@ -30,7 +35,16 @@ export function TestConnection() {
     }, 90000);
 
     try {
-      const out = await generate(activeTag, prompt);
+      let model: string;
+      let apiKey: string | undefined;
+      if (activeProviderId === 'ollama') {
+        model = activeTag!;
+      } else {
+        const cfg = cloudConfigs[activeProviderId];
+        model = cfg.model;
+        apiKey = cfg.apiKey;
+      }
+      const out = await generateText({ providerId: activeProviderId, model, apiKey, prompt });
       setResponse(out);
       setState('received');
     } catch (e) {

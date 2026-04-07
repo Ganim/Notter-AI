@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { appLocalDataDir } from '@tauri-apps/api/path';
 import * as ollama from '@/lib/ollama';
+import type { CloudProviderId, ProviderId } from '@/lib/ai-providers';
+import { CLOUD_PROVIDERS } from '@/lib/ai-providers';
 
 const STORAGE_KEY = 'notter-ai:provider-state';
 
@@ -19,10 +21,32 @@ interface InstallingOllamaState {
   total: number;
 }
 
-interface AiState {
+export interface CloudProviderConfig {
+  apiKey: string;
+  model: string;
+}
+
+type CloudConfigs = Record<CloudProviderId, CloudProviderConfig>;
+
+function defaultCloudConfigs(): CloudConfigs {
+  return CLOUD_PROVIDERS.reduce<CloudConfigs>(
+    (acc, p) => {
+      acc[p.id] = { apiKey: '', model: p.defaultModel };
+      return acc;
+    },
+    {} as CloudConfigs,
+  );
+}
+
+interface PersistedState {
+  activeModelTag: string | null;
+  activeProviderId: ProviderId;
+  cloudConfigs: CloudConfigs;
+}
+
+interface AiState extends PersistedState {
   ollamaStatus: OllamaStatus;
   installedModels: string[];
-  activeModelTag: string | null;
   pulling: Record<string, PullProgress>;
   installingOllama: InstallingOllamaState | null;
 
@@ -34,20 +58,32 @@ interface AiState {
   pullModel(tag: string): Promise<void>;
   removeModel(tag: string): Promise<void>;
   setActiveModel(tag: string): void;
+
+  setActiveProvider(id: ProviderId): void;
+  updateCloudConfig(id: CloudProviderId, patch: Partial<CloudProviderConfig>): void;
 }
 
-function loadPersisted(): { activeModelTag: string | null } {
+function loadPersisted(): PersistedState {
+  const fallback: PersistedState = {
+    activeModelTag: null,
+    activeProviderId: 'ollama',
+    cloudConfigs: defaultCloudConfigs(),
+  };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { activeModelTag: null };
-    const parsed = JSON.parse(raw);
-    return { activeModelTag: parsed.activeModelTag ?? null };
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    return {
+      activeModelTag: parsed.activeModelTag ?? null,
+      activeProviderId: parsed.activeProviderId ?? 'ollama',
+      cloudConfigs: { ...defaultCloudConfigs(), ...(parsed.cloudConfigs ?? {}) },
+    };
   } catch {
-    return { activeModelTag: null };
+    return fallback;
   }
 }
 
-function persist(state: { activeModelTag: string | null }) {
+function persist(state: PersistedState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
@@ -59,12 +95,18 @@ export const useAiStore = create<AiState>((set, get) => ({
   ollamaStatus: 'unknown',
   installedModels: [],
   activeModelTag: null,
+  activeProviderId: 'ollama',
+  cloudConfigs: defaultCloudConfigs(),
   pulling: {},
   installingOllama: null,
 
   async initialize() {
-    const { activeModelTag } = loadPersisted();
-    set({ activeModelTag });
+    const persisted = loadPersisted();
+    set({
+      activeModelTag: persisted.activeModelTag,
+      activeProviderId: persisted.activeProviderId,
+      cloudConfigs: persisted.cloudConfigs,
+    });
     await get().refreshStatus();
     if (get().ollamaStatus === 'running') {
       await get().refreshInstalledModels();
@@ -92,11 +134,11 @@ export const useAiStore = create<AiState>((set, get) => ({
 
   async refreshInstalledModels() {
     const tags = await ollama.listInstalledModels();
-    const { activeModelTag } = get();
+    const { activeModelTag, activeProviderId, cloudConfigs } = get();
     const next: Partial<AiState> = { installedModels: tags };
     if (activeModelTag && !tags.includes(activeModelTag)) {
       next.activeModelTag = null;
-      persist({ activeModelTag: null });
+      persist({ activeModelTag: null, activeProviderId, cloudConfigs });
     }
     set(next);
   },
@@ -198,8 +240,25 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   setActiveModel(tag: string) {
+    const { activeProviderId, cloudConfigs } = get();
     set({ activeModelTag: tag });
-    persist({ activeModelTag: tag });
+    persist({ activeModelTag: tag, activeProviderId, cloudConfigs });
+  },
+
+  setActiveProvider(id) {
+    const { activeModelTag, cloudConfigs } = get();
+    set({ activeProviderId: id });
+    persist({ activeModelTag, activeProviderId: id, cloudConfigs });
+  },
+
+  updateCloudConfig(id, patch) {
+    const next = {
+      ...get().cloudConfigs,
+      [id]: { ...get().cloudConfigs[id], ...patch },
+    };
+    set({ cloudConfigs: next });
+    const { activeModelTag, activeProviderId } = get();
+    persist({ activeModelTag, activeProviderId, cloudConfigs: next });
   },
 }));
 

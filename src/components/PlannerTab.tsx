@@ -59,9 +59,11 @@ export function PlannerTab() {
   const [isTransformOpen, setIsTransformOpen] = useState(false);
   const [, setIsTransforming] = useState(false);
 
-  // Action processing (Phase 3)
+  // Action processing (Phase 3 + Phase 5 multi-provider)
   const activeModelTag = useAiStore((s) => s.activeModelTag);
   const ollamaStatus = useAiStore((s) => s.ollamaStatus);
+  const activeProviderId = useAiStore((s) => s.activeProviderId);
+  const cloudConfigs = useAiStore((s) => s.cloudConfigs);
   const addAction = useActionsStore((s) => s.addAction);
   const allActions = useActionsStore((s) => s.actions);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
@@ -277,23 +279,43 @@ export function PlannerTab() {
     }
   };
 
+  const canProcess = (() => {
+    if (activeProviderId === 'ollama') {
+      return ollamaStatus === 'running' && !!activeModelTag;
+    }
+    const cfg = cloudConfigs[activeProviderId];
+    return !!cfg?.apiKey.trim() && !!cfg?.model.trim();
+  })();
+
   const handleProcess = async () => {
     if (!selectedProject || !selectedSubject) return;
     if (!subjectContent.trim()) {
       toast.error(t('planner.process_empty_note'));
       return;
     }
-    if (!activeModelTag || ollamaStatus !== 'running') {
+    if (!canProcess) {
       toast.error(t('planner.process_no_model'));
       return;
     }
     setIsProcessing(true);
     try {
+      let modelTag: string;
+      let apiKey: string | undefined;
+      if (activeProviderId === 'ollama') {
+        modelTag = activeModelTag!;
+      } else {
+        const cfg = cloudConfigs[activeProviderId];
+        modelTag = cfg.model;
+        apiKey = cfg.apiKey;
+      }
+
       const action = await processNoteToAction({
         projectName: selectedProject.name,
         subjectName: selectedSubject,
         noteMarkdown: subjectContent,
-        modelTag: activeModelTag,
+        providerId: activeProviderId,
+        modelTag,
+        apiKey,
       });
       await addAction(action);
       toast.success(t('planner.process_success', { count: action.tasks.length }));
@@ -431,14 +453,9 @@ export function PlannerTab() {
         <div className="flex items-center gap-1 shrink-0 ml-2">
           <button
             onClick={handleProcess}
-            disabled={
-              isProcessing ||
-              !subjectContent.trim() ||
-              !activeModelTag ||
-              ollamaStatus !== 'running'
-            }
+            disabled={isProcessing || !subjectContent.trim() || !canProcess}
             title={
-              !activeModelTag || ollamaStatus !== 'running'
+              !canProcess
                 ? t('planner.process_no_model')
                 : !subjectContent.trim()
                 ? t('planner.process_empty_note')
