@@ -1,3 +1,5 @@
+mod ollama_install;
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -260,6 +262,11 @@ pub fn run() {
             resize_pty,
             close_pty,
             llm_request,
+            ollama_install::ollama_check_running,
+            ollama_install::ollama_check_installed,
+            ollama_install::ollama_download_installer,
+            ollama_install::ollama_run_installer,
+            ollama_install::ollama_start_service,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
