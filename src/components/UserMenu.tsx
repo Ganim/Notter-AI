@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Brain } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
+import { ManageAiDialog } from '@/components/ai/ManageAiDialog';
 import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
 
@@ -17,6 +18,7 @@ export function UserMenu() {
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
+  const [manageAiOpen, setManageAiOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { darkMode, setDarkMode, language, setLanguage, terminalSettings, setTerminalSettings } = useAppStore();
   const { user, signOut } = useAuthStore();
@@ -42,6 +44,11 @@ export function UserMenu() {
   const openSettings = () => {
     setOpen(false);
     setSettingsOpen(true);
+  };
+
+  const openManageAi = () => {
+    setOpen(false);
+    setManageAiOpen(true);
   };
 
   const openAuthDialog = () => {
@@ -93,6 +100,10 @@ export function UserMenu() {
               <Settings size={14} />
               {t('user_menu.settings')}
             </button>
+            <button onClick={openManageAi} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+              <Brain size={14} />
+              {t('user_menu.manage_ai')}
+            </button>
             <button onClick={handleCheckUpdates} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
               <Download size={14} />
               {t('user_menu.check_updates')}
@@ -143,6 +154,9 @@ export function UserMenu() {
 
       {/* Auth Dialog */}
       <AuthDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
+
+      {/* Manage AI Dialog */}
+      <ManageAiDialog open={manageAiOpen} onOpenChange={setManageAiOpen} />
 
       {/* Update Dialog */}
       <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
