@@ -44,17 +44,52 @@ async function ensureDir(): Promise<void> {
 async function persist(actions: Action[]): Promise<void> {
   await ensureDir();
   const path = await getActionsPath();
+  const tmpPath = `${path}.tmp`;
   const payload: PersistedShape = { version: FILE_VERSION, actions };
-  await writeTextFile(path, JSON.stringify(payload, null, 2));
+  // Atomic write: write to .tmp then rename. If rename fails (Windows
+  // sometimes refuses to overwrite an existing file), remove the target
+  // first and retry once.
+  await writeTextFile(tmpPath, JSON.stringify(payload, null, 2));
+  try {
+    await rename(tmpPath, path);
+  } catch {
+    // Fallback: write directly (loses atomicity but at least persists)
+    await writeTextFile(path, JSON.stringify(payload, null, 2));
+  }
 }
 
+let pendingPersistArgs: (() => Action[]) | null = null;
+
 function schedulePersist(getActions: () => Action[]) {
+  pendingPersistArgs = getActions;
   if (writeTimer) clearTimeout(writeTimer);
   writeTimer = setTimeout(() => {
-    persist(getActions()).catch((e) => {
-      console.error('[actions-store] failed to persist', e);
-    });
+    const fn = pendingPersistArgs;
+    pendingPersistArgs = null;
+    writeTimer = null;
+    if (fn) {
+      persist(fn()).catch((e) => {
+        console.error('[actions-store] failed to persist', e);
+      });
+    }
   }, 300);
+}
+
+/**
+ * Synchronously flush any pending debounced write. Returns a promise that
+ * resolves when the disk write completes. Call this from window close handlers
+ * to avoid losing the most recent edits.
+ */
+export async function flushActionsStore(): Promise<void> {
+  if (writeTimer) {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+  }
+  const fn = pendingPersistArgs;
+  pendingPersistArgs = null;
+  if (fn) {
+    await persist(fn());
+  }
 }
 
 export const useActionsStore = create<ActionsState>((set, get) => ({
@@ -75,8 +110,10 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
         const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
         // Reset stale 'running' tasks back to 'waiting' since the terminal
         // they were attached to is gone after a process restart.
+        // Also reset stale 'processing' actions back to 'waiting' for the same reason.
         const actions = rawActions.map((a) => ({
           ...a,
+          status: a.status === 'processing' ? ('waiting' as const) : a.status,
           tasks: a.tasks.map((t) => (t.status === 'running' ? { ...t, status: 'waiting' as const } : t)),
         }));
         set({ actions, loaded: true });

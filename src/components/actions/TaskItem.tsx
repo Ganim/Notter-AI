@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
@@ -41,11 +41,22 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
   const [selectedTerminal, setSelectedTerminal] = useState<string>(task.terminalId || '');
   const [feedbackDraft, setFeedbackDraft] = useState<string>(task.returnText);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const isEditingRef = useRef(false);
+
+  // Sync local draft when the task is updated externally (e.g. by the
+  // analyzer auto-appending output) — but only when the user isn't actively
+  // typing in the textarea.
+  useEffect(() => {
+    if (!isEditingRef.current) {
+      setFeedbackDraft(task.returnText);
+    }
+  }, [task.returnText]);
   const cycleTaskStatus = useActionsStore((s) => s.cycleTaskStatus);
   const updateTask = useActionsStore((s) => s.updateTask);
   const updateAction = useActionsStore((s) => s.updateAction);
-  const actions = useActionsStore((s) => s.actions);
   const consoles = useTerminalsStore((s) => s.consoles);
+  const setTerminalRunningTask = useTerminalsStore((s) => s.setTerminalRunningTask);
+  const clearRunningTaskByTaskId = useTerminalsStore((s) => s.clearRunningTaskByTaskId);
   const activeProviderId = useAiStore((s) => s.activeProviderId);
   const activeModelTag = useAiStore((s) => s.activeModelTag);
   const cloudConfigs = useAiStore((s) => s.cloudConfigs);
@@ -58,11 +69,11 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
   async function handleRun(e: React.MouseEvent) {
     e.stopPropagation();
     if (!task.prompt.trim()) {
-      toast.error('Task has no prompt to run');
+      toast.error(t('actions.task_no_prompt'));
       return;
     }
     if (!selectedTerminal) {
-      toast.error('Select a terminal first');
+      toast.error(t('actions.task_select_terminal'));
       return;
     }
     // Normalize line endings: PowerShell/cmd PTYs expect \r (CR) for Enter,
@@ -76,22 +87,29 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
         terminalId: selectedTerminal,
         status: 'running',
       });
-      toast.success('Prompt injected into terminal');
+      setTerminalRunningTask(selectedTerminal, {
+        actionId,
+        taskId: task.id,
+        label: task.objective || '(task)',
+      });
+      toast.success(t('actions.toast_inject_success'));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[TaskItem] write_pty failed', err);
-      toast.error(`Failed to inject: ${msg}`);
+      toast.error(t('actions.toast_inject_fail', { error: msg }));
     }
   }
 
   async function handleMarkDone(e: React.MouseEvent) {
     e.stopPropagation();
     await updateTask(actionId, task.id, { status: 'done', returnText: feedbackDraft });
+    clearRunningTaskByTaskId(task.id);
   }
 
   async function handleMarkFailed(e: React.MouseEvent) {
     e.stopPropagation();
     await updateTask(actionId, task.id, { status: 'failed', returnText: feedbackDraft });
+    clearRunningTaskByTaskId(task.id);
   }
 
   async function handleSaveFeedback() {
@@ -103,24 +121,27 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
     e.stopPropagation();
     const effectiveFeedback = feedbackDraft.trim();
     if (!effectiveFeedback) {
-      toast.error('Enter some feedback first');
+      toast.error(t('actions.task_feedback_required'));
       return;
     }
-    const action = actions.find((a) => a.id === actionId);
+    // Read the latest action snapshot from the store, not from the captured
+    // closure — otherwise modifications made by other components during the
+    // analyzer call would be silently overwritten when we patch the tasks array.
+    const action = useActionsStore.getState().actions.find((a) => a.id === actionId);
     if (!action) return;
 
     let modelTag: string;
     let apiKey: string | undefined;
     if (activeProviderId === 'ollama') {
       if (!activeModelTag) {
-        toast.error('Set a default AI model first');
+        toast.error(t('actions.task_default_model_required'));
         return;
       }
       modelTag = activeModelTag;
     } else {
       const cfg = cloudConfigs[activeProviderId];
       if (!cfg?.apiKey.trim()) {
-        toast.error('Configure the active cloud provider first');
+        toast.error(t('actions.task_cloud_provider_required'));
         return;
       }
       modelTag = cfg.model;
@@ -143,25 +164,26 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
       });
 
       if (result.complete && result.newTasks.length === 0) {
-        toast.success('Analysis: task is complete, no follow-ups needed');
+        toast.success(t('actions.task_analysis_complete'));
         await updateTask(actionId, task.id, { status: 'done' });
         return;
       }
 
       const followUps = buildFollowUpTasks(result.newTasks, modelTag);
       if (followUps.length === 0) {
-        toast.success('Analysis complete — no follow-up tasks suggested');
+        toast.success(t('actions.task_analysis_no_followups'));
         return;
       }
 
-      const updatedAction = actions.find((a) => a.id === actionId);
+      // Re-read latest snapshot AFTER awaiting the analyzer to avoid stale tasks
+      const updatedAction = useActionsStore.getState().actions.find((a) => a.id === actionId);
       if (!updatedAction) return;
       await updateAction(actionId, {
         tasks: [...updatedAction.tasks, ...followUps],
       });
-      toast.success(`Added ${followUps.length} follow-up task${followUps.length === 1 ? '' : 's'}`);
+      toast.success(t('actions.task_analysis_followups_added', { count: followUps.length }));
     } catch (err) {
-      toast.error(`Analysis failed: ${(err as Error).message ?? String(err)}`);
+      toast.error(t('actions.task_analysis_failed', { error: (err as Error).message ?? String(err) }));
     } finally {
       setIsAnalyzing(false);
     }
@@ -200,13 +222,13 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
                   onClick={handleMarkDone}
                   className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-500 text-white text-[11px] font-medium hover:bg-emerald-600"
                 >
-                  <CheckCircle2 size={12} /> Done
+                  <CheckCircle2 size={12} /> {t('actions.task_done_button')}
                 </button>
                 <button
                   onClick={handleMarkFailed}
                   className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-rose-500 text-white text-[11px] font-medium hover:bg-rose-600"
                 >
-                  <XCircle size={12} /> Failed
+                  <XCircle size={12} /> {t('actions.task_failed_button')}
                 </button>
               </>
             ) : (
@@ -229,14 +251,14 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
                   disabled={!selectedTerminal || !task.prompt.trim() || consoles.length === 0}
                   className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <Play size={12} fill="currentColor" /> Run
+                  <Play size={12} fill="currentColor" /> {t('actions.task_run_button')}
                 </button>
               </>
             )}
           </div>
           {consoles.length === 0 && task.status !== 'running' && (
             <p className="text-[10px] text-muted-foreground italic">
-              Open a terminal in the Terminals tab first
+              {t('actions.task_no_terminals_hint')}
             </p>
           )}
 
@@ -264,13 +286,19 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
                 ) : (
                   <Sparkles size={10} />
                 )}
-                {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                {isAnalyzing ? t('actions.task_analyzing') : t('actions.task_analyze_button')}
               </button>
             </div>
             <textarea
               value={feedbackDraft}
               onChange={(e) => setFeedbackDraft(e.target.value)}
-              onBlur={handleSaveFeedback}
+              onFocus={() => {
+                isEditingRef.current = true;
+              }}
+              onBlur={() => {
+                isEditingRef.current = false;
+                handleSaveFeedback();
+              }}
               onClick={(e) => e.stopPropagation()}
               placeholder={t('actions.no_return')}
               rows={3}

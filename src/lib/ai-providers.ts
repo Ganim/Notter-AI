@@ -22,7 +22,7 @@ export const CLOUD_PROVIDERS: ProviderPreset[] = [
   {
     id: 'claude',
     name: 'Anthropic Claude',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: 'claude-sonnet-4-5-20250929',
     docsUrl: 'https://console.anthropic.com/',
     keyPlaceholder: 'sk-ant-...',
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, Loader2 } from 'lucide-react';
 import { useAiStore } from '@/stores/ai-store';
@@ -15,21 +15,54 @@ export function TestConnection() {
   const [response, setResponse] = useState('');
   const [state, setState] = useState<State>('idle');
 
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
+
+  // Clean up any pending timers / cancel pending response if unmounted
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+      if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+    };
+  }, []);
+
   const disabled =
     activeProviderId === 'ollama'
       ? !activeTag
       : !cloudConfigs[activeProviderId].apiKey.trim();
+
+  function clearTimers() {
+    if (slowTimerRef.current) {
+      clearTimeout(slowTimerRef.current);
+      slowTimerRef.current = null;
+    }
+    if (timeoutTimerRef.current) {
+      clearTimeout(timeoutTimerRef.current);
+      timeoutTimerRef.current = null;
+    }
+  }
 
   async function handleSend() {
     if (disabled || !prompt.trim()) return;
     setState('generating');
     setResponse('');
 
-    const slowTimer = setTimeout(() => {
+    // Each send gets its own "request id" so a stale response from a
+    // previous click never overwrites a newer state.
+    const myRequestId = Symbol('req');
+    (handleSend as unknown as { current?: symbol }).current = myRequestId;
+    cancelledRef.current = false;
+
+    slowTimerRef.current = setTimeout(() => {
+      if (cancelledRef.current) return;
       setState((s) => (s === 'generating' ? 'loading-model' : s));
     }, 3000);
 
-    const timeoutTimer = setTimeout(() => {
+    timeoutTimerRef.current = setTimeout(() => {
+      if (cancelledRef.current) return;
+      cancelledRef.current = true;
       setState('error');
       setResponse(t('manage_ai.error_pull', { error: 'timeout (90s)' }));
     }, 90000);
@@ -45,14 +78,21 @@ export function TestConnection() {
         apiKey = cfg.apiKey;
       }
       const out = await generateText({ providerId: activeProviderId, model, apiKey, prompt });
+      // Drop the response if we were cancelled or replaced by a newer click
+      if (
+        cancelledRef.current ||
+        (handleSend as unknown as { current?: symbol }).current !== myRequestId
+      ) {
+        return;
+      }
       setResponse(out);
       setState('received');
     } catch (e) {
+      if (cancelledRef.current) return;
       setResponse((e as Error).message);
       setState('error');
     } finally {
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
+      clearTimers();
     }
   }
 

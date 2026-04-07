@@ -61,36 +61,45 @@ export async function pullModel(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const total = typeof parsed.total === 'number' ? parsed.total : 0;
+        const completed = typeof parsed.completed === 'number' ? parsed.completed : 0;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const event: PullProgressEvent = {
+          status: typeof parsed.status === 'string' ? parsed.status : '',
+          digest: typeof parsed.digest === 'string' ? parsed.digest : undefined,
+          total: total || undefined,
+          completed: completed || undefined,
+          percent,
+        };
+        onProgress(event);
+        if (parsed.error) {
+          throw new Error(String(parsed.error));
+        }
       }
-      const total = typeof parsed.total === 'number' ? parsed.total : 0;
-      const completed = typeof parsed.completed === 'number' ? parsed.completed : 0;
-      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-      const event: PullProgressEvent = {
-        status: typeof parsed.status === 'string' ? parsed.status : '',
-        digest: typeof parsed.digest === 'string' ? parsed.digest : undefined,
-        total: total || undefined,
-        completed: completed || undefined,
-        percent,
-      };
-      onProgress(event);
-      if (parsed.error) {
-        throw new Error(String(parsed.error));
-      }
+    }
+  } finally {
+    // Always release the reader (cancel pending stream) on any exit path
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore
     }
   }
 }

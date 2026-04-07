@@ -52,12 +52,23 @@ ${input.noteMarkdown}
 </note>`;
 }
 
-export function parseAiResponse(raw: string): { title: string; summary: string; tasks: Array<{ objective: string; prompt: string }> } {
-  // Strip possible markdown code fences
+export function extractJson(raw: string): string {
+  // Strategy 1: strip code fences if response is fence-wrapped
   let cleaned = raw.trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   }
+  // Strategy 2: slice from first '{' to last '}' to drop any prose around the JSON
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return cleaned.slice(firstBrace, lastBrace + 1);
+  }
+  return cleaned;
+}
+
+export function parseAiResponse(raw: string): { title: string; summary: string; tasks: Array<{ objective: string; prompt: string }> } {
+  const cleaned = extractJson(raw);
 
   let parsed: RawAiResponse;
   try {
@@ -85,7 +96,8 @@ export function parseAiResponse(raw: string): { title: string; summary: string; 
 }
 
 function makeId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // crypto.randomUUID is available in Tauri webview (Chromium)
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 export async function processNoteToAction(input: ProcessInput): Promise<Action> {

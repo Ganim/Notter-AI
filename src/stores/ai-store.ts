@@ -102,9 +102,24 @@ export const useAiStore = create<AiState>((set, get) => ({
 
   async initialize() {
     const persisted = loadPersisted();
+    // Provider consistency: if a cloud provider is persisted but its API key
+    // is empty (e.g. localStorage manually edited or version migration), fall
+    // back to ollama so we don't fail every generate call with "API key is not set".
+    let activeProviderId = persisted.activeProviderId;
+    if (activeProviderId !== 'ollama') {
+      const cfg = persisted.cloudConfigs[activeProviderId];
+      if (!cfg || !cfg.apiKey.trim()) {
+        activeProviderId = 'ollama';
+        persist({
+          activeModelTag: persisted.activeModelTag,
+          activeProviderId,
+          cloudConfigs: persisted.cloudConfigs,
+        });
+      }
+    }
     set({
       activeModelTag: persisted.activeModelTag,
-      activeProviderId: persisted.activeProviderId,
+      activeProviderId,
       cloudConfigs: persisted.cloudConfigs,
     });
     await get().refreshStatus();
@@ -144,6 +159,9 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   async installOllama() {
+    if (get().installingOllama !== null) {
+      throw new Error('Ollama installation already in progress');
+    }
     set({ installingOllama: { downloaded: 0, total: 0 } });
     const unlisten = await listen<{ downloaded: number; total: number }>(
       'ollama-download-progress',
@@ -194,16 +212,22 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   async pullModel(tag: string) {
-    const { pulling } = get();
-    if (Object.keys(pulling).length > 0) {
+    // Atomic check-and-set: use functional set so two fast calls cannot both
+    // pass the gate.
+    let admitted = false;
+    set((s) => {
+      if (Object.keys(s.pulling).length > 0) return s;
+      admitted = true;
+      return {
+        pulling: {
+          ...s.pulling,
+          [tag]: { status: 'pulling manifest', layerLabel: null, percent: 0 },
+        },
+      };
+    });
+    if (!admitted) {
       throw new Error('Another model is currently being pulled');
     }
-    set({
-      pulling: {
-        ...pulling,
-        [tag]: { status: 'pulling manifest', layerLabel: null, percent: 0 },
-      },
-    });
 
     try {
       await ollama.pullModel(tag, (event) => {

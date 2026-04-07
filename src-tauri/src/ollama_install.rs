@@ -100,17 +100,28 @@ pub async fn ollama_download_installer(
 
 #[tauri::command]
 pub async fn ollama_run_installer(path: String) -> Result<i32, String> {
-    // Try silent flags in order of preference
+    // Try silent flags in order of preference. Inno Setup uses /SILENT,
+    // NSIS uses /S. Exit code 0 means success; 3010 means
+    // "success, reboot required" (also acceptable).
+    fn is_acceptable(code: Option<i32>) -> bool {
+        matches!(code, Some(0) | Some(3010))
+    }
+
     let mut last_err = String::new();
     for flag in &["/SILENT", "/S"] {
         let result = Command::new(&path).arg(flag).spawn();
         match result {
             Ok(mut child) => match child.wait().await {
-                Ok(status) if status.success() => {
-                    return Ok(status.code().unwrap_or(0));
-                }
                 Ok(status) => {
-                    last_err = format!("flag {flag} exited with code {:?}", status.code());
+                    let code = status.code();
+                    if is_acceptable(code) {
+                        return Ok(code.unwrap_or(0));
+                    }
+                    last_err = format!("flag {flag} exited with code {:?}", code);
+                    // If the installer ran but chose to fail (non-acceptable
+                    // non-zero), don't try the other flag — it would re-run
+                    // and potentially install again.
+                    break;
                 }
                 Err(e) => {
                     last_err = format!("wait failed for {flag}: {e}");
@@ -121,7 +132,7 @@ pub async fn ollama_run_installer(path: String) -> Result<i32, String> {
             }
         }
     }
-    Err(format!("installer failed with all silent flags: {last_err}"))
+    Err(format!("installer failed: {last_err}"))
 }
 
 #[tauri::command]

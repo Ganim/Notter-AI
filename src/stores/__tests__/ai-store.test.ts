@@ -148,4 +148,72 @@ describe('aiStore', () => {
       expect(ollama.listInstalledModels).toHaveBeenCalled();
     });
   });
+
+  describe('initialize provider consistency', () => {
+    it('falls back to ollama if persisted cloud provider has no api key', async () => {
+      localStorage.setItem(
+        'notter-ai:provider-state',
+        JSON.stringify({
+          activeModelTag: 'qwen3-vl:4b',
+          activeProviderId: 'gemini',
+          cloudConfigs: {
+            gemini: { apiKey: '', model: 'gemini-2.0-flash' },
+            claude: { apiKey: '', model: 'claude-sonnet-4-5' },
+            openai: { apiKey: '', model: 'gpt-4o-mini' },
+            deepseek: { apiKey: '', model: 'deepseek-chat' },
+          },
+        }),
+      );
+      vi.mocked(invoke).mockResolvedValue(false);
+      vi.mocked(ollama.listInstalledModels).mockResolvedValue([]);
+      await useAiStore.getState().initialize();
+      expect(useAiStore.getState().activeProviderId).toBe('ollama');
+    });
+
+    it('keeps cloud provider if it has a valid api key', async () => {
+      localStorage.setItem(
+        'notter-ai:provider-state',
+        JSON.stringify({
+          activeModelTag: null,
+          activeProviderId: 'claude',
+          cloudConfigs: {
+            gemini: { apiKey: '', model: 'gemini-2.0-flash' },
+            claude: { apiKey: 'sk-ant-test', model: 'claude-sonnet-4-5' },
+            openai: { apiKey: '', model: 'gpt-4o-mini' },
+            deepseek: { apiKey: '', model: 'deepseek-chat' },
+          },
+        }),
+      );
+      vi.mocked(invoke).mockResolvedValue(false);
+      vi.mocked(ollama.listInstalledModels).mockResolvedValue([]);
+      await useAiStore.getState().initialize();
+      expect(useAiStore.getState().activeProviderId).toBe('claude');
+    });
+  });
+
+  describe('pull concurrency gate', () => {
+    it('atomic check-and-set rejects second pull when first is in flight', async () => {
+      // First pull blocks indefinitely
+      vi.mocked(ollama.pullModel).mockImplementationOnce(
+        () => new Promise(() => undefined),
+      );
+      // Kick off first pull (intentionally not awaited)
+      const first = useAiStore.getState().pullModel('qwen3-vl:4b');
+      // Second pull should reject
+      await expect(useAiStore.getState().pullModel('qwen3-vl:8b')).rejects.toThrow(
+        /Another model is currently being pulled/,
+      );
+      // First is still pending; we don't await it
+      expect(first).toBeInstanceOf(Promise);
+    });
+  });
+
+  describe('install re-entrancy guard', () => {
+    it('rejects a second installOllama if one is already in progress', async () => {
+      useAiStore.setState({ installingOllama: { downloaded: 0, total: 100 } });
+      await expect(useAiStore.getState().installOllama()).rejects.toThrow(
+        /already in progress/,
+      );
+    });
+  });
 });

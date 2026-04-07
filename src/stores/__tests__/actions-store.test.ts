@@ -13,7 +13,7 @@ vi.mock('@tauri-apps/api/path', () => ({
 }));
 
 import * as fs from '@tauri-apps/plugin-fs';
-import { useActionsStore, getActionProgress } from '@/stores/actions-store';
+import { useActionsStore, getActionProgress, flushActionsStore } from '@/stores/actions-store';
 import type { Action, ActionTask } from '@/types/actions';
 import { nextTaskStatus } from '@/types/actions';
 
@@ -171,6 +171,41 @@ describe('actions-store', () => {
       expect(nextTaskStatus('running')).toBe('done');
       expect(nextTaskStatus('done')).toBe('failed');
       expect(nextTaskStatus('failed')).toBe('waiting');
+    });
+  });
+
+  describe('stale running/processing reset on load', () => {
+    it('resets running tasks back to waiting on load', async () => {
+      const stale: Action = {
+        ...makeAction('a1', [makeTask('t1', 'running'), makeTask('t2', 'done')]),
+        status: 'processing',
+      };
+      vi.mocked(fs.exists).mockResolvedValueOnce(true);
+      vi.mocked(fs.readTextFile).mockResolvedValueOnce(
+        JSON.stringify({ version: 1, actions: [stale] }),
+      );
+      await useActionsStore.getState().load();
+      const a = useActionsStore.getState().actions[0];
+      expect(a.status).toBe('waiting'); // processing → waiting
+      expect(a.tasks[0].status).toBe('waiting'); // running → waiting
+      expect(a.tasks[1].status).toBe('done'); // unchanged
+    });
+  });
+
+  describe('flushActionsStore', () => {
+    it('persists pending debounced writes immediately', async () => {
+      vi.mocked(fs.writeTextFile).mockResolvedValue(undefined);
+      vi.mocked(fs.rename).mockResolvedValue(undefined);
+      vi.mocked(fs.exists).mockResolvedValue(true);
+
+      await useActionsStore.getState().addAction(makeAction('a1'));
+      // schedulePersist has a 300ms debounce — flush should write before then
+      await flushActionsStore();
+      expect(fs.writeTextFile).toHaveBeenCalled();
+    });
+
+    it('is a no-op when nothing is pending', async () => {
+      await expect(flushActionsStore()).resolves.toBeUndefined();
     });
   });
 });

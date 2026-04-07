@@ -91,6 +91,22 @@ describe('parseAnalysisResponse', () => {
     expect(() => parseAnalysisResponse('not json')).toThrow();
   });
 
+  it('throws when "complete" field is missing', () => {
+    const raw = JSON.stringify({ reason: 'X', newTasks: [] });
+    expect(() => parseAnalysisResponse(raw)).toThrow(/missing required boolean field "complete"/);
+  });
+
+  it('throws when "complete" is not a boolean', () => {
+    const raw = JSON.stringify({ complete: 'yes', reason: '', newTasks: [] });
+    expect(() => parseAnalysisResponse(raw)).toThrow(/missing required boolean field "complete"/);
+  });
+
+  it('extracts JSON from prose-wrapped response', () => {
+    const raw = 'Sure thing! Here:\n{"complete":true,"reason":"ok","newTasks":[]}\nThanks';
+    const out = parseAnalysisResponse(raw);
+    expect(out.complete).toBe(true);
+  });
+
   it('filters out tasks missing both objective and prompt', () => {
     const raw = JSON.stringify({
       complete: false,

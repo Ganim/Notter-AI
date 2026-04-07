@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { X, RotateCw } from "lucide-react";
 import { useAppStore, TERMINAL_THEMES } from "@/stores/app-store";
+import { useTerminalsStore } from "@/stores/terminals-store";
 import "@xterm/xterm/css/xterm.css";
 
 export interface TerminalHandle {
@@ -45,6 +46,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
     const [isRenaming, setIsRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState(name);
     const { terminalSettings } = useAppStore();
+    const runningTask = useTerminalsStore((s) => s.runningTasks[id]);
 
     const shellLabels: Record<ShellType, string> = {
       powershell: 'PS',
@@ -221,6 +223,15 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(
                 className="truncate cursor-default" title="Double-click to rename"
               >
                 {name}
+              </span>
+            )}
+            {runningTask && (
+              <span
+                className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30 truncate max-w-[140px]"
+                title={`Running: ${runningTask.label}`}
+              >
+                <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
+                {runningTask.label}
               </span>
             )}
           </div>

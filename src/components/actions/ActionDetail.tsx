@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Play, FileText, Loader2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { runActionInTerminal } from '@/lib/action-runner';
 import {
   Dialog,
   DialogContent,
@@ -27,7 +27,6 @@ export function ActionDetail() {
   const selectedId = useActionsStore((s) => s.selectedActionId);
   const updateAction = useActionsStore((s) => s.updateAction);
   const deleteAction = useActionsStore((s) => s.deleteAction);
-  const updateTask = useActionsStore((s) => s.updateTask);
   const consoles = useTerminalsStore((s) => s.consoles);
   const addConsole = useTerminalsStore((s) => s.addConsole);
 
@@ -65,19 +64,13 @@ export function ActionDetail() {
     setDeleteOpen(false);
   }
 
-  function normalizeForPty(text: string): string {
-    const normalized = text.replace(/\r?\n/g, '\r');
-    return normalized.endsWith('\r') ? normalized : normalized + '\r';
-  }
-
   async function handleProcessAll() {
     if (!selected) return;
     let terminalId = defaultTerminal;
     if (!terminalId) {
-      // Auto-spawn a new terminal for this action's project if none picked
       const newId = addConsole(selected.title || selected.projectName, selected.projectName);
       if (!newId) {
-        toast.error('Could not create terminal (max 4 reached). Pick one manually.');
+        toast.error(t('actions.toast_terminal_max'));
         return;
       }
       terminalId = newId;
@@ -88,37 +81,18 @@ export function ActionDetail() {
 
     const pendingTasks = selected.tasks.filter((t) => t.status === 'waiting');
     if (pendingTasks.length === 0) {
-      toast.info('No waiting tasks to process');
+      toast.info(t('actions.toast_no_waiting'));
       return;
     }
 
     setIsProcessing(true);
     await updateAction(selected.id, { status: 'processing' });
-    let success = 0;
-    let failed = 0;
-
-    for (const task of pendingTasks) {
-      try {
-        const data = normalizeForPty(task.prompt);
-        await invoke('write_pty', { id: terminalId, data });
-        await updateTask(selected.id, task.id, {
-          terminalId,
-          status: 'running',
-        });
-        success++;
-        // Small delay between commands to let the previous one start
-        await new Promise((r) => setTimeout(r, 600));
-      } catch (err) {
-        failed++;
-        console.error('[ActionDetail] write_pty failed for task', task.id, err);
-      }
-    }
-
+    const { success, failed } = await runActionInTerminal(selected, terminalId);
     setIsProcessing(false);
     if (failed === 0) {
-      toast.success(`Injected ${success} task${success === 1 ? '' : 's'} into terminal`);
+      toast.success(t('actions.toast_inject_count', { count: success }));
     } else {
-      toast.warning(`Injected ${success}, failed ${failed}. See console for details.`);
+      toast.warning(t('actions.toast_inject_partial', { success, failed }));
     }
   }
 
@@ -242,14 +216,14 @@ export function ActionDetail() {
       <Dialog open={originalOpen} onOpenChange={setOriginalOpen}>
         <DialogContent className="sm:max-w-3xl max-w-[calc(100%-2rem)]">
           <DialogHeader>
-            <DialogTitle>Original Planner note</DialogTitle>
+            <DialogTitle>{t('actions.view_original_title')}</DialogTitle>
             <DialogDescription>
-              Snapshot of {selected.subjectName || selected.projectName} when this Action was processed.
+              {t('actions.view_original_desc', { name: selected.subjectName || selected.projectName })}
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <pre className="text-xs font-mono whitespace-pre-wrap break-words bg-muted/30 p-3 rounded-md">
-              {selected.originalMarkdown || '(no snapshot)'}
+              {selected.originalMarkdown || t('actions.view_original_empty')}
             </pre>
           </ScrollArea>
         </DialogContent>

@@ -5,7 +5,7 @@ vi.mock('@/lib/ai-client', () => ({
 }));
 
 import * as aiClient from '@/lib/ai-client';
-import { buildUserPrompt, parseAiResponse, processNoteToAction } from '@/lib/action-processor';
+import { buildUserPrompt, parseAiResponse, extractJson, processNoteToAction } from '@/lib/action-processor';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -156,5 +156,35 @@ describe('processNoteToAction', () => {
     expect(aiClient.generateText).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'gemini', model: 'gemini-2.0-flash', apiKey: 'AIza-test' }),
     );
+  });
+});
+
+describe('extractJson', () => {
+  it('returns plain JSON unchanged', () => {
+    const raw = '{"a":1}';
+    expect(extractJson(raw)).toBe('{"a":1}');
+  });
+
+  it('strips markdown fences with json language', () => {
+    const raw = '```json\n{"a":1}\n```';
+    expect(extractJson(raw).trim()).toBe('{"a":1}');
+  });
+
+  it('strips bare markdown fences', () => {
+    const raw = '```\n{"a":1}\n```';
+    expect(extractJson(raw).trim()).toBe('{"a":1}');
+  });
+
+  it('extracts JSON from prose-wrapped response', () => {
+    const raw = 'Here is the JSON you requested:\n\n{"a":1}\n\nLet me know if you need more.';
+    const result = extractJson(raw);
+    expect(JSON.parse(result)).toEqual({ a: 1 });
+  });
+
+  it('parses prose+JSON via parseAiResponse end-to-end', () => {
+    const raw = 'Sure! Here\'s your plan:\n```json\n{"title":"X","summary":"S","tasks":[{"objective":"o","prompt":"p"}]}\n```';
+    const out = parseAiResponse(raw);
+    expect(out.title).toBe('X');
+    expect(out.tasks).toHaveLength(1);
   });
 });

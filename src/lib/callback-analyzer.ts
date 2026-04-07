@@ -56,7 +56,7 @@ Analyze the feedback and return the JSON described by the system instructions.`;
 }
 
 function makeId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 export function parseAnalysisResponse(raw: string): AnalysisResult {
@@ -64,13 +64,22 @@ export function parseAnalysisResponse(raw: string): AnalysisResult {
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   }
+  // Slice from first '{' to last '}' to drop prose wrappers
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(cleaned);
   } catch (e) {
     throw new Error(`Analyzer did not return valid JSON: ${(e as Error).message}`);
   }
-  const complete = typeof parsed.complete === 'boolean' ? parsed.complete : false;
+  if (typeof parsed.complete !== 'boolean') {
+    throw new Error('Analyzer response missing required boolean field "complete"');
+  }
+  const complete = parsed.complete;
   const reason = typeof parsed.reason === 'string' ? parsed.reason : '';
   const rawTasks = Array.isArray(parsed.newTasks) ? parsed.newTasks : [];
   const newTasks = rawTasks
