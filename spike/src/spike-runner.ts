@@ -89,7 +89,7 @@ async function test_15_3(): Promise<SpikeResult> {
   // Match either the raw tool output ("blocked for 8010ms") or Claude paraphrasing
   // the elapsed time ("8010ms", "Elapsed: 8010ms", etc.). Requires the "ms" suffix so
   // a bare number like "8000" alone cannot pass.
-  const stdoutHasBlocked = /blocked for \d{4,}ms|\d{4,}ms/.test(res.stdout);
+  const stdoutHasBlocked = /blocked for \d{4,}ms|(elapsed|took|returned|reported)[^.]{0,60}\d{4,}ms/i.test(res.stdout);
   const passed = tookEnough && stdoutHasBlocked && res.exitCode === 0;
 
   return {
