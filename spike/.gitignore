@@ -3,3 +3,4 @@ dist/
 fixtures/*.txt
 !fixtures/.gitkeep
 notes.md
+mcp-config.spike.json
