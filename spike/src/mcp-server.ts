@@ -42,6 +42,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === 'echo') {
+    if (!args) throw new Error('echo: missing arguments');
     const message = (args as { message: string }).message;
     return {
       content: [{ type: 'text', text: `echo: ${message}` }],
@@ -49,6 +50,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === 'block') {
+    if (!args) throw new Error('block: missing arguments');
     const ms = (args as { ms: number }).ms;
     const start = Date.now();
     await new Promise((resolve) => setTimeout(resolve, ms));
