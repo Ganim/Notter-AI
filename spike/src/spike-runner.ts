@@ -77,11 +77,34 @@ async function test_15_1(): Promise<SpikeResult> {
   };
 }
 
+async function test_15_3(): Promise<SpikeResult> {
+  const prompt = 'Call the notter-spike block tool with ms=8000. After it returns, tell me the elapsed time the tool reported.';
+  const startWall = Date.now();
+  const res = await runClaudeCodeOnce(prompt, 60_000);
+  const wallElapsed = Date.now() - startWall;
+
+  // The tool should have blocked for ~8000ms. Claude Code's total time is more,
+  // but should be at least 7500ms (allowing small clock slop).
+  const tookEnough = wallElapsed >= 7500;
+  // Match either the raw tool output ("blocked for 8010ms") or Claude paraphrasing
+  // the elapsed time ("8010ms", "Elapsed: 8010ms", etc.). Requires the "ms" suffix so
+  // a bare number like "8000" alone cannot pass.
+  const stdoutHasBlocked = /blocked for \d{4,}ms|\d{4,}ms/.test(res.stdout);
+  const passed = tookEnough && stdoutHasBlocked && res.exitCode === 0;
+
+  return {
+    name: '15.3 — MCP tool blocking works (for HITL)',
+    passed,
+    details: `wallElapsed=${wallElapsed}ms exitCode=${res.exitCode}\n--- stdout ---\n${res.stdout}\n--- stderr ---\n${res.stderr}`,
+  };
+}
+
 async function main() {
   console.log('=== Spike Runner ===\n');
 
   const results: SpikeResult[] = [];
   results.push(await test_15_1());
+  results.push(await test_15_3());
 
   for (const r of results) {
     console.log(`[${r.passed ? 'PASS' : 'FAIL'}] ${r.name}`);
