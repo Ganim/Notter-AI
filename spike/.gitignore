@@ -1,0 +1,4 @@
+node_modules/
+dist/
+fixtures/*.txt
+!fixtures/.gitkeep

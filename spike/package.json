@@ -1,0 +1,19 @@
+{
+  "name": "agenttrack-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "mcp-server": "tsx src/mcp-server.ts",
+    "runner": "tsx src/spike-runner.ts",
+    "token-probe": "tsx src/token-probe.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
