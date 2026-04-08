@@ -30,13 +30,17 @@ async function runClaudeCodeOnce(prompt: string, timeoutMs: number): Promise<{ s
 
     const child = spawn('claude', args, {
       cwd: SPIKE_DIR,
-      shell: process.platform === 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     const killer = setTimeout(() => {
       child.kill('SIGKILL');
     }, timeoutMs);
+
+    // Attach error listener before writing to handle early child exit (EPIPE / "write after end").
+    // The 'exit' event will still fire with a non-zero exit code, which is what the Promise
+    // resolution uses, so we swallow the write-side error here.
+    child.stdin.on('error', () => {});
 
     // Write prompt to stdin then close it so Claude Code knows input is done
     child.stdin.write(prompt + '\n');
