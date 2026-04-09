@@ -23,6 +23,15 @@
     {
       "identifier": "fs:scope",
       "allow": [{ "path": "$APPLOCALDATA/**" }]
+    },
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "claude", "cmd": "claude", "args": true, "sidecar": false },
+        { "name": "gemini", "cmd": "gemini", "args": true, "sidecar": false },
+        { "name": "codex",  "cmd": "codex",  "args": true, "sidecar": false }
+      ]
     }
   ]
 }
