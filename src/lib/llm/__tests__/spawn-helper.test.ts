@@ -32,6 +32,11 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   writeTextFile: vi.fn(async (...args: unknown[]) => {
     fsCalls.push({ op: 'writeTextFile', args });
   }),
+  readFile: vi.fn(async (path: string) => {
+    fsCalls.push({ op: 'readFile', args: [path] });
+    // Return a synthetic stdout byte stream the test asserts on.
+    return new TextEncoder().encode('{"ok":true}');
+  }),
   mkdir: vi.fn(async (...args: unknown[]) => {
     fsCalls.push({ op: 'mkdir', args });
   }),
@@ -210,25 +215,27 @@ describe('psSingleQuote', () => {
 });
 
 describe('buildCmdStdinRedirect', () => {
-  it('prepends chcp 65001 and redirects stderr to nul', () => {
+  it('routes stdin from prompt file, stdout to temp file, stderr to nul', () => {
     const cmd = buildCmdStdinRedirect({
-      tempPath: 'C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt',
+      tempPath: 'C:\\tmp\\prompt.txt',
+      stdoutPath: 'C:\\tmp\\stdout.txt',
       cliExecutable: 'codex.cmd',
       cliArgs: ['exec', '-'],
     });
     expect(cmd).toBe(
-      'chcp 65001 >nul && codex.cmd exec - < C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt 2>nul',
+      'chcp 65001 >nul && codex.cmd exec - < C:\\tmp\\prompt.txt > C:\\tmp\\stdout.txt 2>nul',
     );
   });
 
   it('handles an empty args array', () => {
     const cmd = buildCmdStdinRedirect({
       tempPath: 'C:\\tmp\\p.txt',
+      stdoutPath: 'C:\\tmp\\o.txt',
       cliExecutable: 'gemini.cmd',
       cliArgs: [],
     });
     expect(cmd).toBe(
-      'chcp 65001 >nul && gemini.cmd < C:\\tmp\\p.txt 2>nul',
+      'chcp 65001 >nul && gemini.cmd < C:\\tmp\\p.txt > C:\\tmp\\o.txt 2>nul',
     );
   });
 });
@@ -279,17 +286,39 @@ describe('spawnCli — Windows stdin route', () => {
     expect(cmdArgs[0]).toBe('/S');
     expect(cmdArgs[1]).toBe('/C');
     // Third arg is the quoted inner command string: chcp prefix,
-    // codex invocation, stdin redirect from temp file, stderr to nul.
+    // codex invocation, stdin redirect from prompt file, stdout redirect
+    // to stdout temp file, stderr to nul.
     expect(cmdArgs[2]).toMatch(
-      /^"chcp 65001 >nul && codex\.cmd exec - < .+\.txt 2>nul"$/,
+      /^"chcp 65001 >nul && codex\.cmd exec - < .+\.txt > .+\.txt 2>nul"$/,
     );
 
-    // Verify the lifecycle: write → execute → remove (remove is fire-and-
-    // forget via void, so it may run after execute resolves — we check
-    // writeTextFile was called at minimum).
+    // Verify the lifecycle: write prompt → execute → readFile stdout.
     const writeCall = fsCalls.find((c) => c.op === 'writeTextFile');
     expect(writeCall).toBeTruthy();
     expect(writeCall!.args[1]).toContain('long multi\nline\nprompt');
+    const readCall = fsCalls.find((c) => c.op === 'readFile');
+    expect(readCall).toBeTruthy();
+  });
+
+  it('returns lossy-decoded stdout from the temp file', async () => {
+    setPlatform('Win32');
+    executeImpl = async () => ({
+      code: 0,
+      signal: null,
+      stdout: '', // empty because cmd.exe redirected it to a file
+      stderr: '',
+    });
+
+    const result = await spawnCli({
+      command: 'codex',
+      args: ['exec', '-'],
+      stdin: 'anything',
+    });
+
+    // The mocked readFile returns `{"ok":true}` as UTF-8 bytes. The
+    // lossy TextDecoder should decode that cleanly.
+    expect(result.stdout).toBe('{"ok":true}');
+    expect(result.stderr).toBe('');
   });
 
   it('throws LLMWorkerError when an arg contains a cmd.exe special char', async () => {

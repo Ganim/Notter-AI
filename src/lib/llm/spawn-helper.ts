@@ -33,7 +33,13 @@
 // "Win32") exercise the legacy path.
 
 import { Command } from '@tauri-apps/plugin-shell';
-import { writeTextFile, mkdir, remove, exists } from '@tauri-apps/plugin-fs';
+import {
+  writeTextFile,
+  readFile,
+  mkdir,
+  remove,
+  exists,
+} from '@tauri-apps/plugin-fs';
 import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import { LLMWorkerError } from '@/lib/llm/types';
 
@@ -128,28 +134,30 @@ export function psSingleQuote(value: string): string {
  */
 export function buildCmdStdinRedirect(opts: {
   tempPath: string;
+  stdoutPath: string;
   cliExecutable: string;
   cliArgs: string[];
 }): string {
   const argsJoined =
     opts.cliArgs.length > 0 ? ` ${opts.cliArgs.join(' ')}` : '';
-  // `chcp 65001 >nul && ...` sets the console code page to UTF-8 before
-  // spawning the CLI. For pipes this has no direct effect (pipes bypass
-  // console re-encoding), but we keep it as defense in depth because
-  // some CLIs check the active code page when deciding how to format
-  // output.
+  // Design: route EVERYTHING through temp files so Tauri's strict UTF-8
+  // decoder in Command.execute() never sees any CLI bytes at all.
   //
-  // `2>nul` is the critical piece: codex-cli's stderr contains a raw
-  // byte (>= 0x80, not a valid UTF-8 lead) in its banner/footer on the
-  // user's Windows install, and Tauri's shell plugin does strict UTF-8
-  // decoding on captured stderr → entire execute() call rejects with
-  // "invalid utf-8 sequence of 1 bytes from index N". Discarding stderr
-  // lets stdout (the actual CLI response) through cleanly. The cost is
-  // losing token accounting — parseTokens() will see empty stderr and
-  // report 0 tokens with tokenUsageReported=false. That's an acceptable
-  // temporary degradation until we plumb through a lossy stderr capture
-  // (would require a custom Tauri command in Rust).
-  return `chcp 65001 >nul && ${opts.cliExecutable}${argsJoined} < ${opts.tempPath} 2>nul`;
+  // - `chcp 65001 >nul && ...` sets the console code page to UTF-8
+  //   (defense in depth; harmless for piped stdio which bypasses console
+  //   re-encoding anyway)
+  // - `< ${tempPath}` delivers the prompt to the CLI's stdin via a real
+  //   Win32 file handle so the CLI sees EOF naturally
+  // - `> ${stdoutPath}` captures the CLI's stdout into a temp file that
+  //   we then read ourselves with a lossy UTF-8 TextDecoder, so any
+  //   stray byte in the CLI's output (codex-cli has been observed to
+  //   emit raw CP1252 bytes in some installs) gets replaced with U+FFFD
+  //   instead of failing the whole call
+  // - `2>nul` discards stderr entirely — we can't read it without
+  //   another temp file, and the only caller that cares about stderr
+  //   contents today is CodexWorker's token parser, which degrades
+  //   gracefully to 0 tokens when stderr is empty.
+  return `chcp 65001 >nul && ${opts.cliExecutable}${argsJoined} < ${opts.tempPath} > ${opts.stdoutPath} 2>nul`;
 }
 
 /** Tokens cmd.exe treats specially when parsing a /C command line. */
@@ -172,7 +180,7 @@ function randomId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-async function writePromptTempFile(stdin: string): Promise<string> {
+async function ensureTmpPromptsDir(): Promise<string> {
   // appLocalDataDir() has platform-dependent trailing-separator behavior —
   // string concatenation placed the temp dir OUTSIDE the $APPLOCALDATA
   // scope on Windows (`com.guilh.notterai` + `tmp-prompts` became the
@@ -189,9 +197,38 @@ async function writePromptTempFile(stdin: string): Promise<string> {
     // Non-fatal; writeTextFile will surface the real error if the dir is
     // actually missing.
   }
+  return subdir;
+}
+
+async function writePromptTempFile(stdin: string): Promise<string> {
+  const subdir = await ensureTmpPromptsDir();
   const path = await join(subdir, `prompt-${randomId()}.txt`);
   await writeTextFile(path, stdin);
   return path;
+}
+
+async function reserveStdoutTempFile(): Promise<string> {
+  const subdir = await ensureTmpPromptsDir();
+  return join(subdir, `stdout-${randomId()}.txt`);
+}
+
+/**
+ * Read a file as bytes and decode with a lossy TextDecoder so invalid
+ * UTF-8 sequences are replaced with U+FFFD instead of throwing. Returns
+ * an empty string if the file doesn't exist (the CLI may have failed
+ * before writing anything).
+ */
+async function readLossyUtf8File(path: string): Promise<string> {
+  try {
+    if (!(await exists(path))) return '';
+    const bytes = await readFile(path);
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    return decoder.decode(bytes);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[spawn-helper] failed to read stdout temp file', path, e);
+    return '';
+  }
 }
 
 async function removeTempFile(path: string): Promise<void> {
@@ -226,16 +263,19 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   let programName: string;
   let programArgs: string[];
   let tempPath: string | null = null;
+  let stdoutPath: string | null = null;
 
   if (useWindowsStdinRoute) {
     tempPath = await writePromptTempFile(input.stdin!);
+    stdoutPath = await reserveStdoutTempFile();
     const cliExecutable = resolveProgramName(input.command);
 
-    // cmd.exe quoting is fragile — assert the path, the exe name and
-    // every arg are free of characters cmd treats specially. For the
-    // normal happy path (AppLocalData under a space-free username) this
-    // passes silently; if it trips, we get a clear LLMWorkerError.
+    // cmd.exe quoting is fragile — assert all paths/exe/args are free of
+    // characters cmd treats specially. For the normal happy path
+    // (AppLocalData under a space-free username) this passes silently;
+    // if it trips we get a clear LLMWorkerError.
     assertCmdSafe(tempPath, 'temp prompt path');
+    assertCmdSafe(stdoutPath, 'temp stdout path');
     assertCmdSafe(cliExecutable, 'CLI executable');
     for (const a of input.args) {
       assertCmdSafe(a, 'CLI arg');
@@ -243,13 +283,13 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
 
     const innerCmd = buildCmdStdinRedirect({
       tempPath,
+      stdoutPath,
       cliExecutable,
       cliArgs: input.args,
     });
     programName = 'cmd.exe';
     // /S plus a double-quoted third arg: cmd strips the outer quotes and
-    // parses the inner string verbatim, so the `<` redirect + unquoted
-    // path work as expected.
+    // parses the inner string verbatim, so the redirects work as expected.
     programArgs = ['/S', '/C', `"${innerCmd}"`];
   } else {
     programName = resolveProgramName(input.command);
@@ -258,12 +298,31 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
 
   const cmd = Command.create(programName, programArgs);
 
-  const executePromise = cmd.execute().then((output) => ({
-    stdout: typeof output.stdout === 'string' ? output.stdout : '',
-    stderr: typeof output.stderr === 'string' ? output.stderr : '',
-    exitCode: output.code ?? -1,
-    durationMs: Date.now() - startedAt,
-  }));
+  // When the Windows stdin route is active, cmd.exe's stdout is empty
+  // (everything was redirected to stdoutPath) and stderr is empty
+  // (2>nul). So Tauri's strict UTF-8 decoder has nothing to choke on.
+  // We read the real stdout from the temp file ourselves after execute()
+  // resolves, using a lossy TextDecoder that replaces invalid bytes
+  // with U+FFFD.
+  const executePromise = cmd.execute().then(async (output) => {
+    const exitCode = output.code ?? -1;
+    const durationMs = Date.now() - startedAt;
+    if (useWindowsStdinRoute && stdoutPath) {
+      const stdoutText = await readLossyUtf8File(stdoutPath);
+      return {
+        stdout: stdoutText,
+        stderr: '', // discarded via 2>nul
+        exitCode,
+        durationMs,
+      };
+    }
+    return {
+      stdout: typeof output.stdout === 'string' ? output.stdout : '',
+      stderr: typeof output.stderr === 'string' ? output.stderr : '',
+      exitCode,
+      durationMs,
+    };
+  });
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
@@ -303,6 +362,9 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   } finally {
     if (tempPath) {
       void removeTempFile(tempPath);
+    }
+    if (stdoutPath) {
+      void removeTempFile(stdoutPath);
     }
   }
 }
