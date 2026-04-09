@@ -1,9 +1,21 @@
 import { create } from 'zustand';
 import { readTextFile, writeTextFile, mkdir, exists, rename } from '@tauri-apps/plugin-fs';
 import { appLocalDataDir } from '@tauri-apps/api/path';
-import type { Action, ActionTask, ActionTaskStatus } from '@/types/actions';
+import type {
+  Action,
+  ActionTask,
+  ActionTaskStatus,
+  PlanStage,
+  PlanStageName,
+} from '@/types/actions';
 import { nextTaskStatus } from '@/types/actions';
 import { migrateActionsFile } from '@/stores/actions-migration';
+import {
+  runPipeline,
+  PipelineError,
+  type ProjectContext,
+  type StageRunResult,
+} from '@/lib/planning';
 
 const FILE_NAME = 'actions.json';
 const FILE_VERSION = 2;
@@ -27,6 +39,124 @@ interface ActionsState {
 
   updateTask(actionId: string, taskId: string, patch: Partial<ActionTask>): Promise<void>;
   cycleTaskStatus(actionId: string, taskId: string): Promise<void>;
+
+  // Phase D — planning pipeline
+  startPlanning(actionId: string, project: ProjectContext): Promise<void>;
+  retryPlanStage(actionId: string, stage: PlanStageName): Promise<void>;
+  approvePlan(actionId: string): Promise<void>;
+  rejectPlan(actionId: string, reason?: string): Promise<void>;
+}
+
+// ----- Phase D: planning pipeline helpers (pure, no store state access) -----
+
+const STAGE_ORDER: PlanStageName[] = [
+  'extract',
+  'security',
+  'data_consistency',
+  'prompt_critic',
+];
+
+function seedPlanStages(): PlanStage[] {
+  const now = Date.now();
+  return STAGE_ORDER.map((name, i) => ({
+    name,
+    status: i === 0 ? 'running' : 'pending',
+    startedAt: i === 0 ? now : undefined,
+  }));
+}
+
+/**
+ * Build a fresh planStages snapshot that marks every stage up to and
+ * including `upTo` as pending (clearing errors) and `upTo` itself as
+ * running. Stages beyond `upTo` are left at whatever they were.
+ */
+function resetPlanStagesFrom(
+  existing: PlanStage[] | undefined,
+  upTo: PlanStageName,
+): PlanStage[] {
+  const now = Date.now();
+  const base: PlanStage[] = existing
+    ? [...existing]
+    : STAGE_ORDER.map((name) => ({ name, status: 'pending' as const }));
+
+  // Ensure all 4 entries exist in order
+  const byName = new Map(base.map((s) => [s.name, s]));
+  const ordered: PlanStage[] = STAGE_ORDER.map(
+    (n) => byName.get(n) ?? { name: n, status: 'pending' as const },
+  );
+
+  const targetIdx = STAGE_ORDER.indexOf(upTo);
+  return ordered.map((s, i) => {
+    if (i === targetIdx) {
+      return {
+        ...s,
+        status: 'running',
+        startedAt: now,
+        completedAt: undefined,
+        errorMessage: undefined,
+        output: undefined,
+        tokenUsage: undefined,
+      };
+    }
+    if (i > targetIdx) {
+      return { name: s.name, status: 'pending' };
+    }
+    return s;
+  });
+}
+
+function applyStageCommit(
+  stages: PlanStage[] | undefined,
+  result: StageRunResult,
+): PlanStage[] {
+  const now = Date.now();
+  const base: PlanStage[] = stages
+    ? [...stages]
+    : STAGE_ORDER.map((name) => ({ name, status: 'pending' as const }));
+  const byName = new Map(base.map((s) => [s.name, s]));
+  const existing = byName.get(result.stageName) ?? { name: result.stageName, status: 'pending' as const };
+
+  const nextStageIdx = STAGE_ORDER.indexOf(result.stageName) + 1;
+  const updated: PlanStage = {
+    ...existing,
+    status: 'done',
+    completedAt: now,
+    tokenUsage: result.tokenUsage,
+    output: result.rawOutput,
+    errorMessage: undefined,
+  };
+  byName.set(result.stageName, updated);
+
+  // Start the next stage (if any) as running so the UI strip advances
+  // even before the next StageRunResult commits.
+  if (nextStageIdx < STAGE_ORDER.length) {
+    const nextName = STAGE_ORDER[nextStageIdx];
+    const nextExisting = byName.get(nextName) ?? { name: nextName, status: 'pending' as const };
+    byName.set(nextName, { ...nextExisting, status: 'running', startedAt: now });
+  }
+  return STAGE_ORDER.map((n) => byName.get(n)!);
+}
+
+function applyStageFailure(
+  stages: PlanStage[] | undefined,
+  stageName: PlanStageName,
+  errorMessage: string,
+  rawOutput: string | undefined,
+): PlanStage[] {
+  const now = Date.now();
+  const base: PlanStage[] = stages
+    ? [...stages]
+    : STAGE_ORDER.map((name) => ({ name, status: 'pending' as const }));
+  const byName = new Map(base.map((s) => [s.name, s]));
+  const existing = byName.get(stageName) ?? { name: stageName, status: 'pending' as const };
+  byName.set(stageName, {
+    ...existing,
+    status: 'failed',
+    completedAt: now,
+    errorMessage,
+    output: rawOutput ?? existing.output,
+  });
+  return STAGE_ORDER.map((n) => byName.get(n)!);
 }
 
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -204,6 +334,227 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
     if (!task) return;
     const next: ActionTaskStatus = nextTaskStatus(task.status);
     await get().updateTask(actionId, taskId, { status: next });
+  },
+
+  async startPlanning(actionId, project) {
+    const action = get().actions.find((a) => a.id === actionId);
+    if (!action) return;
+    // Idempotent: if we're already planning this action, do nothing.
+    if (action.status === 'planning') return;
+
+    // Seed status + plan stages (extract = running) BEFORE kicking off
+    // the pipeline so the UI immediately reflects the change.
+    set((s) => ({
+      actions: s.actions.map((a) =>
+        a.id === actionId
+          ? {
+              ...a,
+              status: 'planning',
+              planStages: seedPlanStages(),
+              updatedAt: new Date().toISOString(),
+            }
+          : a,
+      ),
+    }));
+    schedulePersist(() => get().actions);
+
+    const onProgress = async (result: StageRunResult) => {
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? {
+                ...a,
+                planStages: applyStageCommit(a.planStages, result),
+                tasks: result.tasks,
+                updatedAt: new Date().toISOString(),
+              }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    };
+
+    try {
+      await runPipeline(
+        { actionId, rawMarkdown: action.originalMarkdown, project },
+        onProgress,
+      );
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? { ...a, status: 'plan_review', updatedAt: new Date().toISOString() }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    } catch (e) {
+      const err =
+        e instanceof PipelineError
+          ? e
+          : new PipelineError({
+              stage: 'extract',
+              reason: 'llm_error',
+              message: e instanceof Error ? e.message : String(e),
+            });
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? {
+                ...a,
+                status: 'failed',
+                planStages: applyStageFailure(
+                  a.planStages,
+                  err.stage,
+                  err.message,
+                  err.rawOutput,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    }
+  },
+
+  async retryPlanStage(actionId, stage) {
+    const action = get().actions.find((a) => a.id === actionId);
+    if (!action) return;
+
+    // Reset the target stage (and everything after it) and flip status
+    // back to 'planning' so the UI shows the strip advancing again.
+    set((s) => ({
+      actions: s.actions.map((a) =>
+        a.id === actionId
+          ? {
+              ...a,
+              status: 'planning',
+              planStages: resetPlanStagesFrom(a.planStages, stage),
+              updatedAt: new Date().toISOString(),
+            }
+          : a,
+      ),
+    }));
+    schedulePersist(() => get().actions);
+
+    const project: ProjectContext = {
+      name: action.projectName,
+      path: action.projectPath ?? '',
+    };
+
+    const onProgress = async (result: StageRunResult) => {
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? {
+                ...a,
+                planStages: applyStageCommit(a.planStages, result),
+                tasks: result.tasks,
+                updatedAt: new Date().toISOString(),
+              }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    };
+
+    try {
+      await runPipeline(
+        {
+          actionId,
+          rawMarkdown: action.originalMarkdown,
+          project,
+          resumeFrom: stage,
+          existingTasks: action.tasks,
+        },
+        onProgress,
+      );
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? { ...a, status: 'plan_review', updatedAt: new Date().toISOString() }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    } catch (e) {
+      const err =
+        e instanceof PipelineError
+          ? e
+          : new PipelineError({
+              stage,
+              reason: 'llm_error',
+              message: e instanceof Error ? e.message : String(e),
+            });
+      set((s) => ({
+        actions: s.actions.map((a) =>
+          a.id === actionId
+            ? {
+                ...a,
+                status: 'failed',
+                planStages: applyStageFailure(
+                  a.planStages,
+                  err.stage,
+                  err.message,
+                  err.rawOutput,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : a,
+        ),
+      }));
+      schedulePersist(() => get().actions);
+    }
+  },
+
+  async approvePlan(actionId) {
+    set((s) => ({
+      actions: s.actions.map((a) => {
+        if (a.id !== actionId) return a;
+        if (a.status !== 'plan_review') return a;
+        return {
+          ...a,
+          status: 'queued',
+          updatedAt: new Date().toISOString(),
+          tasks: a.tasks.map((t) => ({ ...t, status: 'pending' as const })),
+        };
+      }),
+    }));
+    schedulePersist(() => get().actions);
+  },
+
+  async rejectPlan(actionId, reason) {
+    set((s) => ({
+      actions: s.actions.map((a) => {
+        if (a.id !== actionId) return a;
+        if (a.status !== 'plan_review') return a;
+        const stages = a.planStages ?? [];
+        // Record the reason on the last PlanStage if any; otherwise on
+        // a synthetic prompt_critic entry so the UI has somewhere to read.
+        const lastIdx = stages.length - 1;
+        const nextStages =
+          lastIdx >= 0
+            ? stages.map((s, i) =>
+                i === lastIdx
+                  ? { ...s, errorMessage: reason ?? s.errorMessage }
+                  : s,
+              )
+            : [
+                {
+                  name: 'prompt_critic' as const,
+                  status: 'done' as const,
+                  errorMessage: reason,
+                },
+              ];
+        return {
+          ...a,
+          status: 'rejected',
+          planStages: nextStages,
+          updatedAt: new Date().toISOString(),
+        };
+      }),
+    }));
+    schedulePersist(() => get().actions);
   },
 }));
 
