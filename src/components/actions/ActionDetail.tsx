@@ -19,6 +19,7 @@ import { useTerminalsStore } from '@/stores/terminals-store';
 import type { ActionStatus } from '@/types/actions';
 import { TaskItem } from './TaskItem';
 import { PlanStageStrip } from '@/components/planning/PlanStageStrip';
+import { PlanReviewPanel } from '@/components/planning/PlanReviewPanel';
 
 const STATUS_OPTIONS: ActionStatus[] = ['waiting', 'processing', 'skipped', 'done'];
 
@@ -197,33 +198,42 @@ export function ActionDetail() {
           )}
         </section>
 
-        {/* Planning pipeline progress — only rendered when the action has
-            entered (or completed) the v2 planning pipeline. */}
-        {selected.planStages && selected.planStages.length > 0 && (
-          <section className="space-y-2 mb-6">
-            <h3 className="text-sm font-semibold">Planning pipeline</h3>
-            <PlanStageStrip
-              stages={selected.planStages}
-              onRetry={(stage) => retryPlanStage(selected.id, stage)}
-            />
-          </section>
-        )}
+        {/* Plan review takes over the body when the Action is waiting for
+            user approval after the v2 pipeline finished. */}
+        {selected.status === 'plan_review' ? (
+          <PlanReviewPanel action={selected} />
+        ) : (
+          <>
+            {/* Planning pipeline progress — rendered when the action has
+                entered (or completed) the v2 planning pipeline but is not
+                currently in plan_review (the panel shows its own strip). */}
+            {selected.planStages && selected.planStages.length > 0 && (
+              <section className="space-y-2 mb-6">
+                <h3 className="text-sm font-semibold">Planning pipeline</h3>
+                <PlanStageStrip
+                  stages={selected.planStages}
+                  onRetry={(stage) => retryPlanStage(selected.id, stage)}
+                />
+              </section>
+            )}
 
-        {/* Tasks */}
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold">
-            {t('actions.tasks')} ({selected.tasks.length})
-          </h3>
-          {selected.tasks.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">—</p>
-          ) : (
-            <div className="space-y-2">
-              {selected.tasks.map((task) => (
-                <TaskItem key={task.id} actionId={selected.id} task={task} />
-              ))}
-            </div>
-          )}
-        </section>
+            {/* Tasks */}
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold">
+                {t('actions.tasks')} ({selected.tasks.length})
+              </h3>
+              {selected.tasks.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">—</p>
+              ) : (
+                <div className="space-y-2">
+                  {selected.tasks.map((task) => (
+                    <TaskItem key={task.id} actionId={selected.id} task={task} />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </ScrollArea>
 
       {/* Original Planner Note dialog */}
