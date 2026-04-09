@@ -52,7 +52,10 @@ export async function runSecurityStage(
 
   const result = await runStage({
     stageName: 'security',
-    workerName: 'codex-cli',
+    // Was codex-cli → claude-code. Codex kept returning its default
+    // code-review format ({findings, confidence_score}) regardless of
+    // prompt instructions during Phase D E2E.
+    workerName: 'claude-code',
     systemPrompt: SECURITY_PROMPT,
     userPrompt: buildUserPrompt(tasks, input.project),
     validate: (parsed, rawOutput) =>

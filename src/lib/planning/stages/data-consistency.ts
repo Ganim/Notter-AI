@@ -50,10 +50,9 @@ export async function runDataStage(
 
   const result = await runStage({
     stageName: 'data_consistency',
-    // Was gemini-cli — switched to codex on 2026-04-09 for the same
-    // latency reason as the extract stage. Gemini-3-flash-preview
-    // exceeded 120s on real planning prompts; codex returns in seconds.
-    workerName: 'codex-cli',
+    // Was gemini-cli → codex-cli → claude-code. See extract.ts and
+    // security.ts for the full history — same reasons apply.
+    workerName: 'claude-code',
     systemPrompt: DATA_CONSISTENCY_PROMPT,
     userPrompt: buildUserPrompt(tasks, input.project),
     validate: (parsed, rawOutput) =>

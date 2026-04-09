@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { readTextFile, writeTextFile, mkdir, exists, rename } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, exists, rename } from '@tauri-apps/plugin-fs';
 import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import type {
   Action,
@@ -171,15 +171,14 @@ async function getActionsPath(): Promise<string> {
   return join(dir, FILE_NAME);
 }
 
-async function ensureDir(): Promise<void> {
-  const dir = await appLocalDataDir();
-  if (!(await exists(dir))) {
-    await mkdir(dir, { recursive: true });
-  }
-}
-
 async function persist(actions: Action[]): Promise<void> {
-  await ensureDir();
+  // Note: we used to call ensureDir() here, which called
+  // `exists(appLocalDataDir())`. That check is REJECTED by Tauri's
+  // fs:scope — `$APPLOCALDATA/**` only matches children of the app
+  // data dir, not the dir itself. Tauri creates the app data dir
+  // automatically at startup, so the check was not only unnecessary
+  // but actively breaking persistence on every write. Just let
+  // writeTextFile surface any real "missing dir" errors.
   const path = await getActionsPath();
   const tmpPath = `${path}.tmp`;
   const payload: PersistedShapeV2 = { version: FILE_VERSION, actions };

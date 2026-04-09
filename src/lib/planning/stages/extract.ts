@@ -73,11 +73,12 @@ export async function runExtractStage(
 
   const result = await runStage({
     stageName: 'extract',
-    // Was gemini-cli — switched to codex on 2026-04-09 because
-    // gemini-3-flash-preview was consistently exceeding 120s on real
-    // planning prompts during Phase D E2E validation. Codex returns in
-    // single-digit seconds on similar payloads (Phase C spike: 7.4s).
-    workerName: 'codex-cli',
+    // Was gemini-cli → codex-cli → claude-code. Codex interprets the
+    // user prompt as a task to EXECUTE (hit its read-only sandbox and
+    // returned {"status":"blocked"} during Phase D E2E) instead of
+    // emitting JSON. Gemini was too slow on this user's install.
+    // Claude is the only reliable text-in → JSON-out option.
+    workerName: 'claude-code',
     systemPrompt: EXTRACT_PROMPT,
     userPrompt,
     validate: (parsed, rawOutput) => validateExtractOutput(parsed, rawOutput),
