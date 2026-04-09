@@ -39,6 +39,12 @@
         { "name": "cmd",            "cmd": "cmd",            "args": true, "sidecar": false },
         { "name": "cmd.exe",        "cmd": "cmd.exe",        "args": true, "sidecar": false }
       ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "claude", "cmd": "claude", "args": true, "sidecar": false }
+      ]
     }
   ]
 }
