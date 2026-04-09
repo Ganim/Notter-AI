@@ -16,10 +16,40 @@ import {
   type ProjectContext,
   type StageRunResult,
 } from '@/lib/planning';
+import { startQueueWorker } from '@/lib/executor';
 
 const FILE_NAME = 'actions.json';
 const FILE_VERSION = 2;
 const V1_BACKUP_SUFFIX = '.v1-backup.json';
+
+// Phase E: dev-time path to the built MCP server. In a packaged Tauri
+// build this will need to resolve via resourceDir() — Phase F will
+// teach the executor to adapt. For now, assume the Tauri dev cwd is
+// the repo root, which Tauri sets automatically in `tauri dev`.
+const PHASE_E_MCP_SERVER_PATH =
+  'D:/Code/Projetos/CodeReview/AgentTrack/notter-mcp-server/dist/server.js';
+
+let queueWorkerStarted = false;
+
+async function bootExecutor(
+  getState: () => ActionsState,
+): Promise<void> {
+  if (queueWorkerStarted) return;
+  queueWorkerStarted = true;
+
+  try {
+    await startQueueWorker({
+      serverAbsolutePath: PHASE_E_MCP_SERVER_PATH,
+      intervalMs: 500,
+      getActions: () => getState().actions,
+      updateAction: (id, patch) => getState().updateAction(id, patch),
+      updateTask: (actionId, taskId, patch) =>
+        getState().updateTask(actionId, taskId, patch),
+    });
+  } catch (e) {
+    console.error('[actions-store] failed to start queue worker', e);
+  }
+}
 
 interface PersistedShapeV2 {
   version: 2;
@@ -289,6 +319,9 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       console.error('[actions-store] load failed', e);
       set({ actions: [], loaded: true });
     }
+
+    // Phase E: boot the Queue Worker once the store is loaded.
+    void bootExecutor(get);
   },
 
   async addAction(action) {
