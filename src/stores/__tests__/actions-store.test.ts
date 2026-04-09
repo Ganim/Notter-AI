@@ -209,3 +209,103 @@ describe('actions-store', () => {
     });
   });
 });
+
+describe('actions-store v1 → v2 migration on load', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await flushActionsStore();
+  });
+
+  it('migrates a v1 file on load and exposes v2 fields in state', async () => {
+    const v1Json = JSON.stringify({
+      version: 1,
+      actions: [
+        {
+          id: 'mig-1',
+          projectName: 'demo',
+          subjectName: 'note.md',
+          title: 'old action',
+          summary: '',
+          originalMarkdown: '# old',
+          status: 'waiting',
+          createdAt: '2026-04-01T00:00:00.000Z',
+          updatedAt: '2026-04-01T00:00:00.000Z',
+          tasks: [
+            {
+              id: 't-1',
+              objective: 'do thing',
+              prompt: 'do thing carefully',
+              agentId: '',
+              modelTag: '',
+              terminalId: '',
+              status: 'waiting',
+              returnText: '',
+            },
+          ],
+        },
+      ],
+    });
+
+    (fs.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (fs.readTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(v1Json);
+    (fs.writeTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (fs.rename as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    // Reset the store before load (Zustand stores persist across tests)
+    useActionsStore.setState({ actions: [], loaded: false, selectedActionId: null });
+
+    await useActionsStore.getState().load();
+
+    const state = useActionsStore.getState();
+    expect(state.loaded).toBe(true);
+    expect(state.actions).toHaveLength(1);
+
+    const a = state.actions[0];
+    expect(a.id).toBe('mig-1');
+    expect(a.status).toBe('draft'); // was 'waiting'
+    expect(a.projectId).toBe('demo'); // promoted from projectName
+    expect(a.planStages).toEqual([]);
+    expect(a.tokenUsage).toEqual([]);
+
+    const t = a.tasks[0];
+    expect(t.status).toBe('pending'); // was 'waiting'
+    expect(t.rawPrompt).toBe('do thing carefully');
+    expect(t.trustLevel).toBe('semi');
+  });
+
+  it('writes a .v1-backup.json before persisting v2', async () => {
+    const v1Json = JSON.stringify({ version: 1, actions: [] });
+
+    (fs.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (fs.readTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(v1Json);
+    (fs.writeTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (fs.rename as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    useActionsStore.setState({ actions: [], loaded: false, selectedActionId: null });
+    await useActionsStore.getState().load();
+
+    const writeMock = fs.writeTextFile as ReturnType<typeof vi.fn>;
+    const backupCall = writeMock.mock.calls.find((call) =>
+      String(call[0]).endsWith('.v1-backup.json'),
+    );
+    expect(backupCall).toBeDefined();
+    expect(backupCall?.[1]).toBe(v1Json);
+  });
+
+  it('does not migrate or back up an already-v2 file', async () => {
+    const v2Json = JSON.stringify({ version: 2, actions: [] });
+
+    (fs.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (fs.readTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(v2Json);
+    (fs.writeTextFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    useActionsStore.setState({ actions: [], loaded: false, selectedActionId: null });
+    await useActionsStore.getState().load();
+
+    const writeMock = fs.writeTextFile as ReturnType<typeof vi.fn>;
+    const backupCall = writeMock.mock.calls.find((call) =>
+      String(call[0]).endsWith('.v1-backup.json'),
+    );
+    expect(backupCall).toBeUndefined();
+  });
+});
