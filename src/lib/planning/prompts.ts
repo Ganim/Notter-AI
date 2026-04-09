@@ -13,7 +13,7 @@ Rules:
 - Preserve the user's literal intent. Do NOT add speculative tasks.
 - If the project is greenfield (no files), include "stack-decision" and
   "initial-scaffold" tasks at the top.
-- Keep titles <= 80 chars.
+- Keep titles <= 160 chars.
 - rawPrompt must be a detailed instruction the executor will follow verbatim.
 - Return STRICT JSON only — no prose, no code fences, no comments.
 

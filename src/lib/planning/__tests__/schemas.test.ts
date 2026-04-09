@@ -49,14 +49,23 @@ describe('validateExtractOutput', () => {
     ).toThrow(/id missing or not a string/);
   });
 
-  it('throws on title > 80 chars', () => {
+  it('throws on title > 160 chars', () => {
     expect(() =>
       validateExtractOutput({
         tasks: [
-          { id: 't1', title: 'a'.repeat(81), rawPrompt: 'y' },
+          { id: 't1', title: 'a'.repeat(161), rawPrompt: 'y' },
         ],
       }),
-    ).toThrow(/exceeds 80/);
+    ).toThrow(/exceeds 160/);
+  });
+
+  it('accepts a 160-char title at the boundary', () => {
+    const out = validateExtractOutput({
+      tasks: [
+        { id: 't1', title: 'a'.repeat(160), rawPrompt: 'y' },
+      ],
+    });
+    expect(out[0].title).toHaveLength(160);
   });
 
   it('throws on empty rawPrompt', () => {

@@ -74,9 +74,16 @@ const TRUST_LEVELS: readonly TrustLevel[] = ['auto', 'semi', 'manual'];
 
 // ----- validators -----
 
+/** Maximum allowed task title length. Bumped from 80 → 160 on 2026-04-09
+ *  because claude consistently produces descriptive titles longer than 80
+ *  chars in real planning prompts (e.g., "Refactor settings tab with
+ *  vertical navigation and sectioned layout"). 160 is still short enough
+ *  to avoid runaway outputs but generous enough for natural phrasing. */
+const MAX_TITLE_LENGTH = 160;
+
 /**
  * Extract stage: { tasks: [{ id, title, rawPrompt }] } with >= 1 task.
- * title capped at 80 chars, rawPrompt must be non-empty.
+ * title capped at MAX_TITLE_LENGTH chars, rawPrompt must be non-empty.
  */
 export function validateExtractOutput(
   parsed: unknown,
@@ -107,10 +114,10 @@ export function validateExtractOutput(
     if (typeof title !== 'string' || title.length === 0) {
       fail(stage, `task[${i}].title missing or not a string`, rawOutput);
     }
-    if ((title as string).length > 80) {
+    if ((title as string).length > MAX_TITLE_LENGTH) {
       fail(
         stage,
-        `task[${i}].title exceeds 80 chars (${(title as string).length})`,
+        `task[${i}].title exceeds ${MAX_TITLE_LENGTH} chars (${(title as string).length})`,
         rawOutput,
       );
     }
