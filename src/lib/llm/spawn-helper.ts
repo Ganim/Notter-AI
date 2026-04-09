@@ -34,7 +34,7 @@
 
 import { Command } from '@tauri-apps/plugin-shell';
 import { writeTextFile, mkdir, remove, exists } from '@tauri-apps/plugin-fs';
-import { appLocalDataDir } from '@tauri-apps/api/path';
+import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import { LLMWorkerError } from '@/lib/llm/types';
 
 export interface SpawnCliInput {
@@ -130,10 +130,14 @@ function randomId(): string {
 }
 
 async function writePromptTempFile(stdin: string): Promise<string> {
+  // appLocalDataDir() has platform-dependent trailing-separator behavior —
+  // string concatenation placed the temp dir OUTSIDE the $APPLOCALDATA
+  // scope on Windows (`com.guilh.notterai` + `tmp-prompts` became the
+  // sibling `com.guilh.notteraitmp-prompts`). Use Tauri's `join` so the
+  // separator is always correct, and the final path stays inside the
+  // fs:scope granted by the capability file.
   const dir = await appLocalDataDir();
-  // Ensure subdir exists. The dialog/fs plugin allows this path under the
-  // $APPLOCALDATA scope granted in src-tauri/capabilities/default.json.
-  const subdir = `${dir}${TMP_PROMPTS_SUBDIR}`;
+  const subdir = await join(dir, TMP_PROMPTS_SUBDIR);
   try {
     if (!(await exists(subdir))) {
       await mkdir(subdir, { recursive: true });
@@ -142,7 +146,7 @@ async function writePromptTempFile(stdin: string): Promise<string> {
     // Non-fatal; writeTextFile will surface the real error if the dir is
     // actually missing.
   }
-  const path = `${subdir}/prompt-${randomId()}.txt`;
+  const path = await join(subdir, `prompt-${randomId()}.txt`);
   await writeTextFile(path, stdin);
   return path;
 }

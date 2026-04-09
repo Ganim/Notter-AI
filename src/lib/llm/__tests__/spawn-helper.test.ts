@@ -41,7 +41,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: vi.fn(async () => true),
 }));
 vi.mock('@tauri-apps/api/path', () => ({
-  appLocalDataDir: vi.fn(async () => 'C:/test/appdata/'),
+  appLocalDataDir: vi.fn(async () => 'C:/test/appdata'),
+  join: vi.fn(async (...parts: string[]) => parts.join('/')),
 }));
 
 import {
