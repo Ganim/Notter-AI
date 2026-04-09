@@ -1,118 +1,104 @@
 // src/lib/llm/__tests__/spawn-helper.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock @tauri-apps/plugin-shell with a flexible Command stub that lets each
-// test inject its own stdout/stderr/close behavior.
-const stdoutListeners: Array<(line: string) => void> = [];
-const stderrListeners: Array<(line: string) => void> = [];
-const closeListeners: Array<(data: { code: number | null; signal: number | null }) => void> = [];
-const errorListeners: Array<(err: string) => void> = [];
+// Mock @tauri-apps/plugin-shell. The helper uses Command.execute() which
+// returns a Promise<{ code, signal, stdout, stderr }>. Each test sets
+// `executeImpl` to control the mock's resolve/reject behavior.
+let executeImpl: () => Promise<{
+  code: number | null;
+  signal: number | null;
+  stdout: string;
+  stderr: string;
+}> = async () => ({ code: 0, signal: null, stdout: '', stderr: '' });
 
-let writeCalls: string[] = [];
-let killCalled = false;
-let spawnImpl: () => Promise<{ write: (data: string) => Promise<void>; kill: () => Promise<void> }> =
-  async () => ({
-    write: async (data: string) => {
-      writeCalls.push(data);
-    },
-    kill: async () => {
-      killCalled = true;
-    },
-  });
+let lastCreateCall: { program: string; args: string[] } | null = null;
 
 vi.mock('@tauri-apps/plugin-shell', () => ({
   Command: {
-    create: vi.fn(() => ({
-      stdout: { on: (_event: string, fn: (line: string) => void) => stdoutListeners.push(fn) },
-      stderr: { on: (_event: string, fn: (line: string) => void) => stderrListeners.push(fn) },
-      on: (event: string, fn: (data: unknown) => void) => {
-        if (event === 'close') closeListeners.push(fn as typeof closeListeners[number]);
-        if (event === 'error') errorListeners.push(fn as typeof errorListeners[number]);
-      },
-      spawn: () => spawnImpl(),
-    })),
+    create: vi.fn((program: string, args: string[]) => {
+      lastCreateCall = { program, args };
+      return {
+        execute: () => executeImpl(),
+      };
+    }),
   },
 }));
 
 import { spawnCli } from '@/lib/llm/spawn-helper';
-import { LLMWorkerError } from '@/lib/llm/types';
 
-function emitStdout(line: string) {
-  stdoutListeners.forEach((fn) => fn(line));
-}
-function emitStderr(line: string) {
-  stderrListeners.forEach((fn) => fn(line));
-}
-function emitClose(code: number) {
-  closeListeners.forEach((fn) => fn({ code, signal: null }));
-}
-function emitError(msg: string) {
-  errorListeners.forEach((fn) => fn(msg));
+const ORIGINAL_PLATFORM = navigator.platform;
+
+function setPlatform(platform: string) {
+  Object.defineProperty(navigator, 'platform', {
+    configurable: true,
+    get: () => platform,
+  });
 }
 
 beforeEach(() => {
-  stdoutListeners.length = 0;
-  stderrListeners.length = 0;
-  closeListeners.length = 0;
-  errorListeners.length = 0;
-  writeCalls = [];
-  killCalled = false;
-  spawnImpl = async () => ({
-    write: async (data: string) => {
-      writeCalls.push(data);
-    },
-    kill: async () => {
-      killCalled = true;
-    },
-  });
+  lastCreateCall = null;
+  executeImpl = async () => ({ code: 0, signal: null, stdout: '', stderr: '' });
+  setPlatform(ORIGINAL_PLATFORM);
 });
 
 describe('spawnCli', () => {
   it('returns stdout, stderr, exitCode, durationMs on a successful run', async () => {
-    const promise = spawnCli({ command: 'claude', args: ['--print'] });
+    executeImpl = async () => ({
+      code: 0,
+      signal: null,
+      stdout: 'hello world',
+      stderr: 'warn',
+    });
 
-    await new Promise((r) => setTimeout(r, 10));
-    emitStdout('hello');
-    emitStdout(' world');
-    emitStderr('warn');
-    emitClose(0);
-
-    const result = await promise;
+    const result = await spawnCli({ command: 'claude', args: ['--print'] });
     expect(result.stdout).toBe('hello world');
     expect(result.stderr).toBe('warn');
     expect(result.exitCode).toBe(0);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('writes stdin when provided', async () => {
-    const promise = spawnCli({ command: 'claude', args: [], stdin: 'my prompt' });
-
-    await new Promise((r) => setTimeout(r, 10));
-    emitClose(0);
-
-    await promise;
-    expect(writeCalls).toContain('my prompt\n');
+  it('passes program name and args to Command.create', async () => {
+    await spawnCli({ command: 'claude', args: ['--print', 'hi'] });
+    expect(lastCreateCall?.args).toEqual(['--print', 'hi']);
   });
 
-  it('does not throw if stdin write fails (process closed early)', async () => {
-    spawnImpl = async () => ({
-      write: async () => {
-        throw new Error('EPIPE');
-      },
-      kill: async () => {},
+  it('keeps claude as bare name on Windows (claude.exe is native)', async () => {
+    setPlatform('Win32');
+    await spawnCli({ command: 'claude', args: [] });
+    expect(lastCreateCall?.program).toBe('claude');
+  });
+
+  it('appends .cmd to gemini on Windows', async () => {
+    setPlatform('Win32');
+    await spawnCli({ command: 'gemini', args: [] });
+    expect(lastCreateCall?.program).toBe('gemini.cmd');
+  });
+
+  it('appends .cmd to codex on Windows', async () => {
+    setPlatform('Win32');
+    await spawnCli({ command: 'codex', args: [] });
+    expect(lastCreateCall?.program).toBe('codex.cmd');
+  });
+
+  it('keeps gemini as bare name on Linux', async () => {
+    setPlatform('Linux x86_64');
+    await spawnCli({ command: 'gemini', args: [] });
+    expect(lastCreateCall?.program).toBe('gemini');
+  });
+
+  it('throws LLMWorkerError with reason cli_not_found when execute fails with not found', async () => {
+    executeImpl = async () => {
+      throw new Error('program not allowed on the configured shell scope');
+    };
+
+    await expect(spawnCli({ command: 'codex', args: [] })).rejects.toMatchObject({
+      reason: 'cli_not_found',
+      cli: 'codex',
     });
-
-    const promise = spawnCli({ command: 'gemini', args: [], stdin: 'oops' });
-
-    await new Promise((r) => setTimeout(r, 10));
-    emitClose(1);
-
-    const result = await promise;
-    expect(result.exitCode).toBe(1);
   });
 
-  it('throws LLMWorkerError with reason cli_not_found when spawn fails with not found', async () => {
-    spawnImpl = async () => {
+  it('throws LLMWorkerError with reason cli_not_found on "command not found"', async () => {
+    executeImpl = async () => {
       throw new Error('command not found: nope');
     };
 
@@ -122,8 +108,8 @@ describe('spawnCli', () => {
     });
   });
 
-  it('throws LLMWorkerError with reason unknown for other spawn errors', async () => {
-    spawnImpl = async () => {
+  it('throws LLMWorkerError with reason unknown for other execute errors', async () => {
+    executeImpl = async () => {
       throw new Error('something weird');
     };
 
@@ -134,21 +120,27 @@ describe('spawnCli', () => {
   });
 
   it('throws LLMWorkerError with reason timeout when the deadline elapses', async () => {
-    const promise = spawnCli({ command: 'claude', args: [], timeoutMs: 50 });
+    // Never resolves
+    executeImpl = () => new Promise(() => {});
 
-    await expect(promise).rejects.toMatchObject({
+    await expect(
+      spawnCli({ command: 'claude', args: [], timeoutMs: 50 }),
+    ).rejects.toMatchObject({
       reason: 'timeout',
       cli: 'claude',
     });
-    expect(killCalled).toBe(true);
   });
 
-  it('throws LLMWorkerError on the error event', async () => {
-    const promise = spawnCli({ command: 'gemini', args: [] });
+  it('propagates non-zero exit codes without throwing', async () => {
+    executeImpl = async () => ({
+      code: 2,
+      signal: null,
+      stdout: '',
+      stderr: 'some error',
+    });
 
-    await new Promise((r) => setTimeout(r, 10));
-    emitError('something broke');
-
-    await expect(promise).rejects.toBeInstanceOf(LLMWorkerError);
+    const result = await spawnCli({ command: 'gemini', args: [] });
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe('some error');
   });
 });

@@ -2,7 +2,23 @@
 //
 // Phase C: shared helper to invoke a CLI through @tauri-apps/plugin-shell.
 // All LLMWorker adapters use this helper instead of calling Command directly,
-// so the timeout / stdin / error mapping logic exists in exactly one place.
+// so the timeout / error mapping logic exists in exactly one place.
+//
+// Implementation notes:
+// - Uses `Command.execute()` (one-shot wait) instead of `spawn()` + events.
+//   The Rust side of `execute()` closes the stdin pipe as soon as the child
+//   is spawned, which is critical: otherwise CLIs like `codex exec` detect
+//   a piped-but-open stdin and block forever waiting for EOF. With `execute()`
+//   the pipe closes immediately and codex proceeds.
+// - The timeout is enforced in JS via Promise.race, because `execute()` does
+//   not accept a timeout. On timeout we throw LLMWorkerError; the child may
+//   still be running briefly (no kill API after execute started), but the
+//   promise resolves so the caller unblocks.
+// - stdin piping is intentionally NOT supported. All adapters must pass the
+//   prompt as a positional CLI argument. This is because Tauri's shell plugin
+//   offers no stdin close API with `spawn()`, and `execute()` doesn't expose
+//   stdin at all. Passing prompts as args is also simpler and works for all
+//   three CLIs (claude, gemini, codex).
 
 import { Command } from '@tauri-apps/plugin-shell';
 import { LLMWorkerError } from '@/lib/llm/types';
@@ -12,8 +28,6 @@ export interface SpawnCliInput {
   command: 'claude' | 'gemini' | 'codex';
   /** Args passed to the CLI. */
   args: string[];
-  /** Optional stdin payload. If provided, written then closed before reading output. */
-  stdin?: string;
   /** Timeout in milliseconds. Default 120_000. */
   timeoutMs?: number;
 }
@@ -28,40 +42,74 @@ export interface SpawnCliResult {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * Spawn a CLI via Tauri's shell plugin and return its output.
+ * Resolve the platform-specific executable name for a CLI.
  *
- * Errors are thrown as LLMWorkerError with a typed reason. Specifically:
+ * On Windows, `gemini` and `codex` are installed as npm shims:
+ *   - `gemini`       (bash script, no extension — NOT executable by CreateProcess)
+ *   - `gemini.cmd`   (Windows cmd wrapper — this is what we need)
+ *   - `gemini.ps1`   (PowerShell wrapper)
+ *
+ * Rust's `Command::new` (which Tauri's shell plugin wraps) does NOT perform
+ * `PATHEXT` resolution the way `cmd.exe` does, so passing bare `gemini` fails
+ * with "not found". We must pass `gemini.cmd` explicitly on Windows.
+ *
+ * `claude` ships as `claude.exe`, a real PE executable, so no .cmd shim is
+ * needed — Windows finds it directly.
+ */
+function resolveProgramName(command: 'claude' | 'gemini' | 'codex'): string {
+  const isWindows =
+    typeof navigator !== 'undefined' &&
+    /win/i.test(navigator.platform ?? navigator.userAgent ?? '');
+  if (!isWindows) return command;
+  if (command === 'claude') return 'claude';
+  return `${command}.cmd`;
+}
+
+/**
+ * Run a CLI via Tauri's shell plugin and return its output.
+ *
+ * Errors are thrown as LLMWorkerError with a typed reason:
  * - `cli_not_found` when the CLI binary cannot be located by the OS
  * - `timeout` when the timeout fires before the process exits
- * - `unknown` for any other spawn-time failure (mapping to more specific
- *   reasons happens in the adapters that interpret the stderr)
+ * - `unknown` for any other spawn-time failure
  */
 export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   const startedAt = Date.now();
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const cmd = Command.create(input.command, input.args);
+  const programName = resolveProgramName(input.command);
+  const cmd = Command.create(programName, input.args);
 
-  let stdout = '';
-  let stderr = '';
+  const executePromise = cmd.execute().then((output) => ({
+    stdout: typeof output.stdout === 'string' ? output.stdout : '',
+    stderr: typeof output.stderr === 'string' ? output.stderr : '',
+    exitCode: output.code ?? -1,
+    durationMs: Date.now() - startedAt,
+  }));
 
-  cmd.stdout.on('data', (line: string) => {
-    stdout += line;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(
+        new LLMWorkerError({
+          reason: 'timeout',
+          cli: input.command,
+          message: `${input.command} timed out after ${timeoutMs}ms`,
+        }),
+      );
+    }, timeoutMs);
   });
-  cmd.stderr.on('data', (line: string) => {
-    stderr += line;
-  });
 
-  let child;
   try {
-    child = await cmd.spawn();
+    return await Promise.race([executePromise, timeoutPromise]);
   } catch (e: unknown) {
+    if (e instanceof LLMWorkerError) throw e;
     const msg = String((e as { message?: string })?.message ?? e);
     const lower = msg.toLowerCase();
     if (
       lower.includes('not found') ||
       lower.includes('no such file') ||
-      lower.includes('cannot find')
+      lower.includes('cannot find') ||
+      lower.includes("program not allowed")
     ) {
       throw new LLMWorkerError({
         reason: 'cli_not_found',
@@ -72,62 +120,7 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
     throw new LLMWorkerError({
       reason: 'unknown',
       cli: input.command,
-      message: `failed to spawn ${input.command}: ${msg}`,
+      message: `failed to run ${input.command}: ${msg}`,
     });
   }
-
-  // Write stdin if provided. Wrapping in try/catch is critical because the
-  // child can exit before stdin is consumed (auth failure, crash) — that path
-  // throws EPIPE on the write call.
-  if (input.stdin !== undefined) {
-    try {
-      await child.write(input.stdin + '\n');
-    } catch {
-      // Ignore — the 'close' event below will surface the real failure
-      // through the exit code.
-    }
-  }
-
-  // Wait for close OR timeout, whichever wins
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill().catch(() => {});
-      reject(
-        new LLMWorkerError({
-          reason: 'timeout',
-          cli: input.command,
-          message: `${input.command} timed out after ${timeoutMs}ms`,
-          stderr,
-        }),
-      );
-    }, timeoutMs);
-
-    cmd.on('close', (data: { code: number | null; signal: number | null }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(data.code ?? -1);
-    });
-
-    cmd.on('error', (err: string) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(
-        new LLMWorkerError({
-          reason: 'unknown',
-          cli: input.command,
-          message: `${input.command} error event: ${err}`,
-          stderr,
-        }),
-      );
-    });
-  });
-
-  const durationMs = Date.now() - startedAt;
-  return { stdout, stderr, exitCode, durationMs };
 }

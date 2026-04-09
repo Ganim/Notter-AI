@@ -36,21 +36,25 @@ export class ClaudeCodeWorker implements LLMWorker {
   readonly name = 'claude-code' as const;
 
   async run(input: LLMInput): Promise<LLMResponse> {
+    const fullPrompt = input.systemPrompt
+      ? `${input.systemPrompt}\n\n${input.prompt}`
+      : input.prompt;
+
+    // Pass the prompt as a positional arg instead of stdin. The CLI accepts
+    // `claude [options] [prompt]`. Using stdin doesn't work from the Tauri
+    // renderer because the shell plugin's Child.write() never closes stdin,
+    // leaving claude waiting for EOF forever.
     const args = [
       '--print',
       '--output-format',
       'json',
       '--dangerously-skip-permissions',
+      fullPrompt,
     ];
-
-    const fullPrompt = input.systemPrompt
-      ? `${input.systemPrompt}\n\n${input.prompt}`
-      : input.prompt;
 
     const result = await spawnCli({
       command: 'claude',
       args,
-      stdin: fullPrompt,
       timeoutMs: input.timeoutMs ?? 120_000,
     });
 

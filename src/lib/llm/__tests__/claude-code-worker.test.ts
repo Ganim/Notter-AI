@@ -82,11 +82,13 @@ describe('ClaudeCodeWorker', () => {
       '--output-format',
       'json',
       '--dangerously-skip-permissions',
+      'test',
     ]);
-    expect(callArgs.stdin).toBe('test');
+    // Prompt is now passed as a positional arg, not stdin.
+    expect(callArgs.stdin).toBeUndefined();
   });
 
-  it('concatenates systemPrompt before prompt when both are provided', async () => {
+  it('concatenates systemPrompt before prompt in the positional arg', async () => {
     spawnCliMock.mockResolvedValue({
       stdout: JSON.stringify(VALID_RESPONSE),
       stderr: '',
@@ -98,7 +100,8 @@ describe('ClaudeCodeWorker', () => {
     await worker.run({ prompt: 'do it', systemPrompt: 'You are X.' });
 
     const callArgs = spawnCliMock.mock.calls[0][0];
-    expect(callArgs.stdin).toBe('You are X.\n\ndo it');
+    // Last arg is the combined prompt
+    expect(callArgs.args[callArgs.args.length - 1]).toBe('You are X.\n\ndo it');
   });
 
   it('throws parse_error when stdout is not JSON', async () => {
