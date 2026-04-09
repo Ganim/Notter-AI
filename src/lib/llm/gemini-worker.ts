@@ -58,7 +58,10 @@ export class GeminiWorker implements LLMWorker {
       command: 'gemini',
       args,
       stdin: useStdin ? input.prompt : undefined,
-      timeoutMs: input.timeoutMs ?? 120_000,
+      // Default 300s: gemini-3-flash-preview was observed at ~100s on a
+      // trivial prompt during the Phase C spike. Real planning prompts
+      // (multi-line Markdown, tool context) routinely exceed 120s.
+      timeoutMs: input.timeoutMs ?? 300_000,
     });
 
     if (result.exitCode !== 0) {
