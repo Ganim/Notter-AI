@@ -32,6 +32,9 @@ function statusDotClass(s: ActionTaskStatus): string {
       return 'w-2.5 h-2.5 rounded-full bg-green-500';
     case 'failed':
       return 'w-2.5 h-2.5 rounded-full bg-red-500';
+    default:
+      // v2 statuses (pending, blocked_hitl, skipped) — neutral dot
+      return 'w-2.5 h-2.5 rounded-full border-2 border-gray-300 bg-transparent';
   }
 }
 
