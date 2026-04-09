@@ -75,6 +75,9 @@ interface ActionsState {
   retryPlanStage(actionId: string, stage: PlanStageName): Promise<void>;
   approvePlan(actionId: string): Promise<void>;
   rejectPlan(actionId: string, reason?: string): Promise<void>;
+
+  // Phase E — re-queue a failed/done execution back into the queue.
+  requeueExecution(actionId: string): Promise<void>;
 }
 
 // ----- Phase D: planning pipeline helpers (pure, no store state access) -----
@@ -588,6 +591,39 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
           status: 'rejected',
           planStages: nextStages,
           updatedAt: new Date().toISOString(),
+        };
+      }),
+    }));
+    schedulePersist(() => get().actions);
+  },
+
+  async requeueExecution(actionId) {
+    set((s) => ({
+      actions: s.actions.map((a) => {
+        if (a.id !== actionId) return a;
+        // Allow re-queue from any "execution-touched" state. We do NOT
+        // re-queue from plan_review/rejected/draft because those states
+        // mean the plan itself isn't ready.
+        if (
+          a.status !== 'failed' &&
+          a.status !== 'done' &&
+          a.status !== 'queued' &&
+          a.status !== 'running'
+        ) {
+          return a;
+        }
+        return {
+          ...a,
+          status: 'queued' as const,
+          updatedAt: new Date().toISOString(),
+          tasks: a.tasks.map((t) => ({
+            ...t,
+            status: 'pending' as const,
+            summary: undefined,
+            result: undefined,
+            startedAt: undefined,
+            completedAt: undefined,
+          })),
         };
       }),
     }));

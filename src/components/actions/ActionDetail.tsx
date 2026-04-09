@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Trash2, Play, FileText, Loader2 } from 'lucide-react';
+import { Trash2, Play, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,6 +30,7 @@ export function ActionDetail() {
   const updateAction = useActionsStore((s) => s.updateAction);
   const deleteAction = useActionsStore((s) => s.deleteAction);
   const retryPlanStage = useActionsStore((s) => s.retryPlanStage);
+  const requeueExecution = useActionsStore((s) => s.requeueExecution);
   const consoles = useTerminalsStore((s) => s.consoles);
   const addConsole = useTerminalsStore((s) => s.addConsole);
 
@@ -157,6 +158,24 @@ export function ActionDetail() {
               </option>
             ))}
           </select>
+          {/* Phase E: re-queue button — visible when the v2 executor has
+              already touched this Action (queued/running/done/failed).
+              Resets task statuses to pending and bumps the action back
+              to queued so the Queue Worker picks it up again. */}
+          {(selected.status === 'queued' ||
+            selected.status === 'running' ||
+            selected.status === 'failed' ||
+            selected.status === 'done') && (
+            <button
+              onClick={() => requeueExecution(selected.id)}
+              disabled={selected.status === 'running'}
+              title="Re-queue this Action for execution (resets task statuses)"
+              className="flex items-center gap-1.5 h-7 rounded-md bg-violet-500 px-2.5 text-xs font-semibold text-white hover:bg-violet-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={12} />
+              Re-queue
+            </button>
+          )}
           <button
             onClick={handleProcessAll}
             disabled={isProcessing || selected.tasks.filter((tt) => tt.status === 'waiting').length === 0}
