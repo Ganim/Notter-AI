@@ -288,13 +288,33 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
       cliArgs: input.args,
     });
     programName = 'cmd.exe';
-    // /S plus a double-quoted third arg: cmd strips the outer quotes and
-    // parses the inner string verbatim, so the redirects work as expected.
-    programArgs = ['/S', '/C', `"${innerCmd}"`];
+    // Pass the inner command as a SINGLE arg WITHOUT our own quote
+    // wrapping. Rust's std::process::Command auto-wraps args containing
+    // spaces in `"..."` when building the Windows CreateProcessW command
+    // line, and cmd.exe /S strips those outer quotes. If we pre-wrap,
+    // Rust escapes our quotes as \" and cmd.exe parses the literal \"
+    // as a broken-quoted token, failing with "A sintaxe do comando está
+    // incorreta" (a CP850-encoded error whose 0xA0 byte from 'á' was
+    // the root of the "invalid utf-8" we kept seeing).
+    programArgs = ['/S', '/C', innerCmd];
   } else {
     programName = resolveProgramName(input.command);
     programArgs = input.args;
   }
+
+  // Diagnostic logging — helps the user diagnose future spawn issues
+  // without a rebuild. Safe to leave in: it runs once per CLI call and
+  // writes only metadata, never the prompt content.
+  // eslint-disable-next-line no-console
+  console.log('[spawn-helper] exec', {
+    programName,
+    programArgs,
+    useWindowsStdinRoute,
+    tempPath,
+    stdoutPath,
+    promptLen: input.stdin?.length ?? 0,
+    timeoutMs,
+  });
 
   const cmd = Command.create(programName, programArgs);
 
@@ -307,8 +327,34 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   const executePromise = cmd.execute().then(async (output) => {
     const exitCode = output.code ?? -1;
     const durationMs = Date.now() - startedAt;
+    // Log the raw execute() result so we can see cmd.exe's own
+    // stdout/stderr when things go wrong (useful for diagnosing cmd.exe
+    // parse errors vs real CLI errors).
+    // eslint-disable-next-line no-console
+    console.log('[spawn-helper] execute resolved', {
+      exitCode,
+      durationMs,
+      rawStdoutLen:
+        typeof output.stdout === 'string' ? output.stdout.length : -1,
+      rawStderrLen:
+        typeof output.stderr === 'string' ? output.stderr.length : -1,
+      rawStdoutHead:
+        typeof output.stdout === 'string'
+          ? output.stdout.slice(0, 200)
+          : null,
+      rawStderrHead:
+        typeof output.stderr === 'string'
+          ? output.stderr.slice(0, 200)
+          : null,
+    });
     if (useWindowsStdinRoute && stdoutPath) {
       const stdoutText = await readLossyUtf8File(stdoutPath);
+      // eslint-disable-next-line no-console
+      console.log('[spawn-helper] stdout file read', {
+        stdoutPath,
+        stdoutLen: stdoutText.length,
+        stdoutHead: stdoutText.slice(0, 300),
+      });
       return {
         stdout: stdoutText,
         stderr: '', // discarded via 2>nul
@@ -339,6 +385,12 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   try {
     return await Promise.race([executePromise, timeoutPromise]);
   } catch (e: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('[spawn-helper] execute rejected', {
+      command: input.command,
+      error: e,
+      errorMessage: (e as { message?: string })?.message,
+    });
     if (e instanceof LLMWorkerError) throw e;
     const msg = String((e as { message?: string })?.message ?? e);
     const lower = msg.toLowerCase();

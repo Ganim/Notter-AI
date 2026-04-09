@@ -114,6 +114,14 @@ function mapWorkerError(
 export async function runStage<TParsed>(
   opts: RunStageOptions<TParsed>,
 ): Promise<StageRunOutput<TParsed>> {
+  // eslint-disable-next-line no-console
+  console.log('[stage-runner] start', {
+    stageName: opts.stageName,
+    workerName: opts.workerName,
+    systemPromptLen: opts.systemPrompt.length,
+    userPromptLen: opts.userPrompt.length,
+  });
+
   const worker = getWorker(opts.workerName);
 
   let response;
@@ -125,6 +133,13 @@ export async function runStage<TParsed>(
       timeoutMs: opts.timeoutMs,
     });
   } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[stage-runner] worker threw', {
+      stageName: opts.stageName,
+      workerName: opts.workerName,
+      err,
+      errMessage: err instanceof Error ? err.message : String(err),
+    });
     if (err instanceof LLMWorkerError) {
       throw mapWorkerError(err, opts.stageName);
     }
@@ -136,6 +151,14 @@ export async function runStage<TParsed>(
       }`,
     });
   }
+
+  // eslint-disable-next-line no-console
+  console.log('[stage-runner] worker returned', {
+    stageName: opts.stageName,
+    textLen: response.text.length,
+    textHead: response.text.slice(0, 400),
+    durationMs: response.durationMs,
+  });
 
   const rawOutput = response.text;
   const cleaned = stripJsonNoise(rawOutput);

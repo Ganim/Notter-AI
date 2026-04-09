@@ -37,6 +37,16 @@ export class CodexWorker implements LLMWorker {
       timeoutMs: input.timeoutMs ?? 300_000,
     });
 
+    // eslint-disable-next-line no-console
+    console.log('[codex-worker] spawnCli returned', {
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      stdoutLen: result.stdout.length,
+      stdoutHead: result.stdout.slice(0, 400),
+      stdoutTail: result.stdout.slice(-200),
+      stderrLen: result.stderr.length,
+    });
+
     if (result.exitCode !== 0) {
       throw classifyCodexError(result.exitCode, result.stderr);
     }

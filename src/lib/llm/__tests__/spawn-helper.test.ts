@@ -285,11 +285,12 @@ describe('spawnCli — Windows stdin route', () => {
     const cmdArgs = lastCreateCall!.args;
     expect(cmdArgs[0]).toBe('/S');
     expect(cmdArgs[1]).toBe('/C');
-    // Third arg is the quoted inner command string: chcp prefix,
-    // codex invocation, stdin redirect from prompt file, stdout redirect
-    // to stdout temp file, stderr to nul.
+    // Third arg is the inner command string WITHOUT our own quote
+    // wrapping — Rust's Command auto-wraps args with spaces in "..."
+    // when building the CreateProcessW command line, and cmd.exe /S
+    // strips those outer quotes.
     expect(cmdArgs[2]).toMatch(
-      /^"chcp 65001 >nul && codex\.cmd exec - < .+\.txt > .+\.txt 2>nul"$/,
+      /^chcp 65001 >nul && codex\.cmd exec - < .+\.txt > .+\.txt 2>nul$/,
     );
 
     // Verify the lifecycle: write prompt → execute → readFile stdout.
