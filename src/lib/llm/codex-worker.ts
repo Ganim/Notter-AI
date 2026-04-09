@@ -21,9 +21,9 @@ export class CodexWorker implements LLMWorker {
   readonly name = 'codex-cli' as const;
 
   async run(input: LLMInput): Promise<LLMResponse> {
-    // On Windows, use the stdin route (temp file + PowerShell pipeline) to
-    // dodge Rust's BatBadBut sanitizer. codex exec reads the prompt from
-    // stdin when we pass the `-` sentinel as the positional arg.
+    // On Windows, use the stdin route (temp file + cmd.exe `<` redirect)
+    // to dodge Rust's BatBadBut sanitizer. codex exec reads the prompt
+    // from stdin when we pass the `-` sentinel as the positional arg.
     const useStdin = isWindowsRuntime();
     const args = useStdin ? ['exec', '-'] : ['exec', input.prompt];
 
@@ -31,7 +31,10 @@ export class CodexWorker implements LLMWorker {
       command: 'codex',
       args,
       stdin: useStdin ? input.prompt : undefined,
-      timeoutMs: input.timeoutMs ?? 120_000,
+      // Default 300s: codex is fast (~8s on trivial prompts) but real
+      // planning payloads on Windows have exceeded 120s. Bumping to 5
+      // minutes gives generous headroom without hanging the UI.
+      timeoutMs: input.timeoutMs ?? 300_000,
     });
 
     if (result.exitCode !== 0) {

@@ -48,9 +48,11 @@ vi.mock('@tauri-apps/api/path', () => ({
 import {
   spawnCli,
   psSingleQuote,
-  buildPowerShellCommand,
+  buildCmdStdinRedirect,
+  assertCmdSafe,
   isWindowsRuntime,
 } from '@/lib/llm/spawn-helper';
+import { LLMWorkerError } from '@/lib/llm/types';
 
 const ORIGINAL_PLATFORM = navigator.platform;
 
@@ -207,31 +209,52 @@ describe('psSingleQuote', () => {
   });
 });
 
-describe('buildPowerShellCommand', () => {
-  it('builds a Get-Content | & cli one-liner with proper quoting', () => {
-    const ps = buildPowerShellCommand({
-      tempPath: 'C:/test/appdata/tmp-prompts/prompt-abc.txt',
-      cliExecutable: 'gemini.cmd',
-      cliArgs: ['-p', ' ', '-o', 'json'],
-    });
-    expect(ps).toBe(
-      "$ErrorActionPreference='Stop'; Get-Content -Raw -LiteralPath 'C:/test/appdata/tmp-prompts/prompt-abc.txt' | & 'gemini.cmd' '-p' ' ' '-o' 'json'",
-    );
-  });
-
-  it('escapes single quotes in the temp path', () => {
-    const ps = buildPowerShellCommand({
-      tempPath: "C:/o'brien/tmp.txt",
+describe('buildCmdStdinRedirect', () => {
+  it('builds a "cli args < path" command with no extra quoting', () => {
+    const cmd = buildCmdStdinRedirect({
+      tempPath: 'C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt',
       cliExecutable: 'codex.cmd',
       cliArgs: ['exec', '-'],
     });
-    expect(ps).toContain("'C:/o''brien/tmp.txt'");
-    expect(ps).toContain("& 'codex.cmd' 'exec' '-'");
+    expect(cmd).toBe(
+      'codex.cmd exec - < C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt',
+    );
+  });
+
+  it('handles an empty args array', () => {
+    const cmd = buildCmdStdinRedirect({
+      tempPath: 'C:\\tmp\\p.txt',
+      cliExecutable: 'gemini.cmd',
+      cliArgs: [],
+    });
+    expect(cmd).toBe('gemini.cmd < C:\\tmp\\p.txt');
+  });
+});
+
+describe('assertCmdSafe', () => {
+  it('accepts a plain ASCII path', () => {
+    expect(() =>
+      assertCmdSafe('C:\\Users\\guilh\\tmp\\file.txt', 'path'),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['space', 'has space'],
+    ['ampersand', 'evil&thing'],
+    ['pipe', 'a|b'],
+    ['redirect', 'a<b'],
+    ['quote', 'a"b'],
+    ['paren', '(foo)'],
+    ['newline', 'line\nmore'],
+    ['percent', '%PATH%'],
+    ['bang', 'oh!'],
+  ])('rejects a path with %s', (_, value) => {
+    expect(() => assertCmdSafe(value, 'test')).toThrow(LLMWorkerError);
   });
 });
 
 describe('spawnCli — Windows stdin route', () => {
-  it('routes through powershell.exe with a temp file when stdin is provided on Windows', async () => {
+  it('routes through cmd.exe with a temp file when stdin is provided on Windows', async () => {
     setPlatform('Win32');
     executeImpl = async () => ({
       code: 0,
@@ -241,21 +264,20 @@ describe('spawnCli — Windows stdin route', () => {
     });
 
     await spawnCli({
-      command: 'gemini',
-      args: ['-p', ' ', '-o', 'json'],
+      // Gemini would trip assertCmdSafe because we pass `-p ' '` (space).
+      // Codex's args `['exec', '-']` are cmd-safe and match the actual
+      // runtime shape the pipeline uses.
+      command: 'codex',
+      args: ['exec', '-'],
       stdin: 'long multi\nline\nprompt with "quotes" & <angles>',
     });
 
-    expect(lastCreateCall?.program).toBe('powershell.exe');
-    const psArgs = lastCreateCall!.args;
-    expect(psArgs).toContain('-NoProfile');
-    expect(psArgs).toContain('-NonInteractive');
-    expect(psArgs).toContain('-Command');
-    const commandIdx = psArgs.indexOf('-Command');
-    const psCmd = psArgs[commandIdx + 1];
-    expect(psCmd).toMatch(/Get-Content -Raw -LiteralPath/);
-    expect(psCmd).toMatch(/& 'gemini\.cmd'/);
-    expect(psCmd).toMatch(/'-p' ' ' '-o' 'json'/);
+    expect(lastCreateCall?.program).toBe('cmd.exe');
+    const cmdArgs = lastCreateCall!.args;
+    expect(cmdArgs[0]).toBe('/S');
+    expect(cmdArgs[1]).toBe('/C');
+    // Third arg is the quoted inner command string.
+    expect(cmdArgs[2]).toMatch(/^"codex\.cmd exec - < .+\.txt"$/);
 
     // Verify the lifecycle: write → execute → remove (remove is fire-and-
     // forget via void, so it may run after execute resolves — we check
@@ -263,6 +285,20 @@ describe('spawnCli — Windows stdin route', () => {
     const writeCall = fsCalls.find((c) => c.op === 'writeTextFile');
     expect(writeCall).toBeTruthy();
     expect(writeCall!.args[1]).toContain('long multi\nline\nprompt');
+  });
+
+  it('throws LLMWorkerError when an arg contains a cmd.exe special char', async () => {
+    setPlatform('Win32');
+    // Gemini passes `-p ' '` (space) which is now forbidden by the cmd
+    // route. This is intentional: the pipeline uses codex (which has
+    // clean args) and we want a loud failure if anyone re-adds gemini.
+    await expect(
+      spawnCli({
+        command: 'gemini',
+        args: ['-p', ' ', '-o', 'json'],
+        stdin: 'irrelevant',
+      }),
+    ).rejects.toBeInstanceOf(LLMWorkerError);
   });
 
   it('falls back to the legacy path on non-Windows even when stdin is set', async () => {

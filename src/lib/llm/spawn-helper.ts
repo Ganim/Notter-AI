@@ -99,27 +99,54 @@ export function resolveProgramName(
  * Escape a string for embedding inside a PowerShell single-quoted literal.
  * PowerShell's single-quote rule is simple: every `'` becomes `''`; nothing
  * else needs escaping.
+ *
+ * Kept for test compatibility — the active Windows stdin route now uses
+ * cmd.exe `<` redirect instead of a PowerShell pipeline (see
+ * buildCmdStdinRedirect), but psSingleQuote is still exercised by unit
+ * tests as a guard in case we ever need to fall back.
  */
 export function psSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
 /**
- * Build the PowerShell one-liner that streams the temp file into the CLI.
- * Exported for unit tests.
+ * Build the cmd.exe /S /C command string that runs the CLI with its
+ * stdin redirected from a temp file. Exported for unit tests.
+ *
+ * Why cmd.exe and not PowerShell: `Get-Content -Raw | & native.exe` in
+ * PowerShell 5.1 does not reliably flush/close the child's stdin handle,
+ * and codex-cli (at least) hangs waiting for EOF that never arrives.
+ * cmd.exe's `<` operator opens the file as a real Win32 stdin handle,
+ * so EOF comes naturally when the file is fully consumed.
+ *
+ * Quoting: cmd.exe quoting is fragile. We require that all inputs (the
+ * temp path, cli executable name, and each arg) contain NO spaces and NO
+ * cmd.exe special characters (`&`, `|`, `<`, `>`, `(`, `)`, `^`, `%`,
+ * `!`, `"`, newline). The caller must verify this before calling.
+ * Normal AppLocalData paths under a typical Windows install are safe;
+ * if the username contains spaces, we'd need a GetShortPathName helper.
  */
-export function buildPowerShellCommand(opts: {
+export function buildCmdStdinRedirect(opts: {
   tempPath: string;
   cliExecutable: string;
   cliArgs: string[];
 }): string {
-  const parts = [
-    "$ErrorActionPreference='Stop'",
-    `Get-Content -Raw -LiteralPath ${psSingleQuote(opts.tempPath)} | & ${psSingleQuote(opts.cliExecutable)} ${opts.cliArgs
-      .map(psSingleQuote)
-      .join(' ')}`,
-  ];
-  return parts.join('; ');
+  const argsJoined =
+    opts.cliArgs.length > 0 ? ` ${opts.cliArgs.join(' ')}` : '';
+  return `${opts.cliExecutable}${argsJoined} < ${opts.tempPath}`;
+}
+
+/** Tokens cmd.exe treats specially when parsing a /C command line. */
+const CMD_FORBIDDEN_CHARS = /[\s&|<>()^%!"\r\n]/;
+
+export function assertCmdSafe(value: string, label: string): void {
+  if (CMD_FORBIDDEN_CHARS.test(value)) {
+    throw new LLMWorkerError({
+      reason: 'unknown',
+      cli: 'cmd',
+      message: `${label} contains characters unsafe for cmd.exe: ${JSON.stringify(value)}`,
+    });
+  }
 }
 
 function randomId(): string {
@@ -187,20 +214,27 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   if (useWindowsStdinRoute) {
     tempPath = await writePromptTempFile(input.stdin!);
     const cliExecutable = resolveProgramName(input.command);
-    const psCommand = buildPowerShellCommand({
+
+    // cmd.exe quoting is fragile — assert the path, the exe name and
+    // every arg are free of characters cmd treats specially. For the
+    // normal happy path (AppLocalData under a space-free username) this
+    // passes silently; if it trips, we get a clear LLMWorkerError.
+    assertCmdSafe(tempPath, 'temp prompt path');
+    assertCmdSafe(cliExecutable, 'CLI executable');
+    for (const a of input.args) {
+      assertCmdSafe(a, 'CLI arg');
+    }
+
+    const innerCmd = buildCmdStdinRedirect({
       tempPath,
       cliExecutable,
       cliArgs: input.args,
     });
-    programName = 'powershell.exe';
-    programArgs = [
-      '-NoProfile',
-      '-NonInteractive',
-      '-OutputFormat',
-      'Text',
-      '-Command',
-      psCommand,
-    ];
+    programName = 'cmd.exe';
+    // /S plus a double-quoted third arg: cmd strips the outer quotes and
+    // parses the inner string verbatim, so the `<` redirect + unquoted
+    // path work as expected.
+    programArgs = ['/S', '/C', `"${innerCmd}"`];
   } else {
     programName = resolveProgramName(input.command);
     programArgs = input.args;

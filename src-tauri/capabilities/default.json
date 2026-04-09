@@ -34,7 +34,9 @@
         { "name": "codex",          "cmd": "codex",          "args": true, "sidecar": false },
         { "name": "codex.cmd",      "cmd": "codex.cmd",      "args": true, "sidecar": false },
         { "name": "powershell",     "cmd": "powershell",     "args": true, "sidecar": false },
-        { "name": "powershell.exe", "cmd": "powershell.exe", "args": true, "sidecar": false }
+        { "name": "powershell.exe", "cmd": "powershell.exe", "args": true, "sidecar": false },
+        { "name": "cmd",            "cmd": "cmd",            "args": true, "sidecar": false },
+        { "name": "cmd.exe",        "cmd": "cmd.exe",        "args": true, "sidecar": false }
       ]
     }
   ]
