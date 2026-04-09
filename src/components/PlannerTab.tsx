@@ -19,6 +19,7 @@ import { useAiStore } from '@/stores/ai-store';
 import { useAppStore } from '@/stores/app-store';
 import { translateNote } from '@/lib/translator';
 import { processNoteToAction } from '@/lib/action-processor';
+import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
 import { Wand2, Loader2, Play, History } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
@@ -538,6 +539,15 @@ export function PlannerTab() {
                 <Play size={12} fill="currentColor" />
               )}
             </button>
+            <PlanWithAiButton
+              project={selectedProject}
+              subjectName={selectedSubject}
+              noteMarkdown={subjectContent}
+              onStarted={(actionId) => {
+                setSelectedAction(actionId);
+                setActiveTab('actions');
+              }}
+            />
           </>
         )}
       </div>

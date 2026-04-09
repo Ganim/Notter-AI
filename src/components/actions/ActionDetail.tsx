@@ -18,6 +18,7 @@ import { useActionsStore } from '@/stores/actions-store';
 import { useTerminalsStore } from '@/stores/terminals-store';
 import type { ActionStatus } from '@/types/actions';
 import { TaskItem } from './TaskItem';
+import { PlanStageStrip } from '@/components/planning/PlanStageStrip';
 
 const STATUS_OPTIONS: ActionStatus[] = ['waiting', 'processing', 'skipped', 'done'];
 
@@ -27,6 +28,7 @@ export function ActionDetail() {
   const selectedId = useActionsStore((s) => s.selectedActionId);
   const updateAction = useActionsStore((s) => s.updateAction);
   const deleteAction = useActionsStore((s) => s.deleteAction);
+  const retryPlanStage = useActionsStore((s) => s.retryPlanStage);
   const consoles = useTerminalsStore((s) => s.consoles);
   const addConsole = useTerminalsStore((s) => s.addConsole);
 
@@ -194,6 +196,18 @@ export function ActionDetail() {
             <p className="text-xs text-muted-foreground italic">{t('actions.no_context')}</p>
           )}
         </section>
+
+        {/* Planning pipeline progress — only rendered when the action has
+            entered (or completed) the v2 planning pipeline. */}
+        {selected.planStages && selected.planStages.length > 0 && (
+          <section className="space-y-2 mb-6">
+            <h3 className="text-sm font-semibold">Planning pipeline</h3>
+            <PlanStageStrip
+              stages={selected.planStages}
+              onRetry={(stage) => retryPlanStage(selected.id, stage)}
+            />
+          </section>
+        )}
 
         {/* Tasks */}
         <section className="space-y-2">
