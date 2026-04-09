@@ -98,7 +98,7 @@ describe('runSecurityStage', () => {
   it('uses codex-cli worker and SECURITY_PROMPT', async () => {
     await runSecurityStage(baseInput);
     const call = lastRunInput as { systemPrompt: string; prompt: string };
-    expect(call.systemPrompt).toContain('security reviewer');
+    expect(call.systemPrompt).toContain('security flags');
     expect(call.prompt).toContain('upload file');
     expect(call.prompt).toContain('raw prompt for t1');
   });

@@ -118,7 +118,7 @@ describe('runPromptCriticStage', () => {
       );
     await runPromptCriticStage(makeInput([task('t1', 'Fix typo')]));
     const call = lastRunInput as { systemPrompt: string; prompt: string };
-    expect(call.systemPrompt).toContain('senior staff engineer');
+    expect(call.systemPrompt).toContain('refine development task prompts');
     expect(call.prompt).toContain('Fix typo');
   });
 

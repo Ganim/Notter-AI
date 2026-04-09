@@ -107,7 +107,7 @@ describe('runDataStage', () => {
     await runDataStage(baseInput);
     const call = lastRunInput as { prompt: string; systemPrompt: string };
     expect(call.prompt).toContain('sanitize filename');
-    expect(call.systemPrompt).toContain('data consistency reviewer');
+    expect(call.systemPrompt).toContain('data-consistency flags');
   });
 
   it('throws schema_error on id mismatch', async () => {

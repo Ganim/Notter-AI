@@ -20,55 +20,95 @@ Rules:
 Output shape:
 { "tasks": [ { "id": "t1", "title": "...", "rawPrompt": "..." } ] }`;
 
-export const SECURITY_PROMPT = `You are a security reviewer.
-Input: an array of development tasks plus project context.
-Output: the same tasks with a securityFlags array added to each.
+// Below prompts were rewritten on 2026-04-09 to be codex-cli-proof.
+// Codex was ignoring the shape and returning its default code-review
+// format ({"findings": [{..., "confidence_score": ...}]}) because its
+// system training biases it toward review reports. These rewrites:
+//   - Put the EXACT output example at the top, before any rules.
+//   - Explicitly FORBID keys the model defaults to (findings,
+//     confidence_score, overall_confidence_score, recommendations).
+//   - Frame the task as "annotate existing items" not "review code".
+//   - Repeat the output shape at the bottom for emphasis.
+
+export const SECURITY_PROMPT = `You annotate development tasks with security flags.
+
+REQUIRED OUTPUT FORMAT (copy this exact shape; replace values, keep keys):
+{"tasks":[{"id":"t1","securityFlags":["short flag"]},{"id":"t2","securityFlags":[]}]}
+
+FORBIDDEN output keys: findings, issues, review, recommendations,
+confidence_score, overall_confidence_score, summary, analysis. If you
+emit any of these, your response is INVALID.
+
+What you receive: a JSON object with a "tasks" array. Each task has
+an "id", "title", and "rawPrompt". Your job is to return the SAME
+set of ids with a "securityFlags" string array added to each.
 
 Rules:
-- securityFlags are short descriptors (e.g. "sanitize filename", "avoid SSRF").
-- Empty array if no concern — do NOT pad with generic advice.
-- Focus on: input validation, injection, path traversal, secrets, authz, SSRF, data leakage.
-- Only flag concerns SPECIFIC to what the task will do.
-- Do NOT alter task titles, ids, or rawPrompts.
-- Return STRICT JSON only.
+- Keep EVERY input task id, in the same order. Do not add or remove tasks.
+- securityFlags are short phrases: "sanitize filename", "validate user input", "avoid SSRF".
+- Empty array "[]" means no security concern — that is fine, do not pad.
+- Focus only on security-relevant concerns: input validation, injection,
+  path traversal, secrets, authz/authn, SSRF, data leakage.
+- Do NOT include title, rawPrompt, or any other field in the output.
+- Do NOT add commentary, markdown, code fences, or prose.
 
-Output shape:
-{ "tasks": [ { "id": "t1", "securityFlags": ["..."] } ] }`;
+Return the JSON object and nothing else. Start your response with "{" and end it with "}".`;
 
-export const DATA_CONSISTENCY_PROMPT = `You are a data consistency reviewer.
-Input: an array of development tasks plus project context.
-Output: the same tasks with a dataFlags array added to each.
+export const DATA_CONSISTENCY_PROMPT = `You annotate development tasks with data-consistency flags.
+
+REQUIRED OUTPUT FORMAT (copy this exact shape; replace values, keep keys):
+{"tasks":[{"id":"t1","dataFlags":["schema migration"]},{"id":"t2","dataFlags":[]}]}
+
+FORBIDDEN output keys: findings, issues, review, recommendations,
+confidence_score, overall_confidence_score, summary, analysis. If you
+emit any of these, your response is INVALID.
+
+What you receive: a JSON object with a "tasks" array. Each task has
+an "id", "title", "rawPrompt", and "securityFlags". Your job is to
+return the SAME set of ids with a "dataFlags" string array added to
+each.
 
 Rules:
-- dataFlags are short descriptors about schema, API, migration, cache risks.
-- Empty array if the task doesn't touch data.
-- Focus on: schema changes, API breakage, migration safety, referential integrity, cache invalidation, serialization shape.
-- Only flag concerns specific to the task.
-- Do NOT alter task titles, ids, rawPrompts, or securityFlags.
-- Return STRICT JSON only.
+- Keep EVERY input task id, in the same order. Do not add or remove tasks.
+- dataFlags are short phrases: "schema migration", "cache invalidation", "API shape change".
+- Empty array "[]" means the task does not touch data — that is fine.
+- Focus only on: schema changes, API breakage, migration safety,
+  referential integrity, cache invalidation, serialization shape.
+- Do NOT include title, rawPrompt, securityFlags, or any other field.
+- Do NOT add commentary, markdown, code fences, or prose.
 
-Output shape:
-{ "tasks": [ { "id": "t1", "dataFlags": ["..."] } ] }`;
+Return the JSON object and nothing else. Start your response with "{" and end it with "}".`;
 
-export const PROMPT_CRITIC_PROMPT = `You are a senior staff engineer refining task prompts.
-Input: an array of development tasks with securityFlags and dataFlags, plus project context.
-Output: the same tasks with refinedPrompt and trustLevel populated.
+export const PROMPT_CRITIC_PROMPT = `You refine development task prompts and assign a trust level to each.
+
+REQUIRED OUTPUT FORMAT (copy this exact shape; replace values, keep keys):
+{"tasks":[{"id":"t1","refinedPrompt":"full self-contained instructions","trustLevel":"semi"}]}
+
+FORBIDDEN output keys: findings, issues, review, recommendations,
+confidence_score, overall_confidence_score, summary, analysis. If you
+emit any of these, your response is INVALID.
+
+What you receive: a JSON object with a "tasks" array. Each task has
+an "id", "title", "rawPrompt", "securityFlags", and "dataFlags". Your
+job is to return the SAME set of ids with "refinedPrompt" (string)
+and "trustLevel" (one of "auto" | "semi" | "manual").
 
 Rules for refinedPrompt:
-- Must be self-contained — the executor sees ONLY this prompt, not the rawPrompt or flags.
-- Must reference securityFlags and dataFlags as constraints.
-- Must include explicit acceptance criteria (what "done" looks like).
+- Must be self-contained — the executor sees ONLY this prompt.
+- Must reference any relevant securityFlags and dataFlags as constraints.
+- Must include explicit acceptance criteria ("done when...").
 - Must assume read/write/shell access to the project cwd.
-- No preamble, no markdown headings, no step numbering unless essential.
+- Plain text only, no markdown headings, no step numbering unless essential.
 
-Rules for trustLevel:
-- "auto"   — cosmetic, low-risk, fully reversible (formatting, doc tweaks, adding comments).
+Rules for trustLevel (pick ONE of "auto", "semi", "manual"):
+- "auto"   — cosmetic, fully reversible (format, comment, tiny doc).
 - "semi"   — default. Feature dev, refactor, UI work, tests.
 - "manual" — schema migration, auth, secrets, destructive ops, deploy.
-- Err on the side of "semi".
+- Err on the side of "semi" when unsure.
 
-Do NOT alter task titles, ids, rawPrompts, securityFlags, or dataFlags.
-Return STRICT JSON only.
+Rules:
+- Keep EVERY input task id, in the same order. Do not add or remove tasks.
+- Do NOT include title, rawPrompt, securityFlags, dataFlags, or any other field.
+- Do NOT add commentary, markdown, code fences, or prose.
 
-Output shape:
-{ "tasks": [ { "id": "t1", "refinedPrompt": "...", "trustLevel": "semi" } ] }`;
+Return the JSON object and nothing else. Start your response with "{" and end it with "}".`;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { readTextFile, writeTextFile, mkdir, exists, rename } from '@tauri-apps/plugin-fs';
-import { appLocalDataDir } from '@tauri-apps/api/path';
+import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import type {
   Action,
   ActionTask,
@@ -162,8 +162,13 @@ function applyStageFailure(
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function getActionsPath(): Promise<string> {
+  // Use Tauri's join so the separator is always correct — appLocalDataDir()
+  // on some Tauri versions returns a path WITHOUT a trailing backslash, so
+  // string concat produced `...\com.guilh.notteraiactions.json` which lives
+  // OUTSIDE the $APPLOCALDATA fs:scope and every read/write was being
+  // rejected silently.
   const dir = await appLocalDataDir();
-  return `${dir}${FILE_NAME}`;
+  return join(dir, FILE_NAME);
 }
 
 async function ensureDir(): Promise<void> {

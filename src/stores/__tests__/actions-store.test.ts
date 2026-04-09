@@ -9,7 +9,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 }));
 
 vi.mock('@tauri-apps/api/path', () => ({
-  appLocalDataDir: vi.fn(async () => 'C:\\test\\'),
+  appLocalDataDir: vi.fn(async () => 'C:\\test'),
+  join: vi.fn(async (...parts: string[]) => parts.join('\\')),
 }));
 
 import * as fs from '@tauri-apps/plugin-fs';
