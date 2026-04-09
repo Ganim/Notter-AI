@@ -97,6 +97,15 @@ export function PlanReviewPanel({ action }: PlanReviewPanelProps) {
         ))}
       </div>
 
+      {/* Phase E: show a banner while waiting for the Queue Worker to
+          pick this Action up, or while it's running. The Queue Worker
+          polls every 500ms so the banner should flip fast. */}
+      {action.status === 'queued' && (
+        <div className="rounded-md border border-primary/50 bg-primary/10 px-3 py-2 text-xs text-primary">
+          Waiting for executor… the Queue Worker will pick this up within a second.
+        </div>
+      )}
+
       {/* Action bar */}
       <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
         {rejecting ? (

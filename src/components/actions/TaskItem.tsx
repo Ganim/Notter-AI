@@ -194,9 +194,9 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
 
   return (
     <div className="rounded-md border border-border bg-background overflow-hidden">
-      <button
+      <div
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left cursor-pointer"
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <button
@@ -204,11 +204,30 @@ export function TaskItem({ actionId, task }: TaskItemProps) {
           className={`shrink-0 ${statusDotClass(task.status)}`}
           title={t(`actions.task_status_${task.status}`)}
         />
-        <span className="flex-1 text-sm truncate">{task.objective || '(no objective)'}</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm truncate">{task.objective || '(no objective)'}</div>
+          {/* Phase E: live summary line while executing, result summary
+              when done, error message when failed. */}
+          {task.status === 'running' && task.summary && (
+            <div className="text-[11px] text-muted-foreground italic truncate mt-0.5">
+              {task.summary}
+            </div>
+          )}
+          {task.status === 'done' && task.result?.summary && (
+            <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+              {task.result.summary}
+            </div>
+          )}
+          {task.status === 'failed' && task.result?.errorMessage && (
+            <div className="text-[11px] text-destructive truncate mt-0.5">
+              {task.result.errorMessage}
+            </div>
+          )}
+        </div>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           {t(`actions.task_status_${task.status}`)}
         </span>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-3 py-2 border-t border-border space-y-2 bg-muted/20">
