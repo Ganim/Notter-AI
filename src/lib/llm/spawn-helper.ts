@@ -133,7 +133,15 @@ export function buildCmdStdinRedirect(opts: {
 }): string {
   const argsJoined =
     opts.cliArgs.length > 0 ? ` ${opts.cliArgs.join(' ')}` : '';
-  return `${opts.cliExecutable}${argsJoined} < ${opts.tempPath}`;
+  // `chcp 65001 >nul && ...` sets the console code page to UTF-8 BEFORE
+  // spawning the CLI, so any bytes the CLI writes to stdout/stderr that
+  // the Windows console layer would otherwise re-encode (CP850/CP1252 on
+  // default installs) stay as UTF-8. Without this, codex-cli's banner
+  // occasionally contains a >=0x80 byte that breaks Tauri's strict
+  // UTF-8 decode ("invalid utf-8 sequence of 1 bytes from index N").
+  // `>nul` suppresses chcp's "Active code page: 65001" echo. `&&` means
+  // only run the CLI if chcp succeeded (it always does on Win 7+).
+  return `chcp 65001 >nul && ${opts.cliExecutable}${argsJoined} < ${opts.tempPath}`;
 }
 
 /** Tokens cmd.exe treats specially when parsing a /C command line. */
