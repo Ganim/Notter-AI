@@ -112,6 +112,10 @@ export interface ActionTask {
   result?: TaskResult;
   startedAt?: number;
   completedAt?: number;
+
+  // v2 live-execution field (Phase E) — short human-readable status
+  // written by notter.report_progress while the task is running.
+  summary?: string;
 }
 
 // ----- Action: v1 fields + v2 optional additions -----
