@@ -1,7 +1,8 @@
 # AgentTrack — Autonomous Pipeline Design
 
 **Date:** 2026-04-08
-**Status:** Draft — awaiting user review
+**Status:** Validated by Phase A spike — ready for Phase B implementation
+**Spike results:** `docs/superpowers/specs/2026-04-08-spike-results.md` (verdict: GO)
 **Strategy:** Rota A (AgentTrack como cérebro de planejamento + Claude Code como executor via MCP)
 **Target autonomy level:** v3 (humano aprova plano + revisa no fim da Action; HITL real apenas quando o executor pede)
 
@@ -405,6 +406,26 @@ When an Action's plan is approved:
 
 MVP runs **one Action at a time**. The Queue Worker is a singleton that processes the queue serially. If the user approves 5 plans, they run one after another. This avoids terminal collision, MCP server port chaos, and rate limit pileups. Parallel execution is a future optimization.
 
+### Latency budget (validated by Phase A spike)
+
+Each headless Claude Code invocation adds **~47–48 seconds of overhead** beyond the actual work being done — this is startup + MCP handshake + LLM round-trip for a single turn. The spike measured ~55s wall time for an 8-second tool call, leaving ~47s of fixed overhead.
+
+For an Action with N tasks, plan accordingly:
+- A 5-task Action has ~4 minutes of pure overhead before any work
+- The 15-minute estimate in Scenario 1 (§3) should be read as **30–40 minutes realistic** for a non-trivial 5-task Action
+- The Live Execution View should make this overhead visible (e.g., a "Claude Code initializing..." indicator on each task transition) so the user understands why progress feels slow
+- For very small tasks (typo fix, single-line change), the overhead can dominate the actual work — consider batching trivial tasks into a single MCP session in a future optimization
+
+### CLI invocation pattern (validated by Phase A spike)
+
+When AgentTrack spawns Claude Code (or any of the three CLIs) via Node.js `child_process.spawn`:
+
+- **Always pipe the prompt via stdin**, never as a positional CLI argument. Windows/Git Bash shell quoting eats positional prompts containing spaces, equals signs, or quotes. Use `child.stdin.write(prompt + '\n'); child.stdin.end()`.
+- **Attach `child.stdin.on('error', () => {})` BEFORE writing** to stdin. If the CLI exits early (auth failure, crash), the write throws EPIPE which becomes an unhandled rejection without this guard.
+- **Do NOT use `shell: true`** when the CLI is on PATH. On Windows, `shell: true` wraps the spawn in `cmd.exe /c`, which means SIGKILL on the timeout kills `cmd.exe` but orphans the actual CLI subprocess.
+- **Resolve script paths via `fileURLToPath(import.meta.url)`**, not `new URL().pathname` — the latter returns `/D:/...` on Windows which is invalid for `fs` operations.
+- **Use `--strict-mcp-config`** alongside `--mcp-config <path>` to isolate each Action's MCP server from any user-globally-registered servers.
+
 ---
 
 ## 9. HITL Mechanism
@@ -432,13 +453,38 @@ When Claude Code calls `notter.ask_user`:
 
 ## 10. Token Tracking
 
-Every call through `LLMWorker` is wrapped to record a `TokenUsage` entry on the Action. Workers report tokens in different ways:
+Every call through `LLMWorker` is wrapped to record a `TokenUsage` entry on the Action. Workers report tokens in different ways (Phase A spike validated only Claude Code; the others are inferred from official docs and will be confirmed when their adapters are built in Phase C):
 
-- **Gemini CLI** — emits usage via stderr in a structured format; adapter parses it
-- **Codex CLI** — emits a `--json` mode with usage block at the end
-- **Claude Code CLI** — can report cost via `/cost` slash command; in headless mode the adapter parses the trailing summary block emitted by `claude --print --json` (to confirm in spike)
+- **Claude Code CLI** — `claude --print --output-format json` returns full usage on stdout. Confirmed by spike. Parse path: `JSON.parse(stdout)` yields:
+  ```json
+  {
+    "type": "result",
+    "duration_ms": 38004,
+    "duration_api_ms": 1272,
+    "result": "<assistant text>",
+    "total_cost_usd": 0.115,
+    "usage": {
+      "input_tokens": 5,
+      "cache_creation_input_tokens": 16895,
+      "cache_read_input_tokens": 18467,
+      "output_tokens": 6
+    },
+    "modelUsage": {
+      "claude-opus-4-6[1m]": {
+        "inputTokens": 5,
+        "outputTokens": 6,
+        "cacheReadInputTokens": 18467,
+        "cacheCreationInputTokens": 16895,
+        "costUSD": 0.115
+      }
+    }
+  }
+  ```
+  This is **richer** than originally assumed: cache hit/miss is exposed, cost is computed, per-model breakdown is available, and `duration_api_ms` separates inference time from total wall time. Update the `TokenUsage` shape (§5) to optionally include `cacheCreationTokens`, `cacheReadTokens`, and `apiDurationMs` so this data isn't lost.
+- **Gemini CLI** — to be confirmed in Phase C. Likely emits usage via stderr in a structured format; adapter will parse it. Until confirmed, the adapter falls back to character-length estimation.
+- **Codex CLI** — to be confirmed in Phase C. Likely emits a `--json` mode with usage block at the end. Until confirmed, fallback to character-length estimation.
 
-For the executor Claude Code run (not the planning reviewers), tokens are accumulated by parsing the Claude Code session logs or by using a "checkpoint" query pattern (call `/cost` via MCP before/after the session). The exact mechanism is to be confirmed in the spike (§15.2).
+For the executor Claude Code run (not the planning reviewers), tokens are accumulated either by running each task through `--print --output-format json` and summing across tasks, or by using a "checkpoint" query pattern (call `/cost` via MCP before/after the session). MVP: per-task `--output-format json` and sum.
 
 **UI display:**
 - Per Action: total input/output tokens + rough cost estimate (using published prices as reference only; subscription users see "included in plan")
@@ -594,9 +640,9 @@ A short markdown report (`docs/superpowers/specs/2026-04-08-spike-results.md`) d
 
 ## 16. Phased Roadmap (very high level — detailed plan comes next)
 
-1. **Phase A — Spike (0.5–1 day)** — validate §15
+1. **Phase A — Spike** — validate §15. **Status: COMPLETE (GO verdict, 2026-04-08)**. Results: `docs/superpowers/specs/2026-04-08-spike-results.md`
 2. **Phase B — Data model + migration** — update types, migrate actions.json v1→v2, tests pass with new shape
-3. **Phase C — LLMWorker abstraction + 3 adapters** — Gemini, Codex, Claude Code (plan mode)
+3. **Phase C — LLMWorker abstraction + 3 adapters** — Gemini, Codex, Claude Code. **PREREQUISITE:** install `gemini` and `codex` CLIs on the dev machine before starting Phase C (the Phase A spike confirmed they were not installed). The first task of the Phase C plan must verify all three CLIs respond to `--version`; if any are missing, document install steps and complete them before writing adapters.
 4. **Phase D — Planning pipeline (4 steps)** — full pipeline running on real notes, Plan Review Panel UI
 5. **Phase E — MCP Server Notter** — 5 tools, integrated with the Zustand store
 6. **Phase F — Queue Worker + Execution** — spawn subprocess, Live Execution View, basic HITL modal
