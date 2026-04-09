@@ -4,6 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const spawnCliMock = vi.fn();
 vi.mock('@/lib/llm/spawn-helper', () => ({
   spawnCli: (...args: unknown[]) => spawnCliMock(...args),
+  // Tests run under vitest's jsdom — navigator.platform is typically
+  // "MacIntel", so isWindowsRuntime would return false anyway. Hard-code
+  // false here so the test exercises the legacy arg-based path where
+  // spawnCliMock is asserted against the original arg shape.
+  isWindowsRuntime: () => false,
 }));
 
 import { GeminiWorker } from '@/lib/llm/gemini-worker';

@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const spawnCliMock = vi.fn();
 vi.mock('@/lib/llm/spawn-helper', () => ({
   spawnCli: (...args: unknown[]) => spawnCliMock(...args),
+  // Tests exercise the non-Windows path so spawnCli is called with the
+  // legacy arg shape (`['exec', prompt]`).
+  isWindowsRuntime: () => false,
 }));
 
 import { CodexWorker } from '@/lib/llm/codex-worker';

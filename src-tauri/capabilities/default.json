@@ -28,11 +28,13 @@
     {
       "identifier": "shell:allow-execute",
       "allow": [
-        { "name": "claude",     "cmd": "claude",     "args": true, "sidecar": false },
-        { "name": "gemini",     "cmd": "gemini",     "args": true, "sidecar": false },
-        { "name": "gemini.cmd", "cmd": "gemini.cmd", "args": true, "sidecar": false },
-        { "name": "codex",      "cmd": "codex",      "args": true, "sidecar": false },
-        { "name": "codex.cmd",  "cmd": "codex.cmd",  "args": true, "sidecar": false }
+        { "name": "claude",         "cmd": "claude",         "args": true, "sidecar": false },
+        { "name": "gemini",         "cmd": "gemini",         "args": true, "sidecar": false },
+        { "name": "gemini.cmd",     "cmd": "gemini.cmd",     "args": true, "sidecar": false },
+        { "name": "codex",          "cmd": "codex",          "args": true, "sidecar": false },
+        { "name": "codex.cmd",      "cmd": "codex.cmd",      "args": true, "sidecar": false },
+        { "name": "powershell",     "cmd": "powershell",     "args": true, "sidecar": false },
+        { "name": "powershell.exe", "cmd": "powershell.exe", "args": true, "sidecar": false }
       ]
     }
   ]

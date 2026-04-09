@@ -7,7 +7,7 @@
 //   tokens:   stats.models[<main>].tokens.{prompt, candidates, cached}
 //   errors:   stdout contains no response on failure; check exit code + stderr
 
-import { spawnCli } from '@/lib/llm/spawn-helper';
+import { spawnCli, isWindowsRuntime } from '@/lib/llm/spawn-helper';
 import {
   LLMInput,
   LLMResponse,
@@ -43,11 +43,21 @@ export class GeminiWorker implements LLMWorker {
   readonly name = 'gemini-cli' as const;
 
   async run(input: LLMInput): Promise<LLMResponse> {
-    const args = ['-p', input.prompt, '-o', 'json'];
+    // On Windows, long multi-line prompts cannot be passed as a .cmd arg
+    // (Rust's BatBadBut sanitizer rejects shell metacharacters). We route
+    // through PowerShell + a temp file and deliver the real prompt via
+    // stdin. Gemini's -p help says stdin is "Appended to input on stdin
+    // (if any)", so we pass a placeholder space as -p to force headless
+    // mode and let the stdin stream carry the real content.
+    const useStdin = isWindowsRuntime();
+    const args = useStdin
+      ? ['-p', ' ', '-o', 'json']
+      : ['-p', input.prompt, '-o', 'json'];
 
     const result = await spawnCli({
       command: 'gemini',
       args,
+      stdin: useStdin ? input.prompt : undefined,
       timeoutMs: input.timeoutMs ?? 120_000,
     });
 

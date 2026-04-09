@@ -4,30 +4,50 @@
 // All LLMWorker adapters use this helper instead of calling Command directly,
 // so the timeout / error mapping logic exists in exactly one place.
 //
-// Implementation notes:
-// - Uses `Command.execute()` (one-shot wait) instead of `spawn()` + events.
-//   The Rust side of `execute()` closes the stdin pipe as soon as the child
-//   is spawned, which is critical: otherwise CLIs like `codex exec` detect
-//   a piped-but-open stdin and block forever waiting for EOF. With `execute()`
-//   the pipe closes immediately and codex proceeds.
-// - The timeout is enforced in JS via Promise.race, because `execute()` does
-//   not accept a timeout. On timeout we throw LLMWorkerError; the child may
-//   still be running briefly (no kill API after execute started), but the
-//   promise resolves so the caller unblocks.
-// - stdin piping is intentionally NOT supported. All adapters must pass the
-//   prompt as a positional CLI argument. This is because Tauri's shell plugin
-//   offers no stdin close API with `spawn()`, and `execute()` doesn't expose
-//   stdin at all. Passing prompts as args is also simpler and works for all
-//   three CLIs (claude, gemini, codex).
+// Phase D fix (2026-04-09 — "BatBadBut" workaround):
+// ----------------------------------------------------
+// Rust's std::process::Command (which Tauri's shell plugin wraps) applies
+// the CVE-2024-24576 mitigation on Windows: spawning a .cmd/.bat file with
+// any arg containing shell metacharacters (\n, ", <, >, |, &, etc.) is
+// rejected with "batch file arguments are invalid". Phase D's planning
+// prompts are multi-line Markdown, which trips this immediately for
+// gemini.cmd and codex.cmd. Phase C's spike only tested with trivial
+// single-word prompts so it didn't surface.
+//
+// The fix: on Windows, when the caller provides `stdin`, we write it to a
+// temp file under $APPLOCALDATA and spawn `powershell.exe` (a real .exe —
+// no sanitizer) running a one-liner that pipes the file into the CLI:
+//
+//   Get-Content -Raw -LiteralPath '<path>' | & '<cli.cmd>' <args>
+//
+// PowerShell 5.1 (the built-in Windows PowerShell) does NOT apply the same
+// mitigation when calling a .cmd file via the & operator, so metacharacters
+// in the piped stdin stream pass through untouched. The `args` we pass
+// through PS are kept free of metacharacters by the worker adapters — only
+// flags like `-p ' '` / `exec -` / `-o json`.
+//
+// On non-Windows platforms `stdin` is ignored and the worker must embed the
+// prompt in `args` as before (Unix has no .cmd sanitizer problem). Today
+// AgentTrack is a Windows-first Tauri app so this path is theoretical, but
+// we keep the fallback so tests running under vitest (jsdom/node, NOT
+// "Win32") exercise the legacy path.
 
 import { Command } from '@tauri-apps/plugin-shell';
+import { writeTextFile, mkdir, remove, exists } from '@tauri-apps/plugin-fs';
+import { appLocalDataDir } from '@tauri-apps/api/path';
 import { LLMWorkerError } from '@/lib/llm/types';
 
 export interface SpawnCliInput {
   /** The CLI command name (must match a capability allowlist entry). */
   command: 'claude' | 'gemini' | 'codex';
-  /** Args passed to the CLI. */
+  /** Args passed to the CLI — flags only, NO long/risky user content. */
   args: string[];
+  /**
+   * Optional long-form text to deliver to the CLI's stdin. On Windows this
+   * is written to a temp file and piped via PowerShell, bypassing Rust's
+   * .cmd arg sanitizer. On non-Windows this field is ignored.
+   */
+  stdin?: string;
   /** Timeout in milliseconds. Default 120_000. */
   timeoutMs?: number;
 }
@@ -40,6 +60,17 @@ export interface SpawnCliResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const TMP_PROMPTS_SUBDIR = 'tmp-prompts';
+
+/** Runtime Windows check. Uses navigator (WebView2 on Windows reports Win32). */
+export function isWindowsRuntime(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const raw =
+    (navigator as { platform?: string }).platform ??
+    (navigator as { userAgent?: string }).userAgent ??
+    '';
+  return /win/i.test(raw);
+}
 
 /**
  * Resolve the platform-specific executable name for a CLI.
@@ -56,13 +87,75 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * `claude` ships as `claude.exe`, a real PE executable, so no .cmd shim is
  * needed — Windows finds it directly.
  */
-function resolveProgramName(command: 'claude' | 'gemini' | 'codex'): string {
-  const isWindows =
-    typeof navigator !== 'undefined' &&
-    /win/i.test(navigator.platform ?? navigator.userAgent ?? '');
-  if (!isWindows) return command;
+export function resolveProgramName(
+  command: 'claude' | 'gemini' | 'codex',
+): string {
+  if (!isWindowsRuntime()) return command;
   if (command === 'claude') return 'claude';
   return `${command}.cmd`;
+}
+
+/**
+ * Escape a string for embedding inside a PowerShell single-quoted literal.
+ * PowerShell's single-quote rule is simple: every `'` becomes `''`; nothing
+ * else needs escaping.
+ */
+export function psSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build the PowerShell one-liner that streams the temp file into the CLI.
+ * Exported for unit tests.
+ */
+export function buildPowerShellCommand(opts: {
+  tempPath: string;
+  cliExecutable: string;
+  cliArgs: string[];
+}): string {
+  const parts = [
+    "$ErrorActionPreference='Stop'",
+    `Get-Content -Raw -LiteralPath ${psSingleQuote(opts.tempPath)} | & ${psSingleQuote(opts.cliExecutable)} ${opts.cliArgs
+      .map(psSingleQuote)
+      .join(' ')}`,
+  ];
+  return parts.join('; ');
+}
+
+function randomId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function writePromptTempFile(stdin: string): Promise<string> {
+  const dir = await appLocalDataDir();
+  // Ensure subdir exists. The dialog/fs plugin allows this path under the
+  // $APPLOCALDATA scope granted in src-tauri/capabilities/default.json.
+  const subdir = `${dir}${TMP_PROMPTS_SUBDIR}`;
+  try {
+    if (!(await exists(subdir))) {
+      await mkdir(subdir, { recursive: true });
+    }
+  } catch {
+    // Non-fatal; writeTextFile will surface the real error if the dir is
+    // actually missing.
+  }
+  const path = `${subdir}/prompt-${randomId()}.txt`;
+  await writeTextFile(path, stdin);
+  return path;
+}
+
+async function removeTempFile(path: string): Promise<void> {
+  try {
+    await remove(path);
+  } catch (e) {
+    // Non-fatal — leave it for the next app cleanup. Log so we notice if
+    // it becomes a pattern.
+    // eslint-disable-next-line no-console
+    console.warn('[spawn-helper] failed to delete temp prompt file', path, e);
+  }
 }
 
 /**
@@ -77,8 +170,39 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
   const startedAt = Date.now();
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const programName = resolveProgramName(input.command);
-  const cmd = Command.create(programName, input.args);
+  // Decide routing. If stdin is provided and we're on Windows, wrap the
+  // call in a PowerShell pipeline reading from a temp file. Otherwise fall
+  // back to the legacy direct-spawn path (Unix, or Windows without stdin).
+  const useWindowsStdinRoute =
+    input.stdin !== undefined && isWindowsRuntime();
+
+  let programName: string;
+  let programArgs: string[];
+  let tempPath: string | null = null;
+
+  if (useWindowsStdinRoute) {
+    tempPath = await writePromptTempFile(input.stdin!);
+    const cliExecutable = resolveProgramName(input.command);
+    const psCommand = buildPowerShellCommand({
+      tempPath,
+      cliExecutable,
+      cliArgs: input.args,
+    });
+    programName = 'powershell.exe';
+    programArgs = [
+      '-NoProfile',
+      '-NonInteractive',
+      '-OutputFormat',
+      'Text',
+      '-Command',
+      psCommand,
+    ];
+  } else {
+    programName = resolveProgramName(input.command);
+    programArgs = input.args;
+  }
+
+  const cmd = Command.create(programName, programArgs);
 
   const executePromise = cmd.execute().then((output) => ({
     stdout: typeof output.stdout === 'string' ? output.stdout : '',
@@ -109,7 +233,7 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
       lower.includes('not found') ||
       lower.includes('no such file') ||
       lower.includes('cannot find') ||
-      lower.includes("program not allowed")
+      lower.includes('program not allowed')
     ) {
       throw new LLMWorkerError({
         reason: 'cli_not_found',
@@ -122,5 +246,9 @@ export async function spawnCli(input: SpawnCliInput): Promise<SpawnCliResult> {
       cli: input.command,
       message: `failed to run ${input.command}: ${msg}`,
     });
+  } finally {
+    if (tempPath) {
+      void removeTempFile(tempPath);
+    }
   }
 }

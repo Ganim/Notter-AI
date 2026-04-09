@@ -7,7 +7,7 @@
 //   stderr:   banner + "tokens used\n<N>" line (N uses locale thousands separator)
 //   errors:   non-zero exit; check stderr for auth/rate-limit keywords
 
-import { spawnCli } from '@/lib/llm/spawn-helper';
+import { spawnCli, isWindowsRuntime } from '@/lib/llm/spawn-helper';
 import {
   LLMInput,
   LLMResponse,
@@ -21,11 +21,16 @@ export class CodexWorker implements LLMWorker {
   readonly name = 'codex-cli' as const;
 
   async run(input: LLMInput): Promise<LLMResponse> {
-    const args = ['exec', input.prompt];
+    // On Windows, use the stdin route (temp file + PowerShell pipeline) to
+    // dodge Rust's BatBadBut sanitizer. codex exec reads the prompt from
+    // stdin when we pass the `-` sentinel as the positional arg.
+    const useStdin = isWindowsRuntime();
+    const args = useStdin ? ['exec', '-'] : ['exec', input.prompt];
 
     const result = await spawnCli({
       command: 'codex',
       args,
+      stdin: useStdin ? input.prompt : undefined,
       timeoutMs: input.timeoutMs ?? 120_000,
     });
 
