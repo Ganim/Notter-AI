@@ -186,8 +186,8 @@ describe('actions-store', () => {
       );
       await useActionsStore.getState().load();
       const a = useActionsStore.getState().actions[0];
-      expect(a.status).toBe('waiting'); // processing → waiting
-      expect(a.tasks[0].status).toBe('waiting'); // running → waiting
+      expect(a.status).toBe('draft'); // v1 processing → v2 draft (migration + stale reset)
+      expect(a.tasks[0].status).toBe('pending'); // v1 running → v2 pending (migration + stale reset)
       expect(a.tasks[1].status).toBe('done'); // unchanged
     });
   });

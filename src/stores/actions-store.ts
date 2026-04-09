@@ -3,12 +3,14 @@ import { readTextFile, writeTextFile, mkdir, exists, rename } from '@tauri-apps/
 import { appLocalDataDir } from '@tauri-apps/api/path';
 import type { Action, ActionTask, ActionTaskStatus } from '@/types/actions';
 import { nextTaskStatus } from '@/types/actions';
+import { migrateActionsFile } from '@/stores/actions-migration';
 
 const FILE_NAME = 'actions.json';
-const FILE_VERSION = 1;
+const FILE_VERSION = 2;
+const V1_BACKUP_SUFFIX = '.v1-backup.json';
 
-interface PersistedShape {
-  version: number;
+interface PersistedShapeV2 {
+  version: 2;
   actions: Action[];
 }
 
@@ -45,7 +47,7 @@ async function persist(actions: Action[]): Promise<void> {
   await ensureDir();
   const path = await getActionsPath();
   const tmpPath = `${path}.tmp`;
-  const payload: PersistedShape = { version: FILE_VERSION, actions };
+  const payload: PersistedShapeV2 = { version: FILE_VERSION, actions };
   // Atomic write: write to .tmp then rename. If rename fails (Windows
   // sometimes refuses to overwrite an existing file), remove the target
   // first and retry once.
@@ -106,17 +108,43 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       }
       const raw = await readTextFile(path);
       try {
-        const parsed = JSON.parse(raw) as PersistedShape;
-        const rawActions = Array.isArray(parsed.actions) ? parsed.actions : [];
-        // Reset stale 'running' tasks back to 'waiting' since the terminal
-        // they were attached to is gone after a process restart.
-        // Also reset stale 'processing' actions back to 'waiting' for the same reason.
-        const actions = rawActions.map((a) => ({
+        const parsed = JSON.parse(raw);
+        const result = migrateActionsFile(parsed);
+
+        if (result.migrated) {
+          // Write the .v1-backup.json next to the live file BEFORE rewriting
+          // so the user can recover the original shape if anything goes wrong.
+          const backupPath = `${path}${V1_BACKUP_SUFFIX}`;
+          try {
+            await writeTextFile(backupPath, raw);
+            console.log('[actions-store] v1 → v2 migration: backed up to', backupPath);
+          } catch (backupErr) {
+            console.error('[actions-store] failed to write v1 backup', backupErr);
+          }
+          if (result.warnings.length > 0) {
+            console.warn('[actions-store] migration warnings:', result.warnings);
+          }
+        }
+
+        // Reset stale in-flight statuses caused by an unclean process exit.
+        // For v1 these were 'processing' actions and 'running' tasks; the
+        // migration already mapped 'processing' → 'draft' and 'running' →
+        // 'pending', but for v2 files (already migrated) we apply the same
+        // recovery rule to v2 'running' actions and v2 'running' tasks here.
+        const actions = result.file.actions.map((a) => ({
           ...a,
-          status: a.status === 'processing' ? ('waiting' as const) : a.status,
-          tasks: a.tasks.map((t) => (t.status === 'running' ? { ...t, status: 'waiting' as const } : t)),
+          status: a.status === 'running' ? ('draft' as const) : a.status,
+          tasks: a.tasks.map((t) =>
+            t.status === 'running' ? { ...t, status: 'pending' as const } : t,
+          ),
         }));
+
         set({ actions, loaded: true });
+
+        // If we migrated, persist immediately so the on-disk file is v2.
+        if (result.migrated) {
+          schedulePersist(() => get().actions);
+        }
       } catch (parseErr) {
         console.error('[actions-store] parse error, backing up corrupted file', parseErr);
         const backup = `${path}.corrupted-${Date.now()}`;
