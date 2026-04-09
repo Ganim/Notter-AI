@@ -210,14 +210,14 @@ describe('psSingleQuote', () => {
 });
 
 describe('buildCmdStdinRedirect', () => {
-  it('prepends chcp 65001 and builds a "cli args < path" command', () => {
+  it('prepends chcp 65001 and redirects stderr to nul', () => {
     const cmd = buildCmdStdinRedirect({
       tempPath: 'C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt',
       cliExecutable: 'codex.cmd',
       cliArgs: ['exec', '-'],
     });
     expect(cmd).toBe(
-      'chcp 65001 >nul && codex.cmd exec - < C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt',
+      'chcp 65001 >nul && codex.cmd exec - < C:\\test\\appdata\\tmp-prompts\\prompt-abc.txt 2>nul',
     );
   });
 
@@ -227,7 +227,9 @@ describe('buildCmdStdinRedirect', () => {
       cliExecutable: 'gemini.cmd',
       cliArgs: [],
     });
-    expect(cmd).toBe('chcp 65001 >nul && gemini.cmd < C:\\tmp\\p.txt');
+    expect(cmd).toBe(
+      'chcp 65001 >nul && gemini.cmd < C:\\tmp\\p.txt 2>nul',
+    );
   });
 });
 
@@ -276,9 +278,10 @@ describe('spawnCli — Windows stdin route', () => {
     const cmdArgs = lastCreateCall!.args;
     expect(cmdArgs[0]).toBe('/S');
     expect(cmdArgs[1]).toBe('/C');
-    // Third arg is the quoted inner command string with chcp 65001 prefix.
+    // Third arg is the quoted inner command string: chcp prefix,
+    // codex invocation, stdin redirect from temp file, stderr to nul.
     expect(cmdArgs[2]).toMatch(
-      /^"chcp 65001 >nul && codex\.cmd exec - < .+\.txt"$/,
+      /^"chcp 65001 >nul && codex\.cmd exec - < .+\.txt 2>nul"$/,
     );
 
     // Verify the lifecycle: write → execute → remove (remove is fire-and-

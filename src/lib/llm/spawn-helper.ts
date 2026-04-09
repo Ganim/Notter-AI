@@ -133,15 +133,23 @@ export function buildCmdStdinRedirect(opts: {
 }): string {
   const argsJoined =
     opts.cliArgs.length > 0 ? ` ${opts.cliArgs.join(' ')}` : '';
-  // `chcp 65001 >nul && ...` sets the console code page to UTF-8 BEFORE
-  // spawning the CLI, so any bytes the CLI writes to stdout/stderr that
-  // the Windows console layer would otherwise re-encode (CP850/CP1252 on
-  // default installs) stay as UTF-8. Without this, codex-cli's banner
-  // occasionally contains a >=0x80 byte that breaks Tauri's strict
-  // UTF-8 decode ("invalid utf-8 sequence of 1 bytes from index N").
-  // `>nul` suppresses chcp's "Active code page: 65001" echo. `&&` means
-  // only run the CLI if chcp succeeded (it always does on Win 7+).
-  return `chcp 65001 >nul && ${opts.cliExecutable}${argsJoined} < ${opts.tempPath}`;
+  // `chcp 65001 >nul && ...` sets the console code page to UTF-8 before
+  // spawning the CLI. For pipes this has no direct effect (pipes bypass
+  // console re-encoding), but we keep it as defense in depth because
+  // some CLIs check the active code page when deciding how to format
+  // output.
+  //
+  // `2>nul` is the critical piece: codex-cli's stderr contains a raw
+  // byte (>= 0x80, not a valid UTF-8 lead) in its banner/footer on the
+  // user's Windows install, and Tauri's shell plugin does strict UTF-8
+  // decoding on captured stderr → entire execute() call rejects with
+  // "invalid utf-8 sequence of 1 bytes from index N". Discarding stderr
+  // lets stdout (the actual CLI response) through cleanly. The cost is
+  // losing token accounting — parseTokens() will see empty stderr and
+  // report 0 tokens with tokenUsageReported=false. That's an acceptable
+  // temporary degradation until we plumb through a lossy stderr capture
+  // (would require a custom Tauri command in Rust).
+  return `chcp 65001 >nul && ${opts.cliExecutable}${argsJoined} < ${opts.tempPath} 2>nul`;
 }
 
 /** Tokens cmd.exe treats specially when parsing a /C command line. */
