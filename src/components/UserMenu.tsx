@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
+import { AccountForm } from '@/components/AccountForm';
 import { ManageAiDialog } from '@/components/ai/ManageAiDialog';
 import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
@@ -15,6 +16,7 @@ export function UserMenu() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'account' | 'terminal'>('account');
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
@@ -43,6 +45,7 @@ export function UserMenu() {
 
   const openSettings = () => {
     setOpen(false);
+    setSettingsTab('account');
     setSettingsOpen(true);
   };
 
@@ -221,13 +224,43 @@ export function UserMenu() {
 
       {/* Settings Dialog */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{t('settings.title')}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-6">
-            <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">{t('settings.terminal')}</h3>
+          <div className="flex gap-6 min-h-[420px]">
+            {/* Left column: navigation sidebar */}
+            <nav className="w-44 shrink-0 flex flex-col gap-1 border-r border-border pr-3">
+              <button
+                onClick={() => setSettingsTab('account')}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  settingsTab === 'account'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-foreground hover:bg-muted'
+                }`}
+              >
+                {t('settings.nav_account')}
+              </button>
+              <button
+                onClick={() => setSettingsTab('terminal')}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  settingsTab === 'terminal'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-foreground hover:bg-muted'
+                }`}
+              >
+                {t('settings.nav_terminal')}
+              </button>
+            </nav>
+
+            {/* Right column: form content area */}
+            <div className="flex-1 min-w-0">
+              {settingsTab === 'account' && <AccountForm />}
+
+              {settingsTab === 'terminal' && (
+                <div className="space-y-6">
+                  <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">{t('settings.terminal')}</h3>
 
             {/* Theme */}
             <div className="space-y-2">
@@ -310,6 +343,9 @@ export function UserMenu() {
                 <div style={{ opacity: 0.6 }}>{'=> =>'} !== {'!=='} {'<='} {'>='}</div>
                 <div>Server running on :3000</div>
               </div>
+            </div>
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>

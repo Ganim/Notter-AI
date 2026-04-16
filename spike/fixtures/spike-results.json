@@ -1,0 +1,12 @@
+[
+  {
+    "name": "15.1 — Claude Code can call MCP tool",
+    "passed": true,
+    "details": "exitCode=0\nhasEcho=true\nhasBothTerms=true\n--- stdout ---\nThe tool returned: `echo: hello-from-spike`\n\n--- stderr ---\n"
+  },
+  {
+    "name": "15.3 — MCP tool blocking works (for HITL)",
+    "passed": true,
+    "details": "wallElapsed=54618ms exitCode=0\n--- stdout ---\nTool reported elapsed time: **8009ms**.\n\n--- stderr ---\n"
+  }
+]
