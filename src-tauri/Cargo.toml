@@ -1,6 +1,6 @@
 [package]
 name = "agenttrack"
-version = "0.1.0"
+version = "0.2.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -35,4 +35,3 @@ futures-util = "0.3"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-
