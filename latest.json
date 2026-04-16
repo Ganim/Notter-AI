@@ -1,6 +1,43 @@
 {
   "version": "0.2.2",
   "notes": "",
-  "pub_date": "2026-04-16T00:00:00Z",
-  "platforms": {}
+  "pub_date": "2026-04-16T16:33:36.692Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "darwin-universal": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "darwin-universal-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3pXd3RzQ0c4bitmQmdBcUM2Ujk4VDlUZU9ydkw4dTFRSVFLbjFqN1ZjTkplMDFYb3lTUVVDQ052b3hxYVNONTh0eDIrWG9XSEY4bnQvQlJwNXVtSGdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MTk4CWZpbGU6Tm90dGVyLUFJLmFwcC50YXIuZ3oKR1pPbTlRcXNVQ3hnZ2tKQm84cnlXdkhCV2hNZ0plSE9uMFRKMWwzclpXOUNtV09mM2YzSUlCNmFpUXhGWmluRWdNV01VQkE4QlZqM2VJVUNJNU5FQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_universal.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGNy8xNWN2bnRCb3YxbVUxUGxxRlJOQWtpemNDd2VLZ2NsMTlGck9kTXZxZktlK1FPWDBpTjhXV3NBaDZrWjNoYXRYMXNnNjUzUlhzZks4VXRpQ3F5OWd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MjEzCWZpbGU6Tm90dGVyLUFJXzAuMi4yX3g2NF9lbi1VUy5tc2kKNkVWU2d3UDVHTlJoMm96VGJaQ215WW9GTUdmbFJnN1VHZWVRajVzNW1QTWJTMnhpUzgrQitibEpHT3FQYjdSd0NtNzdySXFlOS9jN1pGQTIrV2VjQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_0.2.2_x64_en-US.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGNy8xNWN2bnRCb3YxbVUxUGxxRlJOQWtpemNDd2VLZ2NsMTlGck9kTXZxZktlK1FPWDBpTjhXV3NBaDZrWjNoYXRYMXNnNjUzUlhzZks4VXRpQ3F5OWd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MjEzCWZpbGU6Tm90dGVyLUFJXzAuMi4yX3g2NF9lbi1VUy5tc2kKNkVWU2d3UDVHTlJoMm96VGJaQ215WW9GTUdmbFJnN1VHZWVRajVzNW1QTWJTMnhpUzgrQitibEpHT3FQYjdSd0NtNzdySXFlOS9jN1pGQTIrV2VjQXc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_0.2.2_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGNzdIdWl3elF2T2UzWkNGK1plSlkxVWp0R2JDVmxDRU1nNGsrQkZtYWlXU3FSUVRaZHEyT0VLT1ZoZU41WGVqUythaXlNbU5qNmg4ZTB0Q0NmKzhObkF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzU3MjEzCWZpbGU6Tm90dGVyLUFJXzAuMi4yX3g2NC1zZXR1cC5leGUKN3VxM09DTTd1ZlJLbTJKRi9LU21QeUVaaEJqTkRQMjVEazFHZlNHME1HT3A5V283NXFzVmR5allkQXJYWnMwRGJUbWFoWGh4QlFQYklBOVJVenN2RGc9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.2/Notter-AI_0.2.2_x64-setup.exe"
+    }
+  }
 }
