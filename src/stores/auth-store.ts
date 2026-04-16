@@ -1,9 +1,20 @@
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
-import { fetchPreferences, pushPreferences, fetchAgentProfiles, pushAgentProfiles } from '@/lib/sync';
+import {
+  fetchPreferences, pushPreferences,
+  fetchAgentProfiles, pushAgentProfiles,
+  fetchProjects, pushProjects,
+  fetchSubjects,
+  fetchBoardTasks, pushBoardTasks,
+  fetchActions, pushActions,
+} from '@/lib/sync';
 import { useAppStore } from '@/stores/app-store';
 import { useAgentsStore } from '@/stores/agents-store';
+import { usePlannerStore } from '@/stores/planner-store';
+import { useBoardStore } from '@/stores/board-store';
+import { useActionsStore } from '@/stores/actions-store';
+import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 
 interface AuthState {
   user: User | null;
@@ -20,6 +31,7 @@ interface AuthState {
 
 async function syncOnLogin(userId: string) {
   try {
+    // Preferences
     const remotePrefs = await fetchPreferences(userId);
     if (remotePrefs) {
       useAppStore.getState().applyRemotePreferences(remotePrefs);
@@ -28,6 +40,7 @@ async function syncOnLogin(userId: string) {
       await pushPreferences(userId, localPrefs);
     }
 
+    // Agent profiles
     const remoteProfiles = await fetchAgentProfiles(userId);
     if (remoteProfiles.length > 0) {
       useAgentsStore.getState().applyRemoteProfiles(remoteProfiles);
@@ -35,10 +48,47 @@ async function syncOnLogin(userId: string) {
       const localProfiles = useAgentsStore.getState().profiles;
       await pushAgentProfiles(userId, localProfiles);
     }
+
+    // Projects
+    const remoteProjects = await fetchProjects(userId);
+    if (remoteProjects) {
+      usePlannerStore.getState().applyRemoteProjects(remoteProjects);
+    } else {
+      const localProjects = usePlannerStore.getState().projects;
+      if (localProjects.length > 0) await pushProjects(userId, localProjects);
+    }
+
+    // Subjects (markdown notes)
+    const remoteSubjects = await fetchSubjects(userId);
+    if (remoteSubjects) {
+      await usePlannerStore.getState().applyRemoteSubjects(remoteSubjects);
+    } else {
+      await usePlannerStore.getState().pushAllSubjects(userId);
+    }
+
+    // Board tasks
+    const remoteTasks = await fetchBoardTasks(userId);
+    if (remoteTasks) {
+      useBoardStore.getState().applyRemoteTasks(remoteTasks);
+    } else {
+      const localTasks = useBoardStore.getState().tasks;
+      if (localTasks.length > 0) await pushBoardTasks(userId, localTasks);
+    }
+
+    // Actions
+    const remoteActions = await fetchActions(userId);
+    if (remoteActions) {
+      useActionsStore.getState().applyRemoteActions(remoteActions);
+    } else {
+      const localActions = useActionsStore.getState().actions;
+      if (localActions.length > 0) await pushActions(userId, localActions);
+    }
   } catch (e) {
     console.error('Sync on login failed:', e);
   }
 }
+
+export { syncOnLogin };
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
@@ -61,6 +111,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
       if (session?.user) {
         syncOnLogin(session.user.id);
+        startRealtimeSync(session.user.id);
       }
 
       supabase.auth.onAuthStateChange((event, session) => {
@@ -70,6 +121,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         });
         if (event === 'SIGNED_IN' && session?.user) {
           syncOnLogin(session.user.id);
+          startRealtimeSync(session.user.id);
+        }
+        if (event === 'SIGNED_OUT') {
+          stopRealtimeSync();
         }
       });
     } catch (e) {
@@ -124,6 +179,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     if (!isSupabaseConfigured) return;
+    stopRealtimeSync();
     await supabase.auth.signOut();
     set({ user: null, session: null });
   },

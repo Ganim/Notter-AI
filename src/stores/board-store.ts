@@ -3,8 +3,20 @@ import { create } from 'zustand';
 import { BaseDirectory, readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
 import type { BoardTask, TaskMessage, TaskStatus, TaskPriority } from '@/types';
 import { usePlannerStore } from './planner-store';
+import { pushBoardTasks } from '@/lib/sync';
+import { useAuthStore } from './auth-store';
 
 const BOARD_FILE = 'board.json';
+
+let boardSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedBoardSync(tasks: BoardTask[]) {
+  if (boardSyncTimer) clearTimeout(boardSyncTimer);
+  boardSyncTimer = setTimeout(() => {
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushBoardTasks(userId, tasks);
+  }, 1000);
+}
 
 // Debounce timers per project
 const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -46,6 +58,8 @@ interface BoardState {
 
   onProjectRenamed: (oldName: string, newName: string) => void;
   onProjectDeleted: (name: string) => void;
+
+  applyRemoteTasks: (tasks: BoardTask[]) => void;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -104,6 +118,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const newTasks = [...get().tasks, task];
     set({ tasks: newTasks });
     debouncedSave(task.projectName, newTasks);
+    debouncedBoardSync(newTasks);
   },
 
   updateTask: (id, updates) => {
@@ -113,6 +128,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ tasks: newTasks });
     const task = newTasks.find((t) => t.id === id);
     if (task) debouncedSave(task.projectName, newTasks);
+    debouncedBoardSync(newTasks);
   },
 
   changeStatus: (id, newStatus) => {
@@ -134,6 +150,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     );
     set({ tasks: newTasks });
     debouncedSave(task.projectName, newTasks);
+    debouncedBoardSync(newTasks);
   },
 
   deleteTask: (id) => {
@@ -145,6 +162,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       selectedTaskId: get().selectedTaskId === id ? null : get().selectedTaskId,
     });
     debouncedSave(task.projectName, newTasks);
+    debouncedBoardSync(newTasks);
   },
 
   addMessage: (taskId, content, type = 'comment') => {
@@ -164,6 +182,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ tasks: newTasks });
     const task = newTasks.find((t) => t.id === taskId);
     if (task) debouncedSave(task.projectName, newTasks);
+    debouncedBoardSync(newTasks);
   },
 
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
@@ -195,20 +214,38 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const allTasks = [...get().tasks, ...newTasks];
     set({ tasks: allTasks });
     debouncedSave(projectName, allTasks);
+    debouncedBoardSync(allTasks);
   },
 
   onProjectRenamed: (oldName, newName) => {
-    // Only update in-memory state. The file already moved with the directory rename.
     const newTasks = get().tasks.map((t) =>
       t.projectName === oldName ? { ...t, projectName: newName } : t
     );
     set({ tasks: newTasks });
+    debouncedBoardSync(newTasks);
   },
 
   onProjectDeleted: (name) => {
-    set((state) => ({
-      tasks: state.tasks.filter((t) => t.projectName !== name),
-      selectedTaskId: null,
-    }));
+    const newTasks = get().tasks.filter((t) => t.projectName !== name);
+    set({ tasks: newTasks, selectedTaskId: null });
+    debouncedBoardSync(newTasks);
+  },
+
+  applyRemoteTasks: (tasks) => {
+    set({ tasks });
+    // Persist remote tasks to local board files per project
+    const byProject = new Map<string, BoardTask[]>();
+    for (const t of tasks) {
+      const list = byProject.get(t.projectName) ?? [];
+      list.push(t);
+      byProject.set(t.projectName, list);
+    }
+    for (const [projectName, projectTasks] of byProject) {
+      writeTextFile(
+        `NotterProjects/${projectName}/${BOARD_FILE}`,
+        JSON.stringify({ tasks: projectTasks }, null, 2),
+        { baseDir: BaseDirectory.AppLocalData }
+      ).catch(() => {});
+    }
   },
 }));

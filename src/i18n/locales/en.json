@@ -143,6 +143,9 @@
     "projects": "Projects",
     "subjects": "Subjects",
     "create_project": "Create Project",
+    "sync": "Sync",
+    "sync_success": "Sync completed successfully!",
+    "sync_error": "Sync failed. Try again later.",
     "create_subject": "Create Subject",
     "no_projects": "No projects created.",
     "select_project": "Select a Project first.",
@@ -248,7 +251,25 @@
     "font": "Font Family",
     "font_size": "Font Size",
     "ligatures": "Ligatures",
-    "close": "Close"
+    "close": "Close",
+    "nav_account": "Account",
+    "nav_terminal": "Terminal",
+    "account_coming_soon": "Coming soon"
+  },
+  "account": {
+    "title": "Account",
+    "display_name": "Display name",
+    "email": "Email",
+    "email_hint": "Changing your email may require confirmation.",
+    "save": "Save changes",
+    "no_changes": "No changes",
+    "save_success": "Account updated successfully",
+    "save_error": "Could not update account",
+    "error_required": "Required field",
+    "error_invalid_email": "Invalid email",
+    "error_not_configured": "Supabase is not configured",
+    "error_not_authenticated": "You must be signed in",
+    "not_signed_in": "Sign in to manage your account"
   },
   "board": {
     "title": "Board",

@@ -17,6 +17,8 @@ import {
   type StageRunResult,
 } from '@/lib/planning';
 import { startQueueWorker } from '@/lib/executor';
+import { pushActions } from '@/lib/sync';
+import { useAuthStore } from '@/stores/auth-store';
 
 const FILE_NAME = 'actions.json';
 const FILE_VERSION = 2;
@@ -78,6 +80,9 @@ interface ActionsState {
 
   // Phase E — re-queue a failed/done execution back into the queue.
   requeueExecution(actionId: string): Promise<void>;
+
+  // Sync
+  applyRemoteActions(actions: Action[]): void;
 }
 
 // ----- Phase D: planning pipeline helpers (pure, no store state access) -----
@@ -192,6 +197,16 @@ function applyStageFailure(
   return STAGE_ORDER.map((n) => byName.get(n)!);
 }
 
+let actionsSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedActionsSync(actions: Action[]) {
+  if (actionsSyncTimer) clearTimeout(actionsSyncTimer);
+  actionsSyncTimer = setTimeout(() => {
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushActions(userId, actions);
+  }, 1500);
+}
+
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function getActionsPath(): Promise<string> {
@@ -237,9 +252,11 @@ function schedulePersist(getActions: () => Action[]) {
     pendingPersistArgs = null;
     writeTimer = null;
     if (fn) {
-      persist(fn()).catch((e) => {
+      const actions = fn();
+      persist(actions).catch((e) => {
         console.error('[actions-store] failed to persist', e);
       });
+      debouncedActionsSync(actions);
     }
   }, 300);
 }
@@ -628,6 +645,13 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       }),
     }));
     schedulePersist(() => get().actions);
+  },
+
+  applyRemoteActions(actions) {
+    set({ actions, loaded: true });
+    persist(actions).catch((e) => {
+      console.error('[actions-store] failed to persist remote actions', e);
+    });
   },
 }));
 

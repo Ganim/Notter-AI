@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
 import type { EditorTheme, Project } from '@/types';
 import { useBoardStore } from './board-store';
+import {
+  pushProjects, pushSubject, deleteRemoteSubject,
+  deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
+  type SubjectRecord,
+} from '@/lib/sync';
+import { useAuthStore } from './auth-store';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -13,6 +19,26 @@ const BG_COLORS: EditorTheme[] = [
 ];
 
 const PROJECTS_FILE = 'NotterProjects/projects.json';
+
+let projectSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedProjectSync(projects: Project[]) {
+  if (projectSyncTimer) clearTimeout(projectSyncTimer);
+  projectSyncTimer = setTimeout(() => {
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushProjects(userId, projects);
+  }, 1000);
+}
+
+let subjectSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSubjectSync(projectName: string, fileName: string, content: string) {
+  if (subjectSyncTimer) clearTimeout(subjectSyncTimer);
+  subjectSyncTimer = setTimeout(() => {
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushSubject(userId, projectName, fileName, content);
+  }, 1000);
+}
 
 interface PlannerState {
   // Projects (formerly "subjects/assuntos")
@@ -53,6 +79,11 @@ interface PlannerState {
   setIsViewing: (viewing: boolean) => void;
   setEditorTheme: (theme: EditorTheme) => void;
   refreshEditorTheme: () => void;
+
+  // Sync actions
+  applyRemoteProjects: (projects: Project[]) => void;
+  applyRemoteSubjects: (subjects: SubjectRecord[]) => Promise<void>;
+  pushAllSubjects: (userId: string) => Promise<void>;
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
@@ -97,6 +128,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const newProjects = [...get().projects, newProject];
     set({ projects: newProjects });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    debouncedProjectSync(newProjects);
   },
 
   renameProject: async (oldName, newName) => {
@@ -107,6 +139,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    debouncedProjectSync(newProjects);
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) renameRemoteSubjectsProject(userId, oldName, newName);
     useBoardStore.getState().onProjectRenamed(oldName, newName);
   },
 
@@ -117,6 +152,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: get().selectedProject?.name === name ? { ...get().selectedProject!, path: newPath } : get().selectedProject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    debouncedProjectSync(newProjects);
   },
 
   deleteProject: async (name) => {
@@ -128,6 +164,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    debouncedProjectSync(newProjects);
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteRemoteSubjectsByProject(userId, name);
     useBoardStore.getState().onProjectDeleted(name);
   },
 
@@ -163,6 +202,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   saveSubjectContent: async (projectName, subject, content) => {
     try {
       await writeTextFile(`NotterProjects/${projectName}/${subject}`, content, { baseDir: BaseDirectory.AppLocalData });
+      debouncedSubjectSync(projectName, subject, content);
     } catch (e) {
       console.error('Failed to save subject content:', e);
     }
@@ -170,12 +210,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   createSubject: async (projectName, name) => {
     const fileName = name.endsWith('.md') ? name : `${name}.md`;
+    const content = '# Nova Anotação\n\nDescreva o assunto...';
     await writeTextFile(
       `NotterProjects/${projectName}/${fileName}`,
-      '# Nova Anotação\n\nDescreva o assunto...',
+      content,
       { baseDir: BaseDirectory.AppLocalData }
     );
     set((state) => ({ subjects: [...state.subjects, fileName], selectedSubject: fileName }));
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) pushSubject(userId, projectName, fileName, content);
   },
 
   renameSubject: async (projectName, oldName, newName) => {
@@ -185,6 +228,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       subjects: state.subjects.map((s) => (s === oldName ? newFileName : s)),
       selectedSubject: state.selectedSubject === oldName ? newFileName : state.selectedSubject,
     }));
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) {
+      deleteRemoteSubject(userId, projectName, oldName);
+      try {
+        const content = await readTextFile(`NotterProjects/${projectName}/${newFileName}`, { baseDir: BaseDirectory.AppLocalData });
+        pushSubject(userId, projectName, newFileName, content);
+      } catch { /* content will sync on next save */ }
+    }
   },
 
   deleteSubject: async (projectName, subject) => {
@@ -194,6 +245,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedSubject: state.selectedSubject === subject ? null : state.selectedSubject,
       subjectContent: state.selectedSubject === subject ? '' : state.subjectContent,
     }));
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteRemoteSubject(userId, projectName, subject);
   },
 
   // --- Editor ---
@@ -216,5 +269,44 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({
       editorTheme: `theme-${theme.name}-${isDark ? 'dark' : 'light'}`,
     });
+  },
+
+  // --- Sync ---
+
+  applyRemoteProjects: (projects) => {
+    set({ projects });
+    writeTextFile(PROJECTS_FILE, JSON.stringify(projects, null, 2), { baseDir: BaseDirectory.AppLocalData }).catch(() => {});
+    // Ensure local directories exist for each remote project
+    for (const p of projects) {
+      mkdir(`NotterProjects/${p.name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
+    }
+  },
+
+  applyRemoteSubjects: async (subjects) => {
+    for (const s of subjects) {
+      try {
+        await mkdir(`NotterProjects/${s.projectName}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+        await writeTextFile(`NotterProjects/${s.projectName}/${s.fileName}`, s.content, { baseDir: BaseDirectory.AppLocalData });
+      } catch (e) {
+        console.error(`Failed to write remote subject ${s.projectName}/${s.fileName}:`, e);
+      }
+    }
+    // Reload subjects for the currently selected project
+    const selected = get().selectedProject;
+    if (selected) get().loadSubjects(selected.name);
+  },
+
+  pushAllSubjects: async (userId) => {
+    const projects = get().projects;
+    for (const project of projects) {
+      try {
+        const entries = await readDir(`NotterProjects/${project.name}`, { baseDir: BaseDirectory.AppLocalData });
+        const mdFiles = entries.filter((e) => e.isFile && e.name.endsWith('.md'));
+        for (const file of mdFiles) {
+          const content = await readTextFile(`NotterProjects/${project.name}/${file.name}`, { baseDir: BaseDirectory.AppLocalData });
+          await pushSubject(userId, project.name, file.name, content);
+        }
+      } catch { /* skip unreadable projects */ }
+    }
   },
 }));

@@ -20,11 +20,13 @@ import { useAppStore } from '@/stores/app-store';
 import { translateNote } from '@/lib/translator';
 import { processNoteToAction } from '@/lib/action-processor';
 import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
-import { Wand2, Loader2, Play, History } from 'lucide-react';
+import { Wand2, Loader2, Play, History, RefreshCw } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
 } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth-store';
+import { syncOnLogin } from '@/stores/auth-store';
 
 type MobilePanel = 'projects' | 'subjects' | 'editor';
 
@@ -67,6 +69,22 @@ export function PlannerTab() {
   const cloudConfigs = useAiStore((s) => s.cloudConfigs);
   const addAction = useActionsStore((s) => s.addAction);
   const allActions = useActionsStore((s) => s.actions);
+
+  // Sync
+  const authUser = useAuthStore((s) => s.user);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const handleForceSync = async () => {
+    if (!authUser || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      await syncOnLogin(authUser.id);
+      toast.success(t('planner.sync_success'));
+    } catch {
+      toast.error(t('planner.sync_error'));
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const setSelectedAction = useActionsStore((s) => s.setSelected);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -597,7 +615,14 @@ export function PlannerTab() {
             <>
               <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 bg-muted/50 shrink-0">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.projects')}</span>
-                <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                <div className="flex items-center gap-1">
+                  {authUser && (
+                    <button onClick={handleForceSync} disabled={isSyncing} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50" title={t('planner.sync')}>
+                      <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                    </button>
+                  )}
+                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                </div>
               </div>
               {renderProjectsList(selectProjectMobile)}
             </>
@@ -649,6 +674,11 @@ export function PlannerTab() {
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.projects')}</span>
                 <div className="flex items-center gap-1">
+                  {authUser && (
+                    <button onClick={handleForceSync} disabled={isSyncing} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50" title={t('planner.sync')}>
+                      <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                    </button>
+                  )}
                   <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
                   <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
                 </div>
@@ -714,6 +744,11 @@ export function PlannerTab() {
             <div className="p-3 border-b border-border/50 flex items-center justify-between">
               <span>{t('planner.projects')}</span>
               <div className="flex items-center gap-1">
+                {authUser && (
+                  <button onClick={handleForceSync} disabled={isSyncing} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50" title={t('planner.sync')}>
+                    <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                  </button>
+                )}
                 <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_project')}><Plus size={14} /></button>
                 <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>

@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import type { AgentProfile } from '@/types';
+import type { AgentProfile, Project, BoardTask } from '@/types';
+import type { Action } from '@/types/actions';
 
 export interface UserPreferences {
   darkMode: boolean;
@@ -93,5 +94,225 @@ export async function pushAgentProfiles(userId: string, profiles: AgentProfile[]
     }
   } catch (e) {
     console.error('Failed to push agent profiles:', e);
+  }
+}
+
+// ── Projects ──────────────────────────────────────────────────────────
+
+export async function fetchProjects(userId: string): Promise<Project[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', userId);
+    if (error || !data || data.length === 0) return null;
+    return data.map((row: any) => ({ name: row.name, path: row.path }));
+  } catch {
+    return null;
+  }
+}
+
+export async function pushProjects(userId: string, projects: Project[]): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase.from('projects').delete().eq('user_id', userId);
+    if (projects.length > 0) {
+      await supabase.from('projects').insert(
+        projects.map((p) => ({
+          user_id: userId,
+          name: p.name,
+          path: p.path,
+          updated_at: new Date().toISOString(),
+        }))
+      );
+    }
+  } catch (e) {
+    console.error('Failed to push projects:', e);
+  }
+}
+
+// ── Subjects (markdown notes) ─────────────────────────────────────────
+
+export interface SubjectRecord {
+  projectName: string;
+  fileName: string;
+  content: string;
+}
+
+export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('subjects')
+      .select('*')
+      .eq('user_id', userId);
+    if (error || !data || data.length === 0) return null;
+    return data.map((row: any) => ({
+      projectName: row.project_name,
+      fileName: row.file_name,
+      content: row.content,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function pushSubject(
+  userId: string,
+  projectName: string,
+  fileName: string,
+  content: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase.from('subjects').upsert({
+      user_id: userId,
+      project_name: projectName,
+      file_name: fileName,
+      content,
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('Failed to push subject:', e);
+  }
+}
+
+export async function deleteRemoteSubject(
+  userId: string,
+  projectName: string,
+  fileName: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase
+      .from('subjects')
+      .delete()
+      .eq('user_id', userId)
+      .eq('project_name', projectName)
+      .eq('file_name', fileName);
+  } catch (e) {
+    console.error('Failed to delete remote subject:', e);
+  }
+}
+
+export async function deleteRemoteSubjectsByProject(
+  userId: string,
+  projectName: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase
+      .from('subjects')
+      .delete()
+      .eq('user_id', userId)
+      .eq('project_name', projectName);
+  } catch (e) {
+    console.error('Failed to delete remote subjects for project:', e);
+  }
+}
+
+export async function renameRemoteSubjectsProject(
+  userId: string,
+  oldName: string,
+  newName: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase
+      .from('subjects')
+      .update({ project_name: newName, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('project_name', oldName);
+  } catch (e) {
+    console.error('Failed to rename remote subjects project:', e);
+  }
+}
+
+// ── Board Tasks ───────────────────────────────────────────────────────
+
+export async function fetchBoardTasks(userId: string): Promise<BoardTask[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('board_tasks')
+      .select('*')
+      .eq('user_id', userId);
+    if (error || !data || data.length === 0) return null;
+    return data.map((row: any) => ({
+      id: row.id,
+      projectName: row.project_name,
+      subjectName: row.subject_name,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      priority: row.priority,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      messages: row.messages ?? [],
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function pushBoardTasks(userId: string, tasks: BoardTask[]): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase.from('board_tasks').delete().eq('user_id', userId);
+    if (tasks.length > 0) {
+      await supabase.from('board_tasks').insert(
+        tasks.map((t) => ({
+          user_id: userId,
+          id: t.id,
+          project_name: t.projectName,
+          subject_name: t.subjectName,
+          title: t.title,
+          description: t.description,
+          status: t.status,
+          priority: t.priority,
+          created_at: t.createdAt,
+          updated_at: t.updatedAt,
+          messages: t.messages,
+        }))
+      );
+    }
+  } catch (e) {
+    console.error('Failed to push board tasks:', e);
+  }
+}
+
+// ── Actions ───────────────────────────────────────────────────────────
+
+export async function fetchActions(userId: string): Promise<Action[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('actions')
+      .select('*')
+      .eq('user_id', userId);
+    if (error || !data || data.length === 0) return null;
+    return data.map((row: any) => row.data as Action);
+  } catch {
+    return null;
+  }
+}
+
+export async function pushActions(userId: string, actions: Action[]): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    await supabase.from('actions').delete().eq('user_id', userId);
+    if (actions.length > 0) {
+      await supabase.from('actions').insert(
+        actions.map((a) => ({
+          user_id: userId,
+          id: a.id,
+          data: a,
+          updated_at: new Date().toISOString(),
+        }))
+      );
+    }
+  } catch (e) {
+    console.error('Failed to push actions:', e);
   }
 }

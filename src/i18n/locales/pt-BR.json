@@ -143,6 +143,9 @@
     "projects": "Projetos",
     "subjects": "Assuntos",
     "create_project": "Criar Projeto",
+    "sync": "Sincronizar",
+    "sync_success": "Sincronização concluída com sucesso!",
+    "sync_error": "Falha na sincronização. Tente novamente.",
     "create_subject": "Criar Assunto",
     "no_projects": "Nenhum projeto criado.",
     "select_project": "Selecione um Projeto primeiro.",
@@ -248,7 +251,25 @@
     "font": "Fonte",
     "font_size": "Tamanho da Fonte",
     "ligatures": "Ligaduras",
-    "close": "Fechar"
+    "close": "Fechar",
+    "nav_account": "Conta",
+    "nav_terminal": "Terminal",
+    "account_coming_soon": "Em breve"
+  },
+  "account": {
+    "title": "Conta",
+    "display_name": "Nome de exibição",
+    "email": "E-mail",
+    "email_hint": "Alterar o e-mail pode exigir confirmação por mensagem.",
+    "save": "Salvar alterações",
+    "no_changes": "Sem alterações",
+    "save_success": "Conta atualizada com sucesso",
+    "save_error": "Não foi possível atualizar a conta",
+    "error_required": "Campo obrigatório",
+    "error_invalid_email": "E-mail inválido",
+    "error_not_configured": "Supabase não está configurado",
+    "error_not_authenticated": "Você precisa estar autenticado",
+    "not_signed_in": "Faça login para gerenciar sua conta"
   },
   "board": {
     "title": "Board",
