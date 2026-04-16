@@ -1,11 +1,19 @@
 {
-  "version": "0.1.0",
-  "notes": "Versão inicial: Planner, Terminals, login OAuth (Google/GitHub) e auto-updater.",
-  "pub_date": "2026-04-07T00:00:00Z",
+  "version": "0.2.0",
+  "notes": "",
+  "pub_date": "2026-04-16T14:43:07.394Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUnRhWWZPZHJGN3hnNzZrQWJEdFZRbjZnV3dKU0xUazZuNzNoVlZsRHdzcjNVVE8rbGZ0VFdMdFhnSWkvNGcvZys0VlpKemZrZWZBRkRLbHVFVVRZbjFZditkcTZPcXc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc1NTY5NjIzCWZpbGU6Tm90dGVyLUFJXzAuMS4wX3g2NC1zZXR1cC5leGUKVUlGb3VldFYzWVhYdmRUbXNJOW1sbGlFckRDOTM1SGpUY3Eza2orQUt5MlJ1cTh0Nk4xQXlXTE5SRm9GRHoxdEhpNXVnY1FRc1JVNkVEQk9ldGFDREE9PQo=",
-      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.1.0/Notter-AI_0.1.0_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUdkNwRHhsNStxV0t0VXlBMFQwVStLekdxNnZ3NlA0d1BmM1NxbG05azlsemdGcUpZc1pqQTJ3bVZlWDZMUFI2TW1GVkRqSjAzOEIvN0xGRzdGVXcvSmdYeVZ5dFFhSVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzUwNTgyCWZpbGU6Tm90dGVyLUFJXzAuMi4wX3g2NF9lbi1VUy5tc2kKck5ibnVrVmdZM2E2amFwR1Uwd1U5dE9XWXBHMjBRUENtZXNlRFZ1UWVENHBEKzlQRjdCSTBDUnZSREZNK0ZGNjNWTFVBem85WUplaXlYVjdLL1NLRFE9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.0/Notter-AI_0.2.0_x64_en-US.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUdkNwRHhsNStxV0t0VXlBMFQwVStLekdxNnZ3NlA0d1BmM1NxbG05azlsemdGcUpZc1pqQTJ3bVZlWDZMUFI2TW1GVkRqSjAzOEIvN0xGRzdGVXcvSmdYeVZ5dFFhSVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzUwNTgyCWZpbGU6Tm90dGVyLUFJXzAuMi4wX3g2NF9lbi1VUy5tc2kKck5ibnVrVmdZM2E2amFwR1Uwd1U5dE9XWXBHMjBRUENtZXNlRFZ1UWVENHBEKzlQRjdCSTBDUnZSREZNK0ZGNjNWTFVBem85WUplaXlYVjdLL1NLRFE9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.0/Notter-AI_0.2.0_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUdkNwRHhsNStxV0hxMVZiT2JXc2Z0OHRLVmhiRzZVL1lPYVVXQXU0aW5JTGMyT1licFZ3T1pCWnh0d0xpLytmVUUzNUpUS3pIOCs4QURGQytsZXdtQ2NsVTNjeG9tYmdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2MzUwNTgyCWZpbGU6Tm90dGVyLUFJXzAuMi4wX3g2NC1zZXR1cC5leGUKbHN4RngvS1ozeTVDcU51TFVuaXZHSXhsblNJQUZ4SUlzZVdwNENqKzI3L0lLRDZXOC9adXkrSVhlQVE0bnR6TzZRTW1BbFBRM0tVdzhySm1yRE5lQlE9PQo=",
+      "url": "https://github.com/Ganim/Notter-AI/releases/download/v0.2.0/Notter-AI_0.2.0_x64-setup.exe"
     }
   }
 }
