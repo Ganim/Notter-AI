@@ -7,6 +7,7 @@ import { pushBoardTasks } from '@/lib/sync';
 import { useAuthStore } from './auth-store';
 import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
+import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
 const BOARD_FILE = 'board.json';
 
@@ -21,7 +22,7 @@ function debouncedSave(projectName: string, tasks: BoardTask[]) {
     const projectTasks = tasks.filter((t) => t.projectName === projectName);
     try {
       await writeTextFile(
-        `NotterProjects/${projectName}/${BOARD_FILE}`,
+        accountScopedPath(`NotterProjects/${projectName}/${BOARD_FILE}`),
         JSON.stringify({ tasks: projectTasks }, null, 2),
         { baseDir: BaseDirectory.AppLocalData }
       );
@@ -63,11 +64,12 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   selectedTaskId: null,
 
   loadAllBoards: async () => {
+    if (tryAccountScopedPath('NotterProjects') === null) return;
     const projects = usePlannerStore.getState().projects;
     const allTasks: BoardTask[] = [];
     for (const project of projects) {
       try {
-        const filePath = `NotterProjects/${project.name}/${BOARD_FILE}`;
+        const filePath = accountScopedPath(`NotterProjects/${project.name}/${BOARD_FILE}`);
         if (await exists(filePath, { baseDir: BaseDirectory.AppLocalData })) {
           const content = await readTextFile(filePath, { baseDir: BaseDirectory.AppLocalData });
           const parsed = JSON.parse(content);
@@ -83,8 +85,9 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   loadProjectBoard: async (projectName) => {
+    if (tryAccountScopedPath('NotterProjects') === null) return;
     try {
-      const filePath = `NotterProjects/${projectName}/${BOARD_FILE}`;
+      const filePath = accountScopedPath(`NotterProjects/${projectName}/${BOARD_FILE}`);
       if (await exists(filePath, { baseDir: BaseDirectory.AppLocalData })) {
         const content = await readTextFile(filePath, { baseDir: BaseDirectory.AppLocalData });
         const parsed = JSON.parse(content);
@@ -244,7 +247,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }
     for (const [projectName, projectTasks] of byProject) {
       writeTextFile(
-        `NotterProjects/${projectName}/${BOARD_FILE}`,
+        accountScopedPath(`NotterProjects/${projectName}/${BOARD_FILE}`),
         JSON.stringify({ tasks: projectTasks }, null, 2),
         { baseDir: BaseDirectory.AppLocalData }
       ).catch(() => {});

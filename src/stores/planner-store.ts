@@ -10,6 +10,7 @@ import {
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
+import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -20,7 +21,9 @@ const BG_COLORS: EditorTheme[] = [
   { name: 'Dark',  value: 'bg-background',                    light: { hex: '#09090b', base: 'vs-dark' }, dark: { hex: '#09090b', base: 'vs-dark' } },
 ];
 
-const PROJECTS_FILE = 'NotterProjects/projects.json';
+function getProjectsFile(): string {
+  return accountScopedPath('NotterProjects/projects.json');
+}
 
 const projectsSync = makeDebouncedSync<Project[]>(pushProjects, 1000);
 type SubjectPayload = { projectName: string; fileName: string; content: string };
@@ -97,16 +100,19 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   initFilesystem: async () => {
+    if (tryAccountScopedPath('NotterProjects') === null) return;
     try {
-      const hasDir = await exists('NotterProjects', { baseDir: BaseDirectory.AppLocalData });
-      if (!hasDir) await mkdir('NotterProjects', { baseDir: BaseDirectory.AppLocalData, recursive: true });
+      const notterProjectsPath = accountScopedPath('NotterProjects');
+      const hasDir = await exists(notterProjectsPath, { baseDir: BaseDirectory.AppLocalData });
+      if (!hasDir) await mkdir(notterProjectsPath, { baseDir: BaseDirectory.AppLocalData, recursive: true });
 
-      if (await exists(PROJECTS_FILE, { baseDir: BaseDirectory.AppLocalData })) {
-        const contents = await readTextFile(PROJECTS_FILE, { baseDir: BaseDirectory.AppLocalData });
+      const projectsFile = getProjectsFile();
+      if (await exists(projectsFile, { baseDir: BaseDirectory.AppLocalData })) {
+        const contents = await readTextFile(projectsFile, { baseDir: BaseDirectory.AppLocalData });
         const parsed: Project[] = JSON.parse(contents);
         set({ projects: parsed });
       } else {
-        await writeTextFile(PROJECTS_FILE, '[]', { baseDir: BaseDirectory.AppLocalData });
+        await writeTextFile(projectsFile, '[]', { baseDir: BaseDirectory.AppLocalData });
       }
     } catch (e) {
       console.error('Failed to init planner filesystem:', e);
@@ -114,22 +120,22 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   createProject: async (name, path) => {
-    await mkdir(`NotterProjects/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    await mkdir(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
     const newProject: Project = { name, path };
     const newProjects = [...get().projects, newProject];
     set({ projects: newProjects });
-    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     projectsSync.schedule(newProjects);
   },
 
   renameProject: async (oldName, newName) => {
-    await rename(`NotterProjects/${oldName}`, `NotterProjects/${newName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    await rename(accountScopedPath(`NotterProjects/${oldName}`), accountScopedPath(`NotterProjects/${newName}`), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
     const newProjects = get().projects.map((p) => (p.name === oldName ? { ...p, name: newName } : p));
     set({
       projects: newProjects,
       selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
     });
-    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     projectsSync.schedule(newProjects);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, oldName).catch((e) => console.error(e));
@@ -143,19 +149,19 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       projects: newProjects,
       selectedProject: get().selectedProject?.name === name ? { ...get().selectedProject!, path: newPath } : get().selectedProject,
     });
-    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     projectsSync.schedule(newProjects);
   },
 
   deleteProject: async (name) => {
-    await remove(`NotterProjects/${name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    await remove(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
     const newProjects = get().projects.filter((p) => p.name !== name);
     set({
       projects: newProjects,
       selectedProject: get().selectedProject?.name === name ? null : get().selectedProject,
       selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
     });
-    await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     projectsSync.schedule(newProjects);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, name).catch((e) => console.error(e));
@@ -173,7 +179,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   loadSubjects: async (projectName) => {
     try {
-      const entries = await readDir(`NotterProjects/${projectName}`, { baseDir: BaseDirectory.AppLocalData });
+      const entries = await readDir(accountScopedPath(`NotterProjects/${projectName}`), { baseDir: BaseDirectory.AppLocalData });
       const files = entries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => e.name);
       set({ subjects: files });
     } catch (e) {
@@ -183,7 +189,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   loadSubjectContent: async (projectName, subject) => {
     try {
-      const content = await readTextFile(`NotterProjects/${projectName}/${subject}`, { baseDir: BaseDirectory.AppLocalData });
+      const content = await readTextFile(accountScopedPath(`NotterProjects/${projectName}/${subject}`), { baseDir: BaseDirectory.AppLocalData });
       set({ subjectContent: content });
     } catch (e) {
       set({ subjectContent: '# Erro ao carregar' });
@@ -194,7 +200,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   saveSubjectContent: async (projectName, subject, content) => {
     try {
-      await writeTextFile(`NotterProjects/${projectName}/${subject}`, content, { baseDir: BaseDirectory.AppLocalData });
+      await writeTextFile(accountScopedPath(`NotterProjects/${projectName}/${subject}`), content, { baseDir: BaseDirectory.AppLocalData });
       subjectSync.schedule({ projectName, fileName: subject, content });
     } catch (e) {
       console.error('Failed to save subject content:', e);
@@ -205,7 +211,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const fileName = name.endsWith('.md') ? name : `${name}.md`;
     const content = '# Nova Anotação\n\nDescreva o assunto...';
     await writeTextFile(
-      `NotterProjects/${projectName}/${fileName}`,
+      accountScopedPath(`NotterProjects/${projectName}/${fileName}`),
       content,
       { baseDir: BaseDirectory.AppLocalData }
     );
@@ -216,7 +222,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   renameSubject: async (projectName, oldName, newName) => {
     const newFileName = newName.endsWith('.md') ? newName : `${newName}.md`;
-    await rename(`NotterProjects/${projectName}/${oldName}`, `NotterProjects/${projectName}/${newFileName}`, { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    await rename(accountScopedPath(`NotterProjects/${projectName}/${oldName}`), accountScopedPath(`NotterProjects/${projectName}/${newFileName}`), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
     set((state) => ({
       subjects: state.subjects.map((s) => (s === oldName ? newFileName : s)),
       selectedSubject: state.selectedSubject === oldName ? newFileName : state.selectedSubject,
@@ -225,14 +231,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     if (userId) {
       deleteRemoteSubject(userId, projectName, oldName);
       try {
-        const content = await readTextFile(`NotterProjects/${projectName}/${newFileName}`, { baseDir: BaseDirectory.AppLocalData });
+        const content = await readTextFile(accountScopedPath(`NotterProjects/${projectName}/${newFileName}`), { baseDir: BaseDirectory.AppLocalData });
         pushSubject(userId, projectName, newFileName, content);
       } catch { /* content will sync on next save */ }
     }
   },
 
   deleteSubject: async (projectName, subject) => {
-    await remove(`NotterProjects/${projectName}/${subject}`, { baseDir: BaseDirectory.AppLocalData });
+    await remove(accountScopedPath(`NotterProjects/${projectName}/${subject}`), { baseDir: BaseDirectory.AppLocalData });
     set((state) => ({
       subjects: state.subjects.filter((s) => s !== subject),
       selectedSubject: state.selectedSubject === subject ? null : state.selectedSubject,
@@ -268,18 +274,18 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   applyRemoteProjects: (projects) => {
     set({ projects });
-    writeTextFile(PROJECTS_FILE, JSON.stringify(projects, null, 2), { baseDir: BaseDirectory.AppLocalData }).catch(() => {});
+    writeTextFile(getProjectsFile(), JSON.stringify(projects, null, 2), { baseDir: BaseDirectory.AppLocalData }).catch(() => {});
     // Ensure local directories exist for each remote project
     for (const p of projects) {
-      mkdir(`NotterProjects/${p.name}`, { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
+      mkdir(accountScopedPath(`NotterProjects/${p.name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
     }
   },
 
   applyRemoteSubjects: async (subjects) => {
     for (const s of subjects) {
       try {
-        await mkdir(`NotterProjects/${s.projectName}`, { baseDir: BaseDirectory.AppLocalData, recursive: true });
-        await writeTextFile(`NotterProjects/${s.projectName}/${s.fileName}`, s.content, { baseDir: BaseDirectory.AppLocalData });
+        await mkdir(accountScopedPath(`NotterProjects/${s.projectName}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
+        await writeTextFile(accountScopedPath(`NotterProjects/${s.projectName}/${s.fileName}`), s.content, { baseDir: BaseDirectory.AppLocalData });
       } catch (e) {
         console.error(`Failed to write remote subject ${s.projectName}/${s.fileName}:`, e);
       }
@@ -293,10 +299,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const projects = get().projects;
     for (const project of projects) {
       try {
-        const entries = await readDir(`NotterProjects/${project.name}`, { baseDir: BaseDirectory.AppLocalData });
+        const entries = await readDir(accountScopedPath(`NotterProjects/${project.name}`), { baseDir: BaseDirectory.AppLocalData });
         const mdFiles = entries.filter((e) => e.isFile && e.name.endsWith('.md'));
         for (const file of mdFiles) {
-          const content = await readTextFile(`NotterProjects/${project.name}/${file.name}`, { baseDir: BaseDirectory.AppLocalData });
+          const content = await readTextFile(accountScopedPath(`NotterProjects/${project.name}/${file.name}`), { baseDir: BaseDirectory.AppLocalData });
           await pushSubject(userId, project.name, file.name, content);
         }
       } catch { /* skip unreadable projects */ }

@@ -11,6 +11,11 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 
 vi.mock('@tauri-apps/api/path', () => ({
   appLocalDataDir: vi.fn(async () => 'C:\\test\\'),
+  join: vi.fn(async (...parts: string[]) => parts.join('\\')),
+}));
+
+vi.mock('@/lib/accounts/account-manager', () => ({
+  getAccountManager: vi.fn(() => ({ activeAccountId: 'test-account-id' })),
 }));
 
 // Mock the planning library. runPipeline is the only thing the store

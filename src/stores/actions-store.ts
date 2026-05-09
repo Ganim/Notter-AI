@@ -21,6 +21,7 @@ import { pushActions } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { makeDebouncedSync, runOnce, deleteUserRow } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
+import { getAccountManager } from '@/lib/accounts/account-manager';
 
 const actionsSync = makeDebouncedSync<Action[]>(pushActions, 1000);
 
@@ -197,13 +198,10 @@ function applyStageFailure(
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function getActionsPath(): Promise<string> {
-  // Use Tauri's join so the separator is always correct — appLocalDataDir()
-  // on some Tauri versions returns a path WITHOUT a trailing backslash, so
-  // string concat produced `...\com.guilh.notteraiactions.json` which lives
-  // OUTSIDE the $APPLOCALDATA fs:scope and every read/write was being
-  // rejected silently.
   const dir = await appLocalDataDir();
-  return join(dir, FILE_NAME);
+  const id = getAccountManager().activeAccountId;
+  if (!id) throw new Error('getActionsPath: no active account');
+  return join(dir, 'notter-ai', id, FILE_NAME);
 }
 
 async function persist(actions: Action[]): Promise<void> {
@@ -272,6 +270,7 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
   loaded: false,
 
   async load() {
+    if (!getAccountManager().activeAccountId) return;
     try {
       const path = await getActionsPath();
       if (!(await exists(path))) {

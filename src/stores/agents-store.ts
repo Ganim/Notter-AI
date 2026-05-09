@@ -6,8 +6,11 @@ import { pushAgentProfiles } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
+import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
-const PROFILES_FILE = 'AgentProfiles/profiles.json';
+function getProfilesFile(): string {
+  return accountScopedPath('AgentProfiles/profiles.json');
+}
 
 const PROVIDER_MODELS: Record<AIProvider, string[]> = {
   ollama: [],
@@ -58,12 +61,15 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   setSelectedProfileId: (id) => set({ selectedProfileId: id }),
 
   loadProfiles: async () => {
+    if (tryAccountScopedPath('AgentProfiles') === null) return;
     try {
-      if (!(await exists('AgentProfiles', { baseDir: BaseDirectory.AppLocalData }))) {
-        await mkdir('AgentProfiles', { baseDir: BaseDirectory.AppLocalData, recursive: true });
+      const agentProfilesPath = accountScopedPath('AgentProfiles');
+      if (!(await exists(agentProfilesPath, { baseDir: BaseDirectory.AppLocalData }))) {
+        await mkdir(agentProfilesPath, { baseDir: BaseDirectory.AppLocalData, recursive: true });
       }
-      if (await exists(PROFILES_FILE, { baseDir: BaseDirectory.AppLocalData })) {
-        const contents = await readTextFile(PROFILES_FILE, { baseDir: BaseDirectory.AppLocalData });
+      const profilesFile = getProfilesFile();
+      if (await exists(profilesFile, { baseDir: BaseDirectory.AppLocalData })) {
+        const contents = await readTextFile(profilesFile, { baseDir: BaseDirectory.AppLocalData });
         const parsed: AgentProfile[] = JSON.parse(contents);
         const migrated = parsed.map((p) => ({ ...p, model: p.model ?? '' }));
         set({ profiles: migrated, selectedProfileId: migrated[0]?.id || null });
@@ -87,7 +93,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 
   saveProfiles: async (profiles) => {
     try {
-      await writeTextFile(PROFILES_FILE, JSON.stringify(profiles, null, 2), { baseDir: BaseDirectory.AppLocalData });
+      await writeTextFile(getProfilesFile(), JSON.stringify(profiles, null, 2), { baseDir: BaseDirectory.AppLocalData });
       profilesSync.schedule(profiles);
     } catch (e) {
       console.error('Failed to save agent profiles:', e);

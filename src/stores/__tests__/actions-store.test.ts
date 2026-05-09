@@ -13,6 +13,10 @@ vi.mock('@tauri-apps/api/path', () => ({
   join: vi.fn(async (...parts: string[]) => parts.join('\\')),
 }));
 
+vi.mock('@/lib/accounts/account-manager', () => ({
+  getAccountManager: vi.fn(() => ({ activeAccountId: 'test-account-id' })),
+}));
+
 import * as fs from '@tauri-apps/plugin-fs';
 import { useActionsStore, getActionProgress, flushActionsStore } from '@/stores/actions-store';
 import type { Action, ActionTask } from '@/types/actions';
