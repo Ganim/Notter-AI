@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
+import { getAccountManager } from '@/lib/accounts/account-manager';
+import { secureGet, accountKeys } from '@/lib/accounts/secure-store';
 import {
   fetchPreferences, pushPreferences,
   fetchAgentProfiles, pushAgentProfiles,
@@ -102,16 +104,43 @@ export const useAuthStore = create<AuthState>((set) => ({
       return;
     }
 
+    // NOTE: AccountManager.bootstrap() MUST be awaited in App.tsx BEFORE
+    // initialize() is called (Task E4). Do NOT call bootstrap() here.
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      set({
-        session,
-        user: session?.user ?? null,
-        loading: false,
-      });
-      if (session?.user) {
-        syncOnLogin(session.user.id);
-        startRealtimeSync(session.user.id);
+      const mgr = getAccountManager();
+      const activeId = mgr.activeAccountId;
+
+      if (activeId !== null) {
+        // Storage adapter resolves to the active account's namespace.
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session) {
+          set({ session, user: session.user, loading: false });
+          syncOnLogin(session.user.id);
+          startRealtimeSync(session.user.id);
+        } else {
+          // Try to refresh using secure-store refresh token.
+          const rt = await secureGet(accountKeys.refreshToken(activeId));
+          if (rt) {
+            const { data: { session: refreshed } } = await supabase.auth.setSession({
+              access_token: '',
+              refresh_token: rt,
+            });
+            set({
+              session: refreshed,
+              user: refreshed?.user ?? null,
+              loading: false,
+            });
+            if (refreshed?.user) {
+              syncOnLogin(refreshed.user.id);
+              startRealtimeSync(refreshed.user.id);
+            }
+          } else {
+            set({ loading: false });
+          }
+        }
+      } else {
+        set({ loading: false });
       }
 
       supabase.auth.onAuthStateChange((event, session) => {
@@ -136,26 +165,67 @@ export const useAuthStore = create<AuthState>((set) => ({
   signInWithEmail: async (email, password) => {
     if (!isSupabaseConfigured) return { error: 'not_configured' };
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      if (error.message.includes('Invalid login credentials')) {
-        return { error: 'invalid_credentials' };
-      }
+      if (error.message.includes('Invalid login credentials')) return { error: 'invalid_credentials' };
       return { error: 'generic' };
     }
+    if (!data.session?.user || !data.session.refresh_token) return { error: 'generic' };
+
+    const mgr = getAccountManager();
+    const existing = mgr.get(data.session.user.id);
+    if (!existing) {
+      await mgr.add({
+        id: data.session.user.id,
+        email: data.session.user.email ?? email,
+        displayName: (data.session.user.user_metadata?.display_name as string | undefined) ?? null,
+        refreshToken: data.session.refresh_token,
+      });
+    }
+    await mgr.setActiveAccountId(data.session.user.id);
+
+    // CRITICAL: re-persist under the now-active namespace. The signInWithPassword
+    // call above wrote the session under the OLD (null) namespace. setSession here
+    // ensures it lands in the correct account-scoped storage key so it survives app restart.
+    await supabase.auth.setSession({
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    });
+
     return {};
   },
 
   signUpWithEmail: async (email, password) => {
     if (!isSupabaseConfigured) return { error: 'not_configured' };
 
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
-      if (error.message.includes('already registered')) {
-        return { error: 'email_taken' };
-      }
+      if (error.message.includes('already registered')) return { error: 'email_taken' };
       return { error: 'generic' };
     }
+
+    // data.session is null when email confirmation is required (most prod setups).
+    // Only register the account if we get a live session (email confirmation disabled).
+    if (data.session?.user && data.session.refresh_token) {
+      const mgr = getAccountManager();
+      const existing = mgr.get(data.session.user.id);
+      if (!existing) {
+        await mgr.add({
+          id: data.session.user.id,
+          email: data.session.user.email ?? email,
+          displayName: (data.session.user.user_metadata?.display_name as string | undefined) ?? null,
+          refreshToken: data.session.refresh_token,
+        });
+      }
+      await mgr.setActiveAccountId(data.session.user.id);
+
+      // CRITICAL: re-persist under the now-active namespace (same reason as signInWithEmail).
+      await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+    }
+
     return {};
   },
 
@@ -181,6 +251,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (!isSupabaseConfigured) return;
     stopRealtimeSync();
     await supabase.auth.signOut();
+    await getAccountManager().setActiveAccountId(null);
     set({ user: null, session: null });
+    // Phase F adds: resetAllStores() — wired in Task F7.
   },
 }));
