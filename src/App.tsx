@@ -16,6 +16,8 @@ import { useAppStore } from '@/stores/app-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getAccountManager } from '@/lib/accounts/account-manager';
+import { migrateLegacyLayoutIfNeeded } from '@/lib/accounts/fs-migration';
+import { toast } from 'sonner';
 import './App.css';
 
 function App() {
@@ -28,6 +30,21 @@ function App() {
       } catch (e) {
         console.error('[App] AccountManager.bootstrap failed', e);
       }
+
+      // Run sentinel-gated fs migration on boot when legacy layout detected
+      const mgr = getAccountManager();
+      const list = mgr.list();
+      if (list.length === 1 && mgr.activeAccountId) {
+        const result = await migrateLegacyLayoutIfNeeded(mgr.activeAccountId);
+        if (!result.skipped && result.failed.length > 0) {
+          toast.error(
+            `Filesystem migration partial — ${result.failed.length} item(s) could not be moved. See logs.`,
+            { duration: 10_000 },
+          );
+          console.warn('[App] fs migration failures:', result.failed);
+        }
+      }
+
       initialize();
       useAiStore.getState().initialize().catch(console.error);
       useActionsStore.getState().load().catch(console.error);
