@@ -256,6 +256,17 @@
     "nav_terminal": "Terminal",
     "account_coming_soon": "Coming soon"
   },
+  "accounts": {
+    "add": "Add account",
+    "switch": "Switch account",
+    "remove": "Remove",
+    "confirm_remove": "Remove this account from this device? You can sign in again later.",
+    "none": "No accounts yet",
+    "signed_in_as": "Signed in as {{email}}",
+    "session_expired": "Session expired — please re-sign-in this account.",
+    "switch_failed": "Failed to switch account",
+    "fs_migration_partial": "Filesystem migration partial — see logs"
+  },
   "account": {
     "title": "Account",
     "display_name": "Display name",

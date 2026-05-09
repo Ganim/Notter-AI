@@ -9,9 +9,10 @@ import { toast } from 'sonner';
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: 'sign-in' | 'add-account';
 }
 
-export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
+export function AuthDialog({ open, onOpenChange, mode }: AuthDialogProps) {
   const { t } = useTranslation();
   const { signInWithEmail, signUpWithEmail, signInWithOAuth, configured } = useAuthStore();
   const user = useAuthStore((s) => s.user);
@@ -90,7 +91,7 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     <Dialog open={open} onOpenChange={(val) => { onOpenChange(val); if (!val) resetForm(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{tab === 'login' ? t('auth.login') : t('auth.sign_up')}</DialogTitle>
+          <DialogTitle>{mode === 'add-account' ? t('accounts.add') : (tab === 'login' ? t('auth.login') : t('auth.sign_up'))}</DialogTitle>
         </DialogHeader>
 
         {!configured ? (

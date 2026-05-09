@@ -8,6 +8,7 @@ import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
 import { AccountForm } from '@/components/AccountForm';
+import { AccountSwitcher } from '@/components/AccountSwitcher';
 import { ManageAiDialog } from '@/components/ai/ManageAiDialog';
 import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
@@ -18,6 +19,7 @@ export function UserMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'account' | 'terminal'>('account');
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
   const [manageAiOpen, setManageAiOpen] = useState(false);
@@ -96,6 +98,10 @@ export function UserMenu() {
                 <div className="px-3 py-2 text-xs text-muted-foreground truncate border-b border-border mb-1">
                   {t('auth.logged_in_as')} <span className="font-medium text-foreground">{user.email}</span>
                 </div>
+                <AccountSwitcher
+                  onAddAccount={() => setAddAccountOpen(true)}
+                  onClose={() => setOpen(false)}
+                />
               </>
             )}
 
@@ -157,6 +163,9 @@ export function UserMenu() {
 
       {/* Auth Dialog */}
       <AuthDialog open={authDialogOpen} onOpenChange={setAuthDialogOpen} />
+
+      {/* Add Account Dialog */}
+      <AuthDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} mode="add-account" />
 
       {/* Manage AI Dialog */}
       <ManageAiDialog open={manageAiOpen} onOpenChange={setManageAiOpen} />

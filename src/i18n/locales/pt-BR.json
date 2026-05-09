@@ -256,6 +256,17 @@
     "nav_terminal": "Terminal",
     "account_coming_soon": "Em breve"
   },
+  "accounts": {
+    "add": "Adicionar conta",
+    "switch": "Trocar de conta",
+    "remove": "Remover",
+    "confirm_remove": "Remover esta conta deste dispositivo? Você poderá entrar novamente mais tarde.",
+    "none": "Nenhuma conta ainda",
+    "signed_in_as": "Conectado como {{email}}",
+    "session_expired": "Sessão expirada — entre novamente nesta conta.",
+    "switch_failed": "Falha ao trocar de conta",
+    "fs_migration_partial": "Migração de arquivos parcial — ver logs"
+  },
   "account": {
     "title": "Conta",
     "display_name": "Nome de exibição",
