@@ -19,6 +19,9 @@ import {
 import { startQueueWorker } from '@/lib/executor';
 import { pushActions } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
+import { makeDebouncedSync, runOnce, deleteUserRow } from '@/lib/synced-store';
+
+const actionsSync = makeDebouncedSync<Action[]>(pushActions, 1000);
 
 const FILE_NAME = 'actions.json';
 const FILE_VERSION = 2;
@@ -31,15 +34,8 @@ const V1_BACKUP_SUFFIX = '.v1-backup.json';
 const PHASE_E_MCP_SERVER_PATH =
   'D:/Code/Projetos/CodeReview/AgentTrack/notter-mcp-server/dist/server.js';
 
-let queueWorkerStarted = false;
-
-async function bootExecutor(
-  getState: () => ActionsState,
-): Promise<void> {
-  if (queueWorkerStarted) return;
-  queueWorkerStarted = true;
-
-  try {
+async function bootExecutor(getState: () => ActionsState): Promise<void> {
+  await runOnce('queue-worker', async () => {
     await startQueueWorker({
       serverAbsolutePath: PHASE_E_MCP_SERVER_PATH,
       intervalMs: 500,
@@ -48,9 +44,7 @@ async function bootExecutor(
       updateTask: (actionId, taskId, patch) =>
         getState().updateTask(actionId, taskId, patch),
     });
-  } catch (e) {
-    console.error('[actions-store] failed to start queue worker', e);
-  }
+  });
 }
 
 interface PersistedShapeV2 {
@@ -197,16 +191,6 @@ function applyStageFailure(
   return STAGE_ORDER.map((n) => byName.get(n)!);
 }
 
-let actionsSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedActionsSync(actions: Action[]) {
-  if (actionsSyncTimer) clearTimeout(actionsSyncTimer);
-  actionsSyncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushActions(userId, actions);
-  }, 1500);
-}
-
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function getActionsPath(): Promise<string> {
@@ -256,7 +240,7 @@ function schedulePersist(getActions: () => Action[]) {
       persist(actions).catch((e) => {
         console.error('[actions-store] failed to persist', e);
       });
-      debouncedActionsSync(actions);
+      actionsSync.schedule(actions);
     }
   }, 300);
 }
@@ -276,6 +260,7 @@ export async function flushActionsStore(): Promise<void> {
   if (fn) {
     await persist(fn());
   }
+  await actionsSync.flush();
 }
 
 export const useActionsStore = create<ActionsState>((set, get) => ({
@@ -341,7 +326,7 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
     }
 
     // Phase E: boot the Queue Worker once the store is loaded.
-    void bootExecutor(get);
+    void bootExecutor(get).catch(console.error);
   },
 
   async addAction(action) {
@@ -364,6 +349,8 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       selectedActionId: s.selectedActionId === id ? null : s.selectedActionId,
     }));
     schedulePersist(() => get().actions);
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteUserRow('actions', userId, id).catch((e) => console.error(e));
   },
 
   setSelected(id) {
