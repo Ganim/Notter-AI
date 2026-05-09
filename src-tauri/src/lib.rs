@@ -1,4 +1,5 @@
 mod ollama_install;
+mod secure_store;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -257,6 +258,9 @@ pub fn run() {
         .manage(PtyManager {
             sessions: Mutex::new(HashMap::new()),
         })
+        .manage(secure_store::SecureStoreState {
+            known_keys: std::sync::Mutex::new(Vec::new()),
+        })
         .invoke_handler(tauri::generate_handler![
             create_pty,
             write_pty,
@@ -268,6 +272,10 @@ pub fn run() {
             ollama_install::ollama_download_installer,
             ollama_install::ollama_run_installer,
             ollama_install::ollama_start_service,
+            secure_store::secure_set,
+            secure_store::secure_get,
+            secure_store::secure_delete,
+            secure_store::secure_register_known_keys,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
