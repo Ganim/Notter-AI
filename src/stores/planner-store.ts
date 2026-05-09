@@ -7,7 +7,7 @@ import {
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
   type SubjectRecord,
 } from '@/lib/sync';
-import { deleteUserRow } from '@/lib/synced-store';
+import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
 
 const BG_COLORS: EditorTheme[] = [
@@ -21,25 +21,12 @@ const BG_COLORS: EditorTheme[] = [
 
 const PROJECTS_FILE = 'NotterProjects/projects.json';
 
-let projectSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedProjectSync(projects: Project[]) {
-  if (projectSyncTimer) clearTimeout(projectSyncTimer);
-  projectSyncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushProjects(userId, projects);
-  }, 1000);
-}
-
-let subjectSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedSubjectSync(projectName: string, fileName: string, content: string) {
-  if (subjectSyncTimer) clearTimeout(subjectSyncTimer);
-  subjectSyncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushSubject(userId, projectName, fileName, content);
-  }, 1000);
-}
+const projectsSync = makeDebouncedSync<Project[]>(pushProjects, 1000);
+type SubjectPayload = { projectName: string; fileName: string; content: string };
+const subjectSync = makeDebouncedSync<SubjectPayload>(
+  (uid, p) => pushSubject(uid, p.projectName, p.fileName, p.content),
+  1000,
+);
 
 interface PlannerState {
   // Projects (formerly "subjects/assuntos")
@@ -85,6 +72,7 @@ interface PlannerState {
   applyRemoteProjects: (projects: Project[]) => void;
   applyRemoteSubjects: (subjects: SubjectRecord[]) => Promise<void>;
   pushAllSubjects: (userId: string) => Promise<void>;
+  flush(): Promise<void>;
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
@@ -129,7 +117,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const newProjects = [...get().projects, newProject];
     set({ projects: newProjects });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    debouncedProjectSync(newProjects);
+    projectsSync.schedule(newProjects);
   },
 
   renameProject: async (oldName, newName) => {
@@ -140,7 +128,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    debouncedProjectSync(newProjects);
+    projectsSync.schedule(newProjects);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, oldName).catch((e) => console.error(e));
     if (userId) renameRemoteSubjectsProject(userId, oldName, newName);
@@ -154,7 +142,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: get().selectedProject?.name === name ? { ...get().selectedProject!, path: newPath } : get().selectedProject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    debouncedProjectSync(newProjects);
+    projectsSync.schedule(newProjects);
   },
 
   deleteProject: async (name) => {
@@ -166,7 +154,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
     });
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    debouncedProjectSync(newProjects);
+    projectsSync.schedule(newProjects);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, name).catch((e) => console.error(e));
     if (userId) deleteRemoteSubjectsByProject(userId, name);
@@ -205,7 +193,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   saveSubjectContent: async (projectName, subject, content) => {
     try {
       await writeTextFile(`NotterProjects/${projectName}/${subject}`, content, { baseDir: BaseDirectory.AppLocalData });
-      debouncedSubjectSync(projectName, subject, content);
+      subjectSync.schedule({ projectName, fileName: subject, content });
     } catch (e) {
       console.error('Failed to save subject content:', e);
     }
@@ -311,5 +299,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         }
       } catch { /* skip unreadable projects */ }
     }
+  },
+
+  flush: async () => {
+    await projectsSync.flush();
+    await subjectSync.flush();
   },
 }));
