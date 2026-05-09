@@ -16,14 +16,23 @@ export function AccountSwitcher({ onAddAccount, onClose }: AccountSwitcherProps)
   const user = useAuthStore((s) => s.user);
   const mgr = getAccountManager();
 
-  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<AccountSummary[]>(() => mgr.list());
+  const [activeId, setActiveId] = useState<string | null>(() => mgr.activeAccountId);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
 
+  // Subscribe to AccountManager mutations. The earlier useEffect-on-user.id
+  // was racy: user.id transitions on signInWithEmail BEFORE mgr.add finishes,
+  // so the snapshot was stale until next sign-out/in. Subscribe fires AFTER
+  // every add/remove/setActive/switch, guaranteeing fresh state.
   useEffect(() => {
-    setAccounts(mgr.list());
-    setActiveId(mgr.activeAccountId);
-  }, [user?.id]);
+    const sync = () => {
+      setAccounts(mgr.list());
+      setActiveId(mgr.activeAccountId);
+    };
+    sync(); // initial pull in case mounting after a mutation
+    return mgr.subscribe(sync);
+  }, [mgr]);
+  void user; // user.id is observed implicitly via mgr.subscribe
 
   const handleSwitch = async (id: string) => {
     if (id === activeId || switchingId) return;

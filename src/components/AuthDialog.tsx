@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -31,12 +31,26 @@ export function AuthDialog({ open, onOpenChange, mode }: AuthDialogProps) {
     setLoading(false);
   };
 
-  // Auto-close dialog when user becomes authenticated (covers OAuth deep-link flow)
+  // Auto-close dialog when the active user CHANGES (OAuth deep-link / new
+  // account add). The previous version fired on any (open && user), which in
+  // add-account mode (where user is already truthy from the existing account)
+  // immediately closed the dialog before it could be used.
+  const initialUserIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (open && user) {
+    if (!open) {
+      initialUserIdRef.current = null;
+      return;
+    }
+    if (initialUserIdRef.current === null) {
+      // capture user.id (or sentinel) at the moment the dialog opens
+      initialUserIdRef.current = user?.id ?? '__none__';
+      return;
+    }
+    if (user?.id && user.id !== initialUserIdRef.current) {
       onOpenChange(false);
       toast.success(t('auth.login_success'));
       resetForm();
+      initialUserIdRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, open]);

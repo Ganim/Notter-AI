@@ -26,6 +26,21 @@ export class AccountManager {
   private accounts: AccountSummary[] = [];
   private active: string | null = null;
   private booted = false;
+  private listeners = new Set<() => void>();
+
+  /** Subscribe to mutations (add/remove/setActive/switch). Returns an
+   *  unsubscribe fn. AccountSwitcher uses this to re-render when sign-in
+   *  registers a new account on a user.id transition that has already fired. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private notify(): void {
+    for (const l of this.listeners) {
+      try { l(); } catch (e) { console.error('[account-manager] listener failed', e); }
+    }
+  }
 
   get activeAccountId(): string | null {
     return this.active;
@@ -77,6 +92,7 @@ export class AccountManager {
     };
     this.accounts.push(summary);
     await writeAccountIndex({ accounts: this.accounts });
+    this.notify();
     return summary;
   }
 
@@ -90,6 +106,7 @@ export class AccountManager {
     await secureDelete(accountKeys.refreshToken(id));
     await secureDelete(accountKeys.mcpToken(id));
     await writeAccountIndex({ accounts: this.accounts });
+    this.notify();
   }
 
   async switchAccount(targetId: string): Promise<void> {
@@ -126,6 +143,7 @@ export class AccountManager {
 
     // 4. Update active pointer LAST — canonical "switch happened" marker.
     await writeActiveAccount({ accountId: targetId });
+    this.notify();
   }
 
   /**
@@ -136,6 +154,7 @@ export class AccountManager {
   async setActiveAccountId(id: string | null): Promise<void> {
     this.active = id;
     await writeActiveAccount({ accountId: id });
+    this.notify();
   }
 }
 

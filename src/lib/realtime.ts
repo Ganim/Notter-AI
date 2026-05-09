@@ -15,6 +15,16 @@ let channel: RealtimeChannel | null = null;
 export function startRealtimeSync(userId: string): void {
   if (!isSupabaseConfigured) return;
   stopRealtimeSync();
+  // Also clear any same-named channel that may linger in supabase-js's internal
+  // registry (e.g. from a previous initialize() that errored before assigning
+  // our `channel` ref). supabase.channel(name) is otherwise sticky and returns
+  // an already-subscribed object on second call — adding .on() to that throws
+  // "cannot add postgres_changes callbacks ... after subscribe()".
+  for (const c of supabase.getChannels()) {
+    if (c.topic === 'realtime:db-sync' || c.topic === 'db-sync') {
+      supabase.removeChannel(c);
+    }
+  }
 
   const refetchProfiles = async () => {
     const profiles = await fetchAgentProfiles(userId);
