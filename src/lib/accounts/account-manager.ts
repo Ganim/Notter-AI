@@ -1,6 +1,9 @@
 // src/lib/accounts/account-manager.ts
 import { readAccountIndex, writeAccountIndex, readActiveAccount, writeActiveAccount } from './account-storage';
-import { secureSet, secureDelete, secureRegisterKnownKeys, accountKeys } from './secure-store';
+import { secureSet, secureDelete, secureGet, secureRegisterKnownKeys, accountKeys } from './secure-store';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { resetAllStores } from '@/lib/accounts/store-registry';
+import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import type { AccountSummary } from './types';
 
 export interface AddAccountInput {
@@ -82,6 +85,42 @@ export class AccountManager {
     await secureDelete(accountKeys.refreshToken(id));
     await secureDelete(accountKeys.mcpToken(id));
     await writeAccountIndex({ accounts: this.accounts });
+  }
+
+  async switchAccount(targetId: string): Promise<void> {
+    if (!isSupabaseConfigured) throw new Error('Supabase not configured');
+    if (!this.accounts.some((a) => a.id === targetId)) {
+      throw new Error(`Unknown account ${targetId}`);
+    }
+    if (this.active === targetId) return; // no-op
+
+    // 1. Validate — read refresh token
+    const refreshToken = await secureGet(accountKeys.refreshToken(targetId));
+    if (!refreshToken) {
+      throw new Error('session expired, please re-login this account');
+    }
+
+    // 2. Acquire — set the new session.
+    const previousActive = this.active;
+    this.active = targetId;
+    const { data, error } = await supabase.auth.setSession({
+      access_token: '',
+      refresh_token: refreshToken,
+    });
+    if (error || !data.session) {
+      this.active = previousActive;
+      throw new Error(error?.message ?? 'setSession failed');
+    }
+
+    // 3. Commit — only after setSession succeeds.
+    stopRealtimeSync();
+    resetAllStores();
+    const { syncOnLogin } = await import('@/stores/auth-store');
+    await syncOnLogin(targetId);
+    startRealtimeSync(targetId);
+
+    // 4. Update active pointer LAST — canonical "switch happened" marker.
+    await writeActiveAccount({ accountId: targetId });
   }
 
   /**
