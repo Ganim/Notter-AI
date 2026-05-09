@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { upsertUserRows } from '@/lib/synced-store';
 import type { AgentProfile, Project, BoardTask } from '@/types';
 import type { Action } from '@/types/actions';
 
@@ -74,27 +75,17 @@ export async function fetchAgentProfiles(userId: string): Promise<AgentProfile[]
 }
 
 export async function pushAgentProfiles(userId: string, profiles: AgentProfile[]): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  try {
-    await supabase.from('agent_profiles').delete().eq('user_id', userId);
-    if (profiles.length > 0) {
-      await supabase.from('agent_profiles').insert(
-        profiles.map((p) => ({
-          id: p.id,
-          user_id: userId,
-          name: p.name,
-          provider: p.provider,
-          model: p.model,
-          api_key: p.apiKey,
-          system_prompt: p.systemPrompt,
-          autonomous: p.autonomous,
-          updated_at: new Date().toISOString(),
-        }))
-      );
-    }
-  } catch (e) {
-    console.error('Failed to push agent profiles:', e);
-  }
+  await upsertUserRows('agent_profiles', userId, profiles, (p) => ({
+    id: p.id,
+    user_id: userId,
+    name: p.name,
+    provider: p.provider,
+    model: p.model,
+    api_key: p.apiKey,
+    system_prompt: p.systemPrompt,
+    autonomous: p.autonomous,
+    updated_at: new Date().toISOString(),
+  }));
 }
 
 // ── Projects ──────────────────────────────────────────────────────────
@@ -114,22 +105,13 @@ export async function fetchProjects(userId: string): Promise<Project[] | null> {
 }
 
 export async function pushProjects(userId: string, projects: Project[]): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  try {
-    await supabase.from('projects').delete().eq('user_id', userId);
-    if (projects.length > 0) {
-      await supabase.from('projects').insert(
-        projects.map((p) => ({
-          user_id: userId,
-          name: p.name,
-          path: p.path,
-          updated_at: new Date().toISOString(),
-        }))
-      );
-    }
-  } catch (e) {
-    console.error('Failed to push projects:', e);
-  }
+  await upsertUserRows('projects', userId, projects, (p) => ({
+    id: p.name,
+    user_id: userId,
+    name: p.name,
+    path: p.path,
+    updated_at: new Date().toISOString(),
+  }));
 }
 
 // ── Subjects (markdown notes) ─────────────────────────────────────────
@@ -257,29 +239,19 @@ export async function fetchBoardTasks(userId: string): Promise<BoardTask[] | nul
 }
 
 export async function pushBoardTasks(userId: string, tasks: BoardTask[]): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  try {
-    await supabase.from('board_tasks').delete().eq('user_id', userId);
-    if (tasks.length > 0) {
-      await supabase.from('board_tasks').insert(
-        tasks.map((t) => ({
-          user_id: userId,
-          id: t.id,
-          project_name: t.projectName,
-          subject_name: t.subjectName,
-          title: t.title,
-          description: t.description,
-          status: t.status,
-          priority: t.priority,
-          created_at: t.createdAt,
-          updated_at: t.updatedAt,
-          messages: t.messages,
-        }))
-      );
-    }
-  } catch (e) {
-    console.error('Failed to push board tasks:', e);
-  }
+  await upsertUserRows('board_tasks', userId, tasks, (t) => ({
+    id: t.id,
+    user_id: userId,
+    project_name: t.projectName,
+    subject_name: t.subjectName,
+    title: t.title,
+    description: t.description,
+    status: t.status,
+    priority: t.priority,
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+    messages: t.messages,
+  }));
 }
 
 // ── Actions ───────────────────────────────────────────────────────────
@@ -299,20 +271,10 @@ export async function fetchActions(userId: string): Promise<Action[] | null> {
 }
 
 export async function pushActions(userId: string, actions: Action[]): Promise<void> {
-  if (!isSupabaseConfigured) return;
-  try {
-    await supabase.from('actions').delete().eq('user_id', userId);
-    if (actions.length > 0) {
-      await supabase.from('actions').insert(
-        actions.map((a) => ({
-          user_id: userId,
-          id: a.id,
-          data: a,
-          updated_at: new Date().toISOString(),
-        }))
-      );
-    }
-  } catch (e) {
-    console.error('Failed to push actions:', e);
-  }
+  await upsertUserRows('actions', userId, actions, (a) => ({
+    id: a.id,
+    user_id: userId,
+    data: a,
+    updated_at: new Date().toISOString(),
+  }));
 }
