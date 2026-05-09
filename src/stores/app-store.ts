@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import i18n from '@/i18n';
 import { pushPreferences, type UserPreferences } from '@/lib/sync';
+import { makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from '@/stores/auth-store';
 
 type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
@@ -31,15 +32,7 @@ export interface TerminalSettings {
   ligatures: boolean;
 }
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedSync(prefs: UserPreferences) {
-  if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushPreferences(userId, prefs);
-  }, 1000);
-}
+const prefsSync = makeDebouncedSync<UserPreferences>(pushPreferences, 1000);
 
 interface AppState {
   activeTab: Tab;
@@ -51,6 +44,7 @@ interface AppState {
   setLanguage: (lang: string) => void;
   setTerminalSettings: (settings: Partial<TerminalSettings>) => void;
   applyRemotePreferences: (prefs: UserPreferences) => void;
+  flush(): Promise<void>;
   getPreferences: () => UserPreferences;
 }
 
@@ -71,20 +65,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDarkMode: (dark) => {
     document.documentElement.classList.toggle('dark', dark);
     set({ darkMode: dark });
-    debouncedSync(get().getPreferences());
+    prefsSync.schedule(get().getPreferences());
   },
 
   setLanguage: (lang) => {
     i18n.changeLanguage(lang);
     set({ language: lang });
-    debouncedSync(get().getPreferences());
+    prefsSync.schedule(get().getPreferences());
   },
 
   setTerminalSettings: (updates) => {
     set((state) => ({
       terminalSettings: { ...state.terminalSettings, ...updates },
     }));
-    setTimeout(() => debouncedSync(get().getPreferences()), 0);
+    setTimeout(() => prefsSync.schedule(get().getPreferences()), 0);
+  },
+
+  flush: async () => {
+    await prefsSync.flush();
   },
 
   applyRemotePreferences: (prefs) => {
