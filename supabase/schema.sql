@@ -33,11 +33,13 @@ CREATE POLICY "users own profiles" ON agent_profiles FOR ALL USING (auth.uid() =
 
 -- Projects metadata (N rows per user)
 CREATE TABLE projects (
+  id TEXT NOT NULL,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   path TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (user_id, name)
+  PRIMARY KEY (user_id, name),
+  UNIQUE (user_id, id)
 );
 
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;

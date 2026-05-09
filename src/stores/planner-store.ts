@@ -7,6 +7,7 @@ import {
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
   type SubjectRecord,
 } from '@/lib/sync';
+import { deleteUserRow } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
 
 const BG_COLORS: EditorTheme[] = [
@@ -141,6 +142,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     debouncedProjectSync(newProjects);
     const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteUserRow('projects', userId, oldName).catch((e) => console.error(e));
     if (userId) renameRemoteSubjectsProject(userId, oldName, newName);
     useBoardStore.getState().onProjectRenamed(oldName, newName);
   },
@@ -166,6 +168,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await writeTextFile(PROJECTS_FILE, JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
     debouncedProjectSync(newProjects);
     const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteUserRow('projects', userId, name).catch((e) => console.error(e));
     if (userId) deleteRemoteSubjectsByProject(userId, name);
     useBoardStore.getState().onProjectDeleted(name);
   },

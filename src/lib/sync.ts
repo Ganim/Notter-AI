@@ -249,7 +249,7 @@ export async function pushBoardTasks(userId: string, tasks: BoardTask[]): Promis
     status: t.status,
     priority: t.priority,
     created_at: t.createdAt,
-    updated_at: t.updatedAt,
+    updated_at: new Date().toISOString(),
     messages: t.messages,
   }));
 }
