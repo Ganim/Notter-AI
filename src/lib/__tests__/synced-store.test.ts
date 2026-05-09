@@ -107,7 +107,7 @@ describe('makeDebouncedSync', () => {
   });
 
   it('flush() during an in-flight fire does not double-submit', async () => {
-    let resolvePush: (() => void) | null = null;
+    let resolvePush: (() => void) | null = null as (() => void) | null;
     const push = vi.fn().mockImplementation(
       () => new Promise<void>((resolve) => { resolvePush = resolve; }),
     );
