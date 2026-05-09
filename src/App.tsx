@@ -15,16 +15,24 @@ import { useAgentsStore } from '@/stores/agents-store';
 import { useAppStore } from '@/stores/app-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getAccountManager } from '@/lib/accounts/account-manager';
 import './App.css';
 
 function App() {
   const initialize = useAuthStore((s) => s.initialize);
 
   useEffect(() => {
-    initialize();
-    useAiStore.getState().initialize().catch(console.error);
-    useActionsStore.getState().load().catch(console.error);
-    initDeepLinkHandler().catch(console.error);
+    (async () => {
+      try {
+        await getAccountManager().bootstrap();
+      } catch (e) {
+        console.error('[App] AccountManager.bootstrap failed', e);
+      }
+      initialize();
+      useAiStore.getState().initialize().catch(console.error);
+      useActionsStore.getState().load().catch(console.error);
+      initDeepLinkHandler().catch(console.error);
+    })();
 
     // Flush pending writes on window close to avoid losing the last
     // ~300ms of debounced edits. Hard-timeout the flush so a stuck
