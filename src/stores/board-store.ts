@@ -5,21 +5,14 @@ import type { BoardTask, TaskMessage, TaskStatus, TaskPriority } from '@/types';
 import { usePlannerStore } from './planner-store';
 import { pushBoardTasks } from '@/lib/sync';
 import { useAuthStore } from './auth-store';
+import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
 
 const BOARD_FILE = 'board.json';
 
-let boardSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedBoardSync(tasks: BoardTask[]) {
-  if (boardSyncTimer) clearTimeout(boardSyncTimer);
-  boardSyncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushBoardTasks(userId, tasks);
-  }, 1000);
-}
-
 // Debounce timers per project
 const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+const boardSync = makeDebouncedSync<BoardTask[]>(pushBoardTasks, 1000);
 
 function debouncedSave(projectName: string, tasks: BoardTask[]) {
   if (saveTimers[projectName]) clearTimeout(saveTimers[projectName]);
@@ -60,6 +53,7 @@ interface BoardState {
   onProjectDeleted: (name: string) => void;
 
   applyRemoteTasks: (tasks: BoardTask[]) => void;
+  flush(): Promise<void>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -118,7 +112,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const newTasks = [...get().tasks, task];
     set({ tasks: newTasks });
     debouncedSave(task.projectName, newTasks);
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   updateTask: (id, updates) => {
@@ -128,7 +122,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ tasks: newTasks });
     const task = newTasks.find((t) => t.id === id);
     if (task) debouncedSave(task.projectName, newTasks);
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   changeStatus: (id, newStatus) => {
@@ -150,7 +144,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     );
     set({ tasks: newTasks });
     debouncedSave(task.projectName, newTasks);
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   deleteTask: (id) => {
@@ -161,8 +155,10 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       tasks: newTasks,
       selectedTaskId: get().selectedTaskId === id ? null : get().selectedTaskId,
     });
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteUserRow('board_tasks', userId, id).catch((e) => console.error('[board-store] deleteUserRow failed', e));
     debouncedSave(task.projectName, newTasks);
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   addMessage: (taskId, content, type = 'comment') => {
@@ -182,7 +178,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ tasks: newTasks });
     const task = newTasks.find((t) => t.id === taskId);
     if (task) debouncedSave(task.projectName, newTasks);
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   setSelectedTaskId: (id) => set({ selectedTaskId: id }),
@@ -214,7 +210,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const allTasks = [...get().tasks, ...newTasks];
     set({ tasks: allTasks });
     debouncedSave(projectName, allTasks);
-    debouncedBoardSync(allTasks);
+    boardSync.schedule(allTasks);
   },
 
   onProjectRenamed: (oldName, newName) => {
@@ -222,13 +218,17 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       t.projectName === oldName ? { ...t, projectName: newName } : t
     );
     set({ tasks: newTasks });
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
   },
 
   onProjectDeleted: (name) => {
     const newTasks = get().tasks.filter((t) => t.projectName !== name);
     set({ tasks: newTasks, selectedTaskId: null });
-    debouncedBoardSync(newTasks);
+    boardSync.schedule(newTasks);
+  },
+
+  flush: async () => {
+    await boardSync.flush();
   },
 
   applyRemoteTasks: (tasks) => {
