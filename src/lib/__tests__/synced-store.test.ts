@@ -16,9 +16,10 @@ vi.mock('@/stores/auth-store', () => ({
 
 vi.mock('@/lib/supabase', () => {
   const upsert = vi.fn().mockResolvedValue({ error: null });
-  const del = vi.fn().mockReturnThis();
-  const eq = vi.fn().mockResolvedValue({ error: null });
-  const from = vi.fn(() => ({ upsert, delete: del, eq }));
+  const eqTerminal = vi.fn().mockResolvedValue({ error: null });
+  const eqFirst = vi.fn().mockReturnValue({ eq: eqTerminal });
+  const del = vi.fn().mockReturnValue({ eq: eqFirst });
+  const from = vi.fn(() => ({ upsert, delete: del }));
   return {
     supabase: { from },
     isSupabaseConfigured: true,
@@ -59,6 +60,12 @@ describe('deleteUserRow', () => {
     const { supabase } = await import('@/lib/supabase');
     await deleteUserRow('actions', 'u1', 'a1');
     expect(supabase.from).toHaveBeenCalledWith('actions');
+    const fromMock = (supabase.from as any).mock.results[0].value;
+    expect(fromMock.delete).toHaveBeenCalled();
+    const delResult = (fromMock.delete as any).mock.results[0].value;
+    expect(delResult.eq).toHaveBeenCalledWith('user_id', 'u1');
+    const firstEqResult = (delResult.eq as any).mock.results[0].value;
+    expect(firstEqResult.eq).toHaveBeenCalledWith('id', 'a1');
   });
 });
 
@@ -97,6 +104,22 @@ describe('makeDebouncedSync', () => {
     const sync = makeDebouncedSync<number>((_uid, n) => push(n), 1000);
     await sync.flush();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('flush() during an in-flight fire does not double-submit', async () => {
+    let resolvePush: (() => void) | null = null;
+    const push = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { resolvePush = resolve; }),
+    );
+    const sync = makeDebouncedSync<number>((_uid, n) => push(n), 100);
+    sync.schedule(1);
+    await vi.advanceTimersByTimeAsync(100); // timer fires; push is in-flight
+    expect(push).toHaveBeenCalledTimes(1);
+    // flush() while push is still pending — must NOT enqueue a second call
+    const flushPromise = sync.flush();
+    resolvePush?.();
+    await flushPromise;
+    expect(push).toHaveBeenCalledTimes(1);
   });
 });
 

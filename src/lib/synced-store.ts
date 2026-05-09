@@ -16,14 +16,19 @@ export async function upsertUserRows<TLocal, TRow extends { id: string; user_id:
 ): Promise<void> {
   if (!isSupabaseConfigured) return;
   if (rows.length === 0) return;
+  const mapped = rows.map(toRow);
+  for (const r of mapped) {
+    if (r.user_id !== userId) {
+      throw new Error(
+        `[synced-store] upsert ${table}: row.user_id ${r.user_id} mismatches caller userId ${userId}`,
+      );
+    }
+  }
   try {
-    const mapped = rows.map(toRow);
     const { error } = await supabase
       .from(table)
       .upsert(mapped, { onConflict: 'user_id,id' });
     if (error) console.error(`[synced-store] upsert ${table} failed:`, error);
-    // Note: explicit `userId` arg is used by the call site to construct toRow.
-    void userId;
   } catch (e) {
     console.error(`[synced-store] upsert ${table} threw:`, e);
   }
@@ -84,19 +89,29 @@ export function makeDebouncedSync<T>(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: T | null = null;
   let hasPending = false;
+  let firing = false;
 
   const fire = async () => {
-    timer = null;
-    if (!hasPending) return;
-    const payload = pending as T;
-    pending = null;
-    hasPending = false;
-    const userId = useAuthStore.getState().user?.id;
-    if (!userId) return;
+    if (firing) return;
+    firing = true;
     try {
-      await pushFn(userId, payload);
-    } catch (e) {
-      console.error('[synced-store] debounced push failed:', e);
+      timer = null;
+      if (!hasPending) return;
+      const payload = pending as T;
+      pending = null;
+      hasPending = false;
+      const userId = useAuthStore.getState().user?.id;
+      if (!userId) {
+        console.error('[synced-store] debounced push dropped: no active user');
+        return;
+      }
+      try {
+        await pushFn(userId, payload);
+      } catch (e) {
+        console.error('[synced-store] debounced push failed:', e);
+      }
+    } finally {
+      firing = false;
     }
   };
 
