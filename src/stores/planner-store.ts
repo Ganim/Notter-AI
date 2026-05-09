@@ -273,6 +273,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   // --- Sync ---
 
   applyRemoteProjects: (projects) => {
+    if (tryAccountScopedPath('NotterProjects') === null) return;
     set({ projects });
     writeTextFile(getProjectsFile(), JSON.stringify(projects, null, 2), { baseDir: BaseDirectory.AppLocalData }).catch(() => {});
     // Ensure local directories exist for each remote project

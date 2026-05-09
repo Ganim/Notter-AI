@@ -238,6 +238,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   applyRemoteTasks: (tasks) => {
     set({ tasks });
+    if (tryAccountScopedPath('NotterProjects') === null) return;
     // Persist remote tasks to local board files per project
     const byProject = new Map<string, BoardTask[]>();
     for (const t of tasks) {
