@@ -17,6 +17,7 @@ import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
+import { resetAllStores } from '@/lib/accounts/store-registry';
 
 interface AuthState {
   user: User | null;
@@ -253,6 +254,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     await supabase.auth.signOut();
     await getAccountManager().setActiveAccountId(null);
     set({ user: null, session: null });
-    // Phase F adds: resetAllStores() — wired in Task F7.
+    resetAllStores();
   },
 }));
