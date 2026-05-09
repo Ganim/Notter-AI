@@ -23,7 +23,9 @@ function App() {
     initDeepLinkHandler().catch(console.error);
 
     // Flush pending writes on window close to avoid losing the last
-    // ~300ms of debounced edits.
+    // ~300ms of debounced edits. Hard-timeout the flush so a stuck
+    // writeTextFile/rename never strands the window open after
+    // event.preventDefault() — the X must always actually close.
     let unlistenClose: (() => void) | null = null;
     (async () => {
       try {
@@ -31,10 +33,17 @@ function App() {
         unlistenClose = await win.onCloseRequested(async (event) => {
           event.preventDefault();
           try {
-            await flushActionsStore();
+            await Promise.race([
+              flushActionsStore(),
+              new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+            ]);
           } catch (e) {
             console.error('[App] flush on close failed', e);
           }
+          // Unlisten before destroy so a second close event (if any) is
+          // handled by Tauri's default path.
+          unlistenClose?.();
+          unlistenClose = null;
           await win.destroy();
         });
       } catch (e) {
