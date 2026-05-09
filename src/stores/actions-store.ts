@@ -20,6 +20,7 @@ import { startQueueWorker } from '@/lib/executor';
 import { pushActions } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { makeDebouncedSync, runOnce, deleteUserRow } from '@/lib/synced-store';
+import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 const actionsSync = makeDebouncedSync<Action[]>(pushActions, 1000);
 
@@ -77,6 +78,8 @@ interface ActionsState {
 
   // Sync
   applyRemoteActions(actions: Action[]): void;
+
+  reset(): void;
 }
 
 // ----- Phase D: planning pipeline helpers (pure, no store state access) -----
@@ -640,7 +643,18 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       console.error('[actions-store] failed to persist remote actions', e);
     });
   },
+
+  reset() {
+    if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; pendingPersistArgs = null; }
+    set({
+      actions: [],
+      selectedActionId: null,
+      loaded: false,
+    });
+  },
 }));
+
+registerResettableStore(() => useActionsStore.getState().reset());
 
 export function getActionProgress(action: Action): { done: number; total: number } {
   const total = action.tasks.length;

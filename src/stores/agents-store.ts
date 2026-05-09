@@ -5,6 +5,7 @@ import { fetchOllamaModels, sendChat, type ChatMessage, type ChatResponse } from
 import { pushAgentProfiles } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
+import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 const PROFILES_FILE = 'AgentProfiles/profiles.json';
 
@@ -41,6 +42,7 @@ interface AgentsState {
   sendTestMessage: (content: string) => Promise<void>;
   clearChat: (profileId: string) => void;
   applyRemoteProfiles: (profiles: AgentProfile[]) => void;
+  reset(): void;
 }
 
 export const useAgentsStore = create<AgentsState>((set, get) => ({
@@ -195,4 +197,15 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
     set({ profiles, selectedProfileId: profiles[0]?.id || null });
     get().saveProfiles(profiles);
   },
+
+  reset() {
+    set({
+      profiles: [],
+      selectedProfileId: null,
+      chatMessages: {},
+      chatLoading: false,
+    });
+  },
 }));
+
+registerResettableStore(() => useAgentsStore.getState().reset());

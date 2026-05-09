@@ -9,6 +9,7 @@ import {
 } from '@/lib/sync';
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
+import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -73,6 +74,7 @@ interface PlannerState {
   applyRemoteSubjects: (subjects: SubjectRecord[]) => Promise<void>;
   pushAllSubjects: (userId: string) => Promise<void>;
   flush(): Promise<void>;
+  reset(): void;
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
@@ -305,4 +307,17 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await projectsSync.flush();
     await subjectSync.flush();
   },
+
+  reset() {
+    set({
+      projects: [],
+      selectedProject: null,
+      subjects: [],
+      selectedSubject: null,
+      subjectContent: '# Nova Anotação',
+      isViewing: false,
+    });
+  },
 }));
+
+registerResettableStore(() => usePlannerStore.getState().reset());

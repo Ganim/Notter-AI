@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import i18n from '@/i18n';
 import { pushPreferences, type UserPreferences } from '@/lib/sync';
 import { makeDebouncedSync } from '@/lib/synced-store';
+import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
@@ -45,6 +46,7 @@ interface AppState {
   applyRemotePreferences: (prefs: UserPreferences) => void;
   flush(): Promise<void>;
   getPreferences: () => UserPreferences;
+  reset(): void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -110,4 +112,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       terminalLigatures: state.terminalSettings.ligatures,
     };
   },
+
+  reset() {
+    // activeTab, terminalSettings keep their value: those are UI preferences
+    // hydrated from the new account on syncOnLogin.
+    set({
+      darkMode: document.documentElement.classList.contains('dark'),
+      language: 'en',
+    });
+  },
 }));
+
+registerResettableStore(() => useAppStore.getState().reset());

@@ -6,6 +6,7 @@ import { usePlannerStore } from './planner-store';
 import { pushBoardTasks } from '@/lib/sync';
 import { useAuthStore } from './auth-store';
 import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
+import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 const BOARD_FILE = 'board.json';
 
@@ -54,6 +55,7 @@ interface BoardState {
 
   applyRemoteTasks: (tasks: BoardTask[]) => void;
   flush(): Promise<void>;
+  reset(): void;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -248,4 +250,11 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       ).catch(() => {});
     }
   },
+
+  reset() {
+    for (const k of Object.keys(saveTimers)) { clearTimeout(saveTimers[k]); delete saveTimers[k]; }
+    set({ tasks: [], selectedTaskId: null });
+  },
 }));
+
+registerResettableStore(() => useBoardStore.getState().reset());
