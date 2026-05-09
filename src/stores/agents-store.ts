@@ -4,6 +4,7 @@ import type { AgentProfile, AIProvider } from '@/types';
 import { fetchOllamaModels, sendChat, type ChatMessage, type ChatResponse } from '@/lib/chat';
 import { pushAgentProfiles } from '@/lib/sync';
 import { useAuthStore } from '@/stores/auth-store';
+import { makeDebouncedSync, deleteUserRow } from '@/lib/synced-store';
 
 const PROFILES_FILE = 'AgentProfiles/profiles.json';
 
@@ -14,15 +15,7 @@ const PROVIDER_MODELS: Record<AIProvider, string[]> = {
   gemini: ['gemini-2.0-flash', 'gemini-2.5-pro'],
 };
 
-let profileSyncTimer: ReturnType<typeof setTimeout> | null = null;
-
-function debouncedProfileSync(profiles: AgentProfile[]) {
-  if (profileSyncTimer) clearTimeout(profileSyncTimer);
-  profileSyncTimer = setTimeout(() => {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) pushAgentProfiles(userId, profiles);
-  }, 1000);
-}
+const profilesSync = makeDebouncedSync<AgentProfile[]>(pushAgentProfiles, 1000);
 
 interface AgentsState {
   profiles: AgentProfile[];
@@ -40,6 +33,7 @@ interface AgentsState {
   createProfile: () => void;
   updateProfile: (id: string, updates: Partial<AgentProfile>) => void;
   deleteProfile: (id: string) => void;
+  flush: () => Promise<void>;
 
   loadOllamaModels: () => Promise<void>;
   getModelsForProvider: (provider: AIProvider) => string[];
@@ -92,7 +86,7 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   saveProfiles: async (profiles) => {
     try {
       await writeTextFile(PROFILES_FILE, JSON.stringify(profiles, null, 2), { baseDir: BaseDirectory.AppLocalData });
-      debouncedProfileSync(profiles);
+      profilesSync.schedule(profiles);
     } catch (e) {
       console.error('Failed to save agent profiles:', e);
     }
@@ -129,6 +123,12 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
       selectedProfileId: get().selectedProfileId === id ? newProfiles[0]?.id || null : get().selectedProfileId,
     });
     get().saveProfiles(newProfiles);
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) deleteUserRow('agent_profiles', userId, id).catch((e) => console.error('[agents-store] deleteUserRow failed', e));
+  },
+
+  flush: async () => {
+    await profilesSync.flush();
   },
 
   loadOllamaModels: async () => {
