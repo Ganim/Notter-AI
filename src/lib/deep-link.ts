@@ -2,6 +2,7 @@ import { onOpenUrl, getCurrent } from '@tauri-apps/plugin-deep-link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { getAccountManager } from '@/lib/accounts/account-manager';
+import { clearPendingStorage } from '@/lib/accounts/supabase-storage-adapter';
 
 function handleAuthUrl(url: string) {
   if (!url.startsWith('notterai://auth/')) return;
@@ -51,6 +52,9 @@ function handleAuthUrl(url: string) {
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
       });
+      // PKCE verifier was written under __pending__ before the account
+      // existed; the verifier is now consumed, drop the stale entry.
+      clearPendingStorage();
     }
   });
 }

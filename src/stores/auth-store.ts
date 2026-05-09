@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { secureGet, accountKeys } from '@/lib/accounts/secure-store';
+import { clearPendingStorage } from '@/lib/accounts/supabase-storage-adapter';
 import {
   fetchPreferences, pushPreferences,
   fetchAgentProfiles, pushAgentProfiles,
@@ -192,6 +193,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
     });
+    clearPendingStorage();
 
     return {};
   },
