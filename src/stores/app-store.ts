@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import i18n from '@/i18n';
 import { pushPreferences, type UserPreferences } from '@/lib/sync';
 import { makeDebouncedSync } from '@/lib/synced-store';
-import { useAuthStore } from '@/stores/auth-store';
 
 type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
