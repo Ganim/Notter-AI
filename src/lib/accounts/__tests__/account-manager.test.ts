@@ -25,6 +25,7 @@ const { storageMock, secureMock, supabaseMock, registryMock, realtimeMock } = vi
       },
     },
     isSupabaseConfigured: true,
+    _bindAccountManager: vi.fn(),
   };
   const registryMock = {
     resetAllStores: vi.fn(),

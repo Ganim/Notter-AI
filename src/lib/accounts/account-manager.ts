@@ -1,7 +1,7 @@
 // src/lib/accounts/account-manager.ts
 import { readAccountIndex, writeAccountIndex, readActiveAccount, writeActiveAccount } from './account-storage';
 import { secureSet, secureDelete, secureGet, secureRegisterKnownKeys, accountKeys } from './secure-store';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured, _bindAccountManager } from '@/lib/supabase';
 import { resetAllStores } from '@/lib/accounts/store-registry';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import type { AccountSummary } from './types';
@@ -53,6 +53,11 @@ export class AccountManager {
       keys.push(accountKeys.refreshToken(a.id), accountKeys.mcpToken(a.id));
     }
     if (keys.length > 0) await secureRegisterKnownKeys(keys);
+
+    // Wire the supabase storage adapter's lazy account-id getter. This MUST
+    // happen before any supabase auth call (initialize/getSession), which is
+    // why bootstrap() is awaited in App.tsx before initialize() runs.
+    _bindAccountManager(() => this.active);
 
     this.booted = true;
   }
