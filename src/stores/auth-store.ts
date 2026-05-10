@@ -49,6 +49,28 @@ async function syncOnLogin(userId: string) {
       if (remoteWs) useWorkspacesStore.getState().applyRemoteWorkspaces(remoteWs);
       const currentId = getWorkspaceManager().currentWorkspaceId;
       if (currentId) useWorkspacesStore.getState().setCurrentWorkspaceId(currentId);
+
+      // fs-migration-v2: move <accountId>/{cache,exports} → <accountId>/<defaultWorkspaceId>/...
+      // Sentinel-gated, idempotent. Failures are logged + toasted but do NOT block startup.
+      if (currentId) {
+        const mgr = getAccountManager();
+        if (mgr.activeAccountId) {
+          const { migrateAccountToWorkspacesIfNeeded } = await import('@/lib/workspaces/fs-migration-v2');
+          try {
+            const r = await migrateAccountToWorkspacesIfNeeded(mgr.activeAccountId, currentId);
+            if (!r.skipped && r.failed.length > 0) {
+              const { toast } = await import('sonner');
+              toast.warning(
+                `Workspaces migration partial — ${r.failed.length} item(s) could not be moved. See logs.`,
+                { duration: 10_000 },
+              );
+              console.warn('[auth] fs-migration-v2 failures:', r.failed);
+            }
+          } catch (e) {
+            console.error('[auth] fs-migration-v2 threw:', e);
+          }
+        }
+      }
     } catch (e) {
       console.error('[auth] workspaces bootstrap failed:', e);
     }
