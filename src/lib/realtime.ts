@@ -15,13 +15,11 @@ let channel: RealtimeChannel | null = null;
 export function startRealtimeSync(userId: string): void {
   if (!isSupabaseConfigured) return;
   stopRealtimeSync();
-  // Also clear any same-named channel that may linger in supabase-js's internal
-  // registry (e.g. from a previous initialize() that errored before assigning
-  // our `channel` ref). supabase.channel(name) is otherwise sticky and returns
-  // an already-subscribed object on second call — adding .on() to that throws
-  // "cannot add postgres_changes callbacks ... after subscribe()".
+  // Sweep any lingering db-sync* channels from prior calls (HMR, double-mount,
+  // or initialize() races). Each call uses a unique name so collisions are
+  // impossible going forward, but old channels still consume realtime quota.
   for (const c of supabase.getChannels()) {
-    if (c.topic === 'realtime:db-sync' || c.topic === 'db-sync') {
+    if (c.topic.includes('db-sync')) {
       supabase.removeChannel(c);
     }
   }
@@ -47,7 +45,12 @@ export function startRealtimeSync(userId: string): void {
     if (actions) useActionsStore.getState().applyRemoteActions(actions);
   };
 
-  let ch = supabase.channel('db-sync');
+  // Unique channel name per call. supabase.channel(name) returns the SAME
+  // object for the same name, even after removeChannel(); calling .on() on
+  // an already-subscribed channel throws. A fresh name guarantees a fresh
+  // channel and side-steps HMR / double-mount races entirely.
+  const channelName = `db-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  let ch = supabase.channel(channelName);
   // user_preferences keeps the inline listener — it consumes payload.new
   // directly (single row per user, no re-fetch), legitimately different.
   ch = ch.on(
