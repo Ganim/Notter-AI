@@ -4,9 +4,11 @@ import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
+import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   fetchAgentProfiles, fetchProjects, fetchSubjects, fetchBoardTasks, fetchActions,
+  fetchSubjectVersions, fetchSubjectComments,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
 
@@ -44,6 +46,18 @@ export function startRealtimeSync(userId: string): void {
     const actions = await fetchActions(userId);
     if (actions) useActionsStore.getState().applyRemoteActions(actions);
   };
+  const refetchSubjectVersions = async () => {
+    const currentSubjectId = useSubjectVersionsStore.getState().currentSubjectId;
+    if (!currentSubjectId) return;
+    const versions = await fetchSubjectVersions(currentSubjectId);
+    if (versions) useSubjectVersionsStore.getState().applyRemoteVersions(versions);
+  };
+  const refetchSubjectComments = async () => {
+    const currentSubjectId = useSubjectVersionsStore.getState().currentSubjectId;
+    if (!currentSubjectId) return;
+    const comments = await fetchSubjectComments(currentSubjectId);
+    if (comments) useSubjectVersionsStore.getState().applyRemoteComments(comments);
+  };
 
   // Unique channel name per call. supabase.channel(name) returns the SAME
   // object for the same name, even after removeChannel(); calling .on() on
@@ -70,11 +84,13 @@ export function startRealtimeSync(userId: string): void {
     },
   );
 
-  ch = subscribeUserTable(ch, 'agent_profiles', userId, refetchProfiles);
-  ch = subscribeUserTable(ch, 'projects',       userId, refetchProjects);
-  ch = subscribeUserTable(ch, 'subjects',       userId, refetchSubjects);
-  ch = subscribeUserTable(ch, 'board_tasks',    userId, refetchBoardTasks);
-  ch = subscribeUserTable(ch, 'actions',        userId, refetchActions);
+  ch = subscribeUserTable(ch, 'agent_profiles',    userId, refetchProfiles);
+  ch = subscribeUserTable(ch, 'projects',          userId, refetchProjects);
+  ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);
+  ch = subscribeUserTable(ch, 'subject_versions',  userId, refetchSubjectVersions);
+  ch = subscribeUserTable(ch, 'subject_comments',  userId, refetchSubjectComments);
+  ch = subscribeUserTable(ch, 'board_tasks',       userId, refetchBoardTasks);
+  ch = subscribeUserTable(ch, 'actions',           userId, refetchActions);
 
   channel = ch.subscribe();
 }

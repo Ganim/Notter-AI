@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Brain } from 'lucide-react';
+import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Brain, Network } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -10,6 +10,7 @@ import { AuthDialog } from '@/components/AuthDialog';
 import { AccountForm } from '@/components/AccountForm';
 import { AccountSwitcher } from '@/components/AccountSwitcher';
 import { ManageAiDialog } from '@/components/ai/ManageAiDialog';
+import { McpConfigDialog } from '@/components/McpConfigDialog';
 import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
 
@@ -23,6 +24,7 @@ export function UserMenu() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
   const [manageAiOpen, setManageAiOpen] = useState(false);
+  const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { darkMode, setDarkMode, language, setLanguage, terminalSettings, setTerminalSettings } = useAppStore();
   const { user, signOut } = useAuthStore();
@@ -54,6 +56,11 @@ export function UserMenu() {
   const openManageAi = () => {
     setOpen(false);
     setManageAiOpen(true);
+  };
+
+  const openMcpConfig = () => {
+    setOpen(false);
+    setMcpConfigOpen(true);
   };
 
   const openAuthDialog = () => {
@@ -102,6 +109,13 @@ export function UserMenu() {
                   onAddAccount={() => setAddAccountOpen(true)}
                   onClose={() => setOpen(false)}
                 />
+                <button
+                  onClick={openMcpConfig}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                >
+                  <Network size={14} />
+                  {t('mcp.menu_label')}
+                </button>
               </>
             )}
 
@@ -169,6 +183,9 @@ export function UserMenu() {
 
       {/* Manage AI Dialog */}
       <ManageAiDialog open={manageAiOpen} onOpenChange={setManageAiOpen} />
+
+      {/* MCP Config Dialog */}
+      <McpConfigDialog open={mcpConfigOpen} onOpenChange={setMcpConfigOpen} />
 
       {/* Update Dialog */}
       <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>

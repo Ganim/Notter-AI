@@ -4,6 +4,11 @@ import { secureSet, secureDelete, secureGet, secureRegisterKnownKeys, accountKey
 import { supabase, isSupabaseConfigured, _bindAccountManager } from '@/lib/supabase';
 import { resetAllStores } from '@/lib/accounts/store-registry';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
+import {
+  pushMcpSupabaseConfig,
+  notifyMcpAccountAdded,
+  notifyMcpAccountRemoved,
+} from '@/lib/mcp';
 import type { AccountSummary } from './types';
 
 export interface AddAccountInput {
@@ -74,6 +79,27 @@ export class AccountManager {
     // why bootstrap() is awaited in App.tsx before initialize() runs.
     _bindAccountManager(() => this.active);
 
+    // Phase I (M3) — push Supabase config to Rust BEFORE any MCP request can
+    // arrive. Vite bundles VITE_SUPABASE_* into the front-end JS; Rust does
+    // not see them, so the front-end must hand them over explicitly.
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '';
+    const supabaseAnon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
+    if (supabaseUrl && supabaseAnon) {
+      await pushMcpSupabaseConfig(supabaseUrl, supabaseAnon);
+    }
+    // Push every known account's MCP bearer to Rust so the (token -> accountId)
+    // map is populated before the first POST /mcp arrives. Auto-repair any
+    // account missing an mcp_token (can happen for OAuth sign-ins or accounts
+    // created before the M1 secureSet path landed).
+    for (const a of this.accounts) {
+      let bearer = await secureGet(accountKeys.mcpToken(a.id));
+      if (!bearer) {
+        bearer = generateMcpToken();
+        await secureSet(accountKeys.mcpToken(a.id), bearer);
+      }
+      await notifyMcpAccountAdded(a.id, bearer);
+    }
+
     this.booted = true;
   }
 
@@ -83,6 +109,11 @@ export class AccountManager {
     }
     await secureSet(accountKeys.refreshToken(input.id), input.refreshToken);
     await secureSet(accountKeys.mcpToken(input.id), generateMcpToken());
+
+    // Phase I (M3) — register the freshly minted bearer with Rust so the
+    // newly added account is reachable over MCP without a restart.
+    const newBearer = await secureGet(accountKeys.mcpToken(input.id));
+    if (newBearer) await notifyMcpAccountAdded(input.id, newBearer);
 
     const summary: AccountSummary = {
       id: input.id,
@@ -106,6 +137,9 @@ export class AccountManager {
     await secureDelete(accountKeys.refreshToken(id));
     await secureDelete(accountKeys.mcpToken(id));
     await writeAccountIndex({ accounts: this.accounts });
+    // Phase I (M3) — drop the (bearer -> accountId) mapping in Rust so the
+    // removed account is unreachable immediately.
+    await notifyMcpAccountRemoved(id);
     this.notify();
   }
 

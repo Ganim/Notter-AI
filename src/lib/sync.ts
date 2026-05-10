@@ -3,6 +3,30 @@ import { upsertUserRows } from '@/lib/synced-store';
 import type { AgentProfile, Project, BoardTask } from '@/types';
 import type { Action } from '@/types/actions';
 
+export interface SubjectVersionRecord {
+  id: string;
+  subjectId: string;
+  userId: string;
+  contentMarkdown: string;
+  parentVersionId: string | null;
+  source: 'user' | 'ai' | 'import';
+  sourceActor: string | null;
+  label: string | null;
+  createdAt: string;
+}
+
+export interface SubjectCommentRecord {
+  id: string;
+  subjectId: string;
+  versionId: string;
+  userId: string;
+  authorUserId: string;
+  body: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserPreferences {
   darkMode: boolean;
   language: string;
@@ -117,9 +141,11 @@ export async function pushProjects(userId: string, projects: Project[]): Promise
 // ── Subjects (markdown notes) ─────────────────────────────────────────
 
 export interface SubjectRecord {
+  id: string;
   projectName: string;
   fileName: string;
   content: string;
+  currentVersionId: string | null;
 }
 
 export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | null> {
@@ -131,12 +157,40 @@ export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | n
       .eq('user_id', userId);
     if (error || !data || data.length === 0) return null;
     return data.map((row: any) => ({
+      id: row.id,
       projectName: row.project_name,
       fileName: row.file_name,
       content: row.content,
+      currentVersionId: row.current_version_id ?? null,
     }));
   } catch {
     return null;
+  }
+}
+
+/**
+ * Update the `current_version_id` pointer on a subject row. Used by the
+ * "Adopt version" flow in the subject-versions store. Idempotent: writing the
+ * same value is a no-op.
+ */
+export async function updateSubjectCurrentVersion(
+  userId: string,
+  subjectId: string,
+  versionId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('subjects')
+      .update({
+        current_version_id: versionId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', subjectId)
+      .eq('user_id', userId);
+    if (error) console.error('[sync] updateSubjectCurrentVersion failed:', error);
+  } catch (e) {
+    console.error('[sync] updateSubjectCurrentVersion threw:', e);
   }
 }
 
@@ -277,4 +331,145 @@ export async function pushActions(userId: string, actions: Action[]): Promise<vo
     data: a,
     updated_at: new Date().toISOString(),
   }));
+}
+
+// ── Subject Versions ──────────────────────────────────────────────────
+
+export async function fetchSubjectVersions(
+  subjectId: string,
+): Promise<SubjectVersionRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('subject_versions')
+      .select('*')
+      .eq('subject_id', subjectId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[sync] fetchSubjectVersions failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      subjectId: row.subject_id,
+      userId: row.user_id,
+      contentMarkdown: row.content_markdown,
+      parentVersionId: row.parent_version_id ?? null,
+      source: row.source as 'user' | 'ai' | 'import',
+      sourceActor: row.source_actor ?? null,
+      label: row.label ?? null,
+      createdAt: row.created_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchSubjectVersions threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Insert a single subject_version row. Uses a direct Supabase insert (not
+ * upsertUserRows) because subject_versions are append-only — never updated.
+ * The trigger set_user_id_on_subject_versions fills user_id server-side from
+ * the parent subjects row, so the caller does NOT pass user_id.
+ */
+export async function pushSubjectVersion(
+  version: Omit<SubjectVersionRecord, 'userId' | 'createdAt'>,
+): Promise<{ id: string } | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('subject_versions')
+      .insert({
+        id: version.id,
+        subject_id: version.subjectId,
+        content_markdown: version.contentMarkdown,
+        parent_version_id: version.parentVersionId ?? null,
+        source: version.source,
+        source_actor: version.sourceActor ?? null,
+        label: version.label ?? null,
+      })
+      .select('id')
+      .single();
+    if (error || !data) {
+      console.error('[sync] pushSubjectVersion failed:', error);
+      return null;
+    }
+    return { id: data.id };
+  } catch (e) {
+    console.error('[sync] pushSubjectVersion threw:', e);
+    return null;
+  }
+}
+
+// ── Subject Comments ──────────────────────────────────────────────────
+
+export async function fetchSubjectComments(
+  subjectId: string,
+): Promise<SubjectCommentRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('subject_comments')
+      .select('*')
+      .eq('subject_id', subjectId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[sync] fetchSubjectComments failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      subjectId: row.subject_id,
+      versionId: row.version_id,
+      userId: row.user_id,
+      authorUserId: row.author_user_id,
+      body: row.body,
+      resolved: row.resolved,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchSubjectComments threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Upsert a single subject_comment row (covers create + resolve-toggle + edit).
+ * The trigger set_user_id_on_subject_comments fills user_id server-side on
+ * INSERT from the parent subjects row. On UPDATE (resolve toggle / edit) the
+ * existing user_id stays put because we don't pass it.
+ */
+export async function pushSubjectComment(
+  comment: Omit<SubjectCommentRecord, 'userId' | 'createdAt'> & { userId?: string },
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase.from('subject_comments').upsert({
+      id: comment.id,
+      subject_id: comment.subjectId,
+      version_id: comment.versionId,
+      author_user_id: comment.authorUserId,
+      body: comment.body,
+      resolved: comment.resolved,
+      updated_at: comment.updatedAt ?? new Date().toISOString(),
+    });
+    if (error) console.error('[sync] pushSubjectComment failed:', error);
+  } catch (e) {
+    console.error('[sync] pushSubjectComment threw:', e);
+  }
+}
+
+export async function deleteSubjectComment(commentId: string, userId: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('subject_comments')
+      .delete()
+      .eq('id', commentId)
+      .eq('user_id', userId);
+    if (error) console.error('[sync] deleteSubjectComment failed:', error);
+  } catch (e) {
+    console.error('[sync] deleteSubjectComment threw:', e);
+  }
 }

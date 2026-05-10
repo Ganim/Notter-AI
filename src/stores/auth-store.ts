@@ -19,6 +19,7 @@ import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import { resetAllStores } from '@/lib/accounts/store-registry';
+import { notifyMcpAccountTokenChanged, notifyMcpAccountRemoved } from '@/lib/mcp';
 
 interface AuthState {
   user: User | null;
@@ -120,6 +121,16 @@ export const useAuthStore = create<AuthState>((set) => ({
           set({ session, user: session.user, loading: false });
           syncOnLogin(session.user.id);
           startRealtimeSync(session.user.id);
+          // Push the just-hydrated access token to the Rust MCP server.
+          // onAuthStateChange does NOT fire for the initial getSession() result,
+          // so this is the only place to push tokens on cold-start.
+          if (session.access_token) {
+            void notifyMcpAccountTokenChanged(
+              session.user.id,
+              session.access_token,
+              session.expires_at ?? 0,
+            );
+          }
         } else {
           // Try to refresh using secure-store refresh token.
           const rt = await secureGet(accountKeys.refreshToken(activeId));
@@ -136,6 +147,13 @@ export const useAuthStore = create<AuthState>((set) => ({
             if (refreshed?.user) {
               syncOnLogin(refreshed.user.id);
               startRealtimeSync(refreshed.user.id);
+              if (refreshed.access_token) {
+                void notifyMcpAccountTokenChanged(
+                  refreshed.user.id,
+                  refreshed.access_token,
+                  refreshed.expires_at ?? 0,
+                );
+              }
             }
           } else {
             set({ loading: false });
@@ -153,6 +171,20 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (event === 'SIGNED_IN' && session?.user) {
           syncOnLogin(session.user.id);
           startRealtimeSync(session.user.id);
+        }
+        if (
+          (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
+          session?.user &&
+          session.access_token
+        ) {
+          // Push the rotated/initial access token to the Rust MCP server.
+          // SIGNED_OUT removal is handled in signOut() because we need the
+          // previous user id, which this closure can't reliably capture.
+          void notifyMcpAccountTokenChanged(
+            session.user.id,
+            session.access_token,
+            session.expires_at ?? 0,
+          );
         }
         if (event === 'SIGNED_OUT') {
           stopRealtimeSync();
@@ -195,6 +227,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
     clearPendingStorage();
 
+    // Push the fresh access token to Rust MCP. setSession above triggers a
+    // SIGNED_IN event on the listener too, but doing it here guarantees the
+    // token reaches Rust even if the listener race loses to a fast MCP request.
+    void notifyMcpAccountTokenChanged(
+      data.session.user.id,
+      data.session.access_token,
+      data.session.expires_at ?? 0,
+    );
+
     return {};
   },
 
@@ -227,6 +268,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
       });
+
+      void notifyMcpAccountTokenChanged(
+        data.session.user.id,
+        data.session.access_token,
+        data.session.expires_at ?? 0,
+      );
     }
 
     return {};
@@ -253,7 +300,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: async () => {
     if (!isSupabaseConfigured) return;
     stopRealtimeSync();
+    // Capture the user id BEFORE signOut clears the session — the
+    // onAuthStateChange listener can't reliably get this.
+    const previousId = (await supabase.auth.getSession()).data.session?.user?.id;
     await supabase.auth.signOut();
+    if (previousId) await notifyMcpAccountRemoved(previousId);
     await getAccountManager().setActiveAccountId(null);
     set({ user: null, session: null });
     resetAllStores();

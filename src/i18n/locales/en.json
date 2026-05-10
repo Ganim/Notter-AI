@@ -6,6 +6,28 @@
     "actions": "Actions",
     "terminals": "Terminals"
   },
+  "plans": {
+    "comment_placeholder": "Add a comment...",
+    "resolve": "Mark resolved",
+    "unresolve": "Mark unresolved",
+    "source_user": "user",
+    "source_ai": "ai",
+    "source_import": "import",
+    "versions_title": "Versions",
+    "comments_title": "Comments",
+    "no_versions": "No versions yet — they will be created automatically when you run AI on this note.",
+    "current_marker": "current",
+    "no_version_for_comments": "Create a version first to comment.",
+    "no_comments_for_version": "No comments on this version yet.",
+    "show_resolved": "Show resolved",
+    "hide_resolved": "Hide resolved",
+    "add_comment": "Add comment",
+    "preview_banner": "Previewing version: {{label}} · {{when}}",
+    "adopt_version": "Adopt as current",
+    "exit_preview": "Back to current",
+    "manual_edit_label": "Manual edit",
+    "ai_revision_label": "{{actor}} · revision"
+  },
   "actions": {
     "title": "Actions",
     "search_placeholder": "Search actions...",
@@ -128,6 +150,17 @@
     "model_default_hint": "Default: {{model}}",
     "best_for": "Best for",
     "ollama_not_installed_hint": "Ollama is not installed. Click \"Install Ollama\" above to download and install it automatically. The installer runs silently — no popup windows."
+  },
+  "mcp": {
+    "menu_label": "MCP config",
+    "dialog_title": "MCP server config",
+    "dialog_description": "Point your external CLI (claude-code, codex, aider) at this URL with the bearer token below.",
+    "url_label": "URL",
+    "token_label": "Bearer token",
+    "copy_button": "Copy JSON",
+    "copied_toast": "MCP config copied to clipboard",
+    "disabled_banner": "MCP server unavailable",
+    "disabled_reason": "The local server failed to bind. Restart the app; if it persists, check the logs."
   },
   "updater": {
     "title": "Updates",
