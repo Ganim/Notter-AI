@@ -8,10 +8,19 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react()],
+  // gray-matter (via section-matter / js-yaml) reaches for the Node `Buffer`
+  // and `global`. Provide both for the Tauri webview.
+  define: {
+    global: "globalThis",
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      buffer: "buffer",
     },
+  },
+  optimizeDeps: {
+    include: ["buffer"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

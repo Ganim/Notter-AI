@@ -397,5 +397,25 @@
     "error_generic": "Algo deu errado. Tente novamente.",
     "error_not_configured": "Autenticação não configurada. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env.",
     "logged_in_as": "Logado como"
+  },
+  "import_export": {
+    "import_button": "Importar",
+    "export_button": "Exportar",
+    "import_button_tooltip": "Importar um arquivo .md",
+    "export_button_tooltip": "Exportar a versão atual como .md",
+    "import_picking": "Escolha um arquivo .md para importar",
+    "import_no_file": "Nenhum arquivo selecionado",
+    "import_parse_error": "Frontmatter markdown inválido: {{message}}",
+    "import_invalid_frontmatter": "Validação do frontmatter falhou no campo \"{{field}}\": {{message}}",
+    "import_subject_created": "Importado como novo assunto",
+    "import_version_created": "Importado como nova versão de \"{{subject}}\"",
+    "import_subject_created_no_version": "Assunto criado, mas a versão não sincronizou em 5s. Atualize e tente novamente.",
+    "import_failed": "Falha na importação: {{message}}",
+    "export_success": "Exportado para {{path}}",
+    "export_no_subject": "Selecione um assunto antes de exportar",
+    "export_no_version": "Este assunto ainda não tem versões — rode IA nele uma vez para criar uma, depois exporte.",
+    "export_version_not_loaded": "Versão selecionada não está carregada nesta sessão. Atualize e tente novamente.",
+    "export_failed": "Falha na exportação: {{message}}",
+    "export_cancelled": "Exportação cancelada"
   }
 }

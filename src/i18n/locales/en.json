@@ -397,5 +397,25 @@
     "error_generic": "Something went wrong. Try again.",
     "error_not_configured": "Authentication is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env file.",
     "logged_in_as": "Logged in as"
+  },
+  "import_export": {
+    "import_button": "Import",
+    "export_button": "Export",
+    "import_button_tooltip": "Import a .md file",
+    "export_button_tooltip": "Export the current version as .md",
+    "import_picking": "Choose a .md file to import",
+    "import_no_file": "No file selected",
+    "import_parse_error": "Invalid markdown frontmatter: {{message}}",
+    "import_invalid_frontmatter": "Frontmatter validation failed for field \"{{field}}\": {{message}}",
+    "import_subject_created": "Imported as new subject",
+    "import_version_created": "Imported as new version of \"{{subject}}\"",
+    "import_subject_created_no_version": "Subject created, but the version did not sync within 5s. Refresh and try again.",
+    "import_failed": "Import failed: {{message}}",
+    "export_success": "Exported to {{path}}",
+    "export_no_subject": "Select a subject before exporting",
+    "export_no_version": "This subject has no versions yet — run AI on it once to create one, then export.",
+    "export_version_not_loaded": "Selected version is not loaded in this session. Refresh and try again.",
+    "export_failed": "Export failed: {{message}}",
+    "export_cancelled": "Export cancelled"
   }
 }

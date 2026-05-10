@@ -10,7 +10,9 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialogPick } from '@tauri-apps/plugin-dialog';
+import { importMarkdownFile } from '@/lib/plans/import';
+import { exportCurrentVersion } from '@/lib/plans/export';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
 import { useWindowWidth } from '@/hooks/useWindowWidth';
@@ -25,7 +27,7 @@ import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
 import { SnapshotPanel } from '@/components/plans/SnapshotPanel';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
 import { formatRelativeTime } from '@/lib/plans/format';
-import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -88,6 +90,70 @@ export function PlannerTab() {
       toast.error(t('planner.sync_error'));
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // Import / Export (M4)
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleImport = async () => {
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      const picked = await openDialogPick({
+        multiple: false,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (!picked || Array.isArray(picked)) {
+        // User cancelled or weird multi-pick result — bail silently.
+        return;
+      }
+      const result = await importMarkdownFile(picked);
+      if (result.kind === 'subject_created') {
+        toast.success(t('import_export.import_subject_created'));
+      } else {
+        const subjectName = selectedSubject?.replace(/\.md$/i, '') ?? '';
+        toast.success(t('import_export.import_version_created', { subject: subjectName }));
+      }
+    } catch (e: any) {
+      if (e?.name === 'ImportError' && e?.code === 'NO_VERSION_AFTER_TIMEOUT') {
+        toast.warning(t('import_export.import_subject_created_no_version'));
+      } else if (e?.name === 'FrontmatterError') {
+        if (e.code === 'PARSE_ERROR') {
+          toast.error(t('import_export.import_parse_error', { message: e.message }));
+        } else {
+          toast.error(t('import_export.import_invalid_frontmatter', { field: e.field ?? '', message: e.message }));
+        }
+      } else {
+        toast.error(t('import_export.import_failed', { message: e?.message ?? String(e) }));
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const result = await exportCurrentVersion();
+      if (result.cancelled) {
+        toast.info(t('import_export.export_cancelled'));
+      } else {
+        toast.success(t('import_export.export_success', { path: result.path }));
+      }
+    } catch (e: any) {
+      if (e?.name === 'ExportError') {
+        if (e.code === 'NO_SUBJECT') toast.error(t('import_export.export_no_subject'));
+        else if (e.code === 'NO_VERSION') toast.error(t('import_export.export_no_version'));
+        else if (e.code === 'VERSION_NOT_LOADED') toast.error(t('import_export.export_version_not_loaded'));
+        else toast.error(t('import_export.export_failed', { message: e?.message ?? String(e) }));
+      } else {
+        toast.error(t('import_export.export_failed', { message: e?.message ?? String(e) }));
+      }
+    } finally {
+      setIsExporting(false);
     }
   };
   const setActiveTab = useAppStore((s) => s.setActiveTab);
@@ -281,7 +347,7 @@ export function PlannerTab() {
 
   // --- CRUD handlers ---
   const handleBrowseFolder = async () => {
-    const selected = await openDialog({ directory: true, multiple: false, title: t('planner.project_path_label') });
+    const selected = await openDialogPick({ directory: true, multiple: false, title: t('planner.project_path_label') });
     if (selected) setNewProjectPath(selected as string);
   };
 
@@ -568,6 +634,22 @@ export function PlannerTab() {
         </div>
         {selectedProject && selectedSubject && (
           <>
+            <button
+              onClick={handleImport}
+              disabled={isImporting}
+              title={t('import_export.import_button_tooltip')}
+              className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {isImporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              title={t('import_export.export_button_tooltip')}
+              className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            </button>
             {!isSmall && (
               <button
                 onClick={toggleVersionsPanel}
