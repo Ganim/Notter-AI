@@ -1,5 +1,6 @@
 mod ollama_install;
 mod secure_store;
+mod mcp;   // NEW — M3
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
