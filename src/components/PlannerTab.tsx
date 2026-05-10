@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePlannerStore } from '@/stores/planner-store';
+import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
@@ -20,7 +22,10 @@ import { useAppStore } from '@/stores/app-store';
 import { translateNote } from '@/lib/translator';
 import { processNoteToAction } from '@/lib/action-processor';
 import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
-import { Wand2, Loader2, Play, History, RefreshCw } from 'lucide-react';
+import { SnapshotPanel } from '@/components/plans/SnapshotPanel';
+import { CommentsPanel } from '@/components/plans/CommentsPanel';
+import { formatRelativeTime } from '@/lib/plans/format';
+import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -106,12 +111,30 @@ export function PlannerTab() {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('projects');
   const projectsPanelRef = useRef<PanelImperativeHandle>(null);
   const subjectsPanelRef = useRef<PanelImperativeHandle>(null);
+  const versionsPanelRef = useRef<PanelImperativeHandle>(null);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [subjectsCollapsed, setSubjectsCollapsed] = useState(false);
+  const [isVersionsPanelCollapsed, setIsVersionsPanelCollapsed] = useState(false);
 
   const windowWidth = useWindowWidth();
   const isSmall = windowWidth < 640;
   const isMedium = windowWidth >= 640 && windowWidth < 1024;
+
+  // Subject-versions store subscriptions for preview-mode banner + editor swap
+  const previewVersionId = useSubjectVersionsStore((s) => s.previewVersionId);
+  const versionList = useSubjectVersionsStore((s) => s.versions);
+  const previewVersion = previewVersionId
+    ? versionList.find((v) => v.id === previewVersionId) ?? null
+    : null;
+  const exitPreview = useSubjectVersionsStore((s) => s.exitPreview);
+  const adoptVersion = useSubjectVersionsStore((s) => s.adoptVersion);
+
+  const toggleVersionsPanel = () => {
+    const ref = versionsPanelRef.current;
+    if (!ref) return;
+    if (ref.isCollapsed()) ref.expand();
+    else ref.collapse();
+  };
 
   // --- Effects ---
   useEffect(() => {
@@ -247,6 +270,10 @@ export function PlannerTab() {
   };
 
   const handleEditorChange = (value: string | undefined) => {
+    // Guard: while previewing a historical version, Monaco still emits onChange
+    // when we swap its `value` prop programmatically. Ignore those events so we
+    // don't clobber the live subjectContent (or persist the preview to disk).
+    if (previewVersionId) return;
     const val = value || '';
     setSubjectContent(val);
     if (selectedProject && selectedSubject) saveSubjectContent(selectedProject.name, selectedSubject, val);
@@ -306,6 +333,17 @@ export function PlannerTab() {
     if (!selectedProject || !selectedSubject || !subjectContent.trim()) return;
     setIsTransformOpen(false);
     setIsTransforming(true);
+    // Pre-AI snapshot: capture the user's pre-Wand2 note so it can be restored
+    // even though `translateNote` only emits board tasks (no editor mutation).
+    const row = usePlannerStore.getState().selectedSubjectRow();
+    if (subjectContent.trim()) {
+      await useSubjectVersionsStore.getState().snapshotCurrent({
+        contentMarkdown: subjectContent,
+        source: 'user',
+        label: t('plans.manual_edit_label'),
+        parentVersionId: row?.currentVersionId ?? null,
+      });
+    }
     try {
       const result = await translateNote(profile, subjectContent);
       if (result.error) {
@@ -340,6 +378,20 @@ export function PlannerTab() {
       return;
     }
     setIsProcessing(true);
+    // Pre-AI snapshot: processNoteToAction generates an Action (no editor
+    // mutation) but `handleProcess` clears subjectContent on success — record
+    // the pre-clear note so the user can restore it from the panel.
+    {
+      const row = usePlannerStore.getState().selectedSubjectRow();
+      if (subjectContent.trim()) {
+        await useSubjectVersionsStore.getState().snapshotCurrent({
+          contentMarkdown: subjectContent,
+          source: 'user',
+          label: t('plans.manual_edit_label'),
+          parentVersionId: row?.currentVersionId ?? null,
+        });
+      }
+    }
     try {
       let modelTag: string;
       let apiKey: string | undefined;
@@ -380,6 +432,19 @@ export function PlannerTab() {
     if (!action) return;
     if (subjectContent.trim() && !confirm(t('planner.history_open_confirm'))) {
       return;
+    }
+    // Pre-swap snapshot: about to clobber the editor with a historical Action's
+    // input. Record what's there now so the user can restore it from the panel.
+    {
+      const row = usePlannerStore.getState().selectedSubjectRow();
+      if (subjectContent.trim()) {
+        await useSubjectVersionsStore.getState().snapshotCurrent({
+          contentMarkdown: subjectContent,
+          source: 'user',
+          label: t('plans.manual_edit_label'),
+          parentVersionId: row?.currentVersionId ?? null,
+        });
+      }
     }
     setSubjectContent(action.originalMarkdown);
     await saveSubjectContent(selectedProject.name, selectedSubject, action.originalMarkdown);
@@ -503,6 +568,15 @@ export function PlannerTab() {
         </div>
         {selectedProject && selectedSubject && (
           <>
+            {!isSmall && (
+              <button
+                onClick={toggleVersionsPanel}
+                title={isVersionsPanelCollapsed ? t('plans.versions_title') : t('plans.comments_title')}
+                className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                {isVersionsPanelCollapsed ? <PanelRightOpen size={12} /> : <PanelRightClose size={12} />}
+              </button>
+            )}
             <div ref={historyRef} className="relative">
               <button
                 onClick={() => setHistoryOpen((v) => !v)}
@@ -562,6 +636,19 @@ export function PlannerTab() {
               subjectName={selectedSubject}
               noteMarkdown={subjectContent}
               onStarted={(actionId) => {
+                // Pre-AI snapshot: PlanWithAiButton kicks off the v2 planning
+                // pipeline which produces tasks (no editor mutation). Still
+                // worth recording the note state at the moment the user
+                // pressed Plan-with-AI for traceability.
+                const row = usePlannerStore.getState().selectedSubjectRow();
+                if (subjectContent.trim()) {
+                  void useSubjectVersionsStore.getState().snapshotCurrent({
+                    contentMarkdown: subjectContent,
+                    source: 'user',
+                    label: t('plans.manual_edit_label'),
+                    parentVersionId: row?.currentVersionId ?? null,
+                  });
+                }
                 setSelectedAction(actionId);
                 setActiveTab('actions');
               }}
@@ -572,22 +659,66 @@ export function PlannerTab() {
     </div>
   );
 
-  const renderEditorContent = () => (
-    <div className={`flex-1 w-full relative overflow-y-auto transition-colors duration-300 ${editorBgClass}`}>
-      {!isViewing ? (
-        <Editor
-          height="100%" defaultLanguage="markdown" theme={editorTheme}
-          beforeMount={handleEditorWillMount} onMount={handleEditorMount}
-          value={subjectContent} onChange={handleEditorChange}
-          options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 }, autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined' }}
-          className="absolute inset-0"
-        />
-      ) : (
-        <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{subjectContent}</ReactMarkdown>
+  const renderPreviewBanner = () => {
+    if (!previewVersion) return null;
+    return (
+      <div className="border-b border-primary bg-primary/5 px-4 py-2 flex items-center justify-between gap-2 shrink-0">
+        <span className="text-xs">
+          {t('plans.preview_banner', {
+            label: previewVersion.label ?? `v${previewVersion.id.slice(0, 6)}`,
+            when: formatRelativeTime(previewVersion.createdAt),
+          })}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={() => exitPreview()}>
+            {t('plans.exit_preview')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={async () => {
+              const adopted = await adoptVersion(previewVersion.id);
+              if (adopted && selectedProject && selectedSubject) {
+                setSubjectContent(adopted.contentMarkdown);
+                await saveSubjectContent(selectedProject.name, selectedSubject, adopted.contentMarkdown);
+              }
+            }}
+          >
+            {t('plans.adopt_version')}
+          </Button>
         </div>
-      )}
-    </div>
+      </div>
+    );
+  };
+
+  // Derived editor inputs for preview-mode content swap. While previewing,
+  // Monaco shows the historical version's markdown (read-only) and our
+  // onChange handler short-circuits so we never persist preview content.
+  const editorValue = previewVersion ? previewVersion.contentMarkdown : subjectContent;
+  const editorReadOnly = previewVersion !== null;
+
+  const renderEditorContent = () => (
+    <>
+      {renderPreviewBanner()}
+      <div className={`flex-1 w-full relative overflow-y-auto transition-colors duration-300 ${editorBgClass}`}>
+        {!isViewing ? (
+          <Editor
+            height="100%" defaultLanguage="markdown" theme={editorTheme}
+            beforeMount={handleEditorWillMount} onMount={handleEditorMount}
+            value={editorValue} onChange={handleEditorChange}
+            options={{
+              minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 },
+              autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined',
+              readOnly: editorReadOnly,
+            }}
+            className="absolute inset-0"
+          />
+        ) : (
+          <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorValue}</ReactMarkdown>
+          </div>
+        )}
+      </div>
+    </>
   );
 
   const renderEditorPanel = () => (
@@ -602,6 +733,22 @@ export function PlannerTab() {
         {t('planner.select_subject_hint')}
       </div>
     )
+  );
+
+  // Right-side versions + comments panel content (used by large + medium
+  // layouts). Content auto-hides itself when no subject is selected — the
+  // SnapshotPanel / CommentsPanel both early-return on `!currentSubjectId`.
+  const renderVersionsCommentsPanel = () => (
+    /* @ts-expect-error shadcn type mismatch */
+    <ResizablePanelGroup direction="vertical" className="w-full h-full">
+      <ResizablePanel defaultSize="50%" minSize="20%" className="bg-background overflow-hidden">
+        <SnapshotPanel />
+      </ResizablePanel>
+      <ResizableHandle />
+      <ResizablePanel defaultSize="50%" minSize="20%" className="bg-background overflow-hidden">
+        <CommentsPanel />
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 
   // ============================
@@ -721,6 +868,16 @@ export function PlannerTab() {
             )}
             {renderEditorPanel()}
           </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel
+            panelRef={versionsPanelRef}
+            defaultSize="28%" minSize="15%" maxSize="45%"
+            collapsible collapsedSize={0}
+            onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
+            className="bg-muted/10"
+          >
+            {renderVersionsCommentsPanel()}
+          </ResizablePanel>
         </ResizablePanelGroup>
         {renderDialogs()}
       </>
@@ -795,6 +952,18 @@ export function PlannerTab() {
             </div>
           )}
           {renderEditorPanel()}
+        </ResizablePanel>
+
+        <ResizableHandle />
+
+        <ResizablePanel
+          panelRef={versionsPanelRef}
+          defaultSize="25%" minSize="15%" maxSize="40%"
+          collapsible collapsedSize={0}
+          onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
+          className="bg-muted/10"
+        >
+          {renderVersionsCommentsPanel()}
         </ResizablePanel>
       </ResizablePanelGroup>
       {renderDialogs()}
