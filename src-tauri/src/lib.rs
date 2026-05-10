@@ -321,6 +321,7 @@ pub fn run() {
             mcp::auth::mcp_update_account_token,
             mcp::auth::mcp_remove_account_token,
             mcp::auth::mcp_set_supabase_config,
+            mcp::auth::mcp_register_bearer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -102,6 +102,23 @@ pub async fn mcp_set_supabase_config(
     Ok(())
 }
 
+/// Tauri command — front-end calls at boot (for every known account) and on
+/// AccountManager.add() to register the (bearer -> accountId) mapping. Replaces
+/// any existing mapping for this account so we don't accumulate stale tokens
+/// if the bearer ever rotates. Phase K modifies this command to also write
+/// per-account configs; for Phase I the in-memory map update is enough.
+#[tauri::command]
+pub async fn mcp_register_bearer(
+    account_id: String,
+    bearer_token: String,
+    state: tauri::State<'_, McpState>,
+) -> Result<(), String> {
+    let mut s = state.write().await;
+    s.token_to_account.retain(|_, v| v != &account_id);
+    s.token_to_account.insert(bearer_token, account_id);
+    Ok(())
+}
+
 use axum::{
     extract::{Request, State as AxumState},
     http::StatusCode,
