@@ -9,6 +9,7 @@ import {
 } from '@/lib/sync';
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
+import { useSubjectVersionsStore } from './subject-versions-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
@@ -40,6 +41,14 @@ interface PlannerState {
   // Subjects/notes (formerly "tasks/tarefas")
   subjects: string[];
   selectedSubject: string | null;
+  /**
+   * Full subject rows from Supabase (id, currentVersionId, etc) — keyed by
+   * (projectName, fileName). Populated by `applyRemoteSubjects` and on
+   * sign-in. Local-only subjects (offline mode) won't appear here until they
+   * sync, which is fine: the version-history UI hides itself when no row is
+   * found via `selectedSubjectRow()`.
+   */
+  subjectRows: SubjectRecord[];
 
   // Editor
   subjectContent: string;
@@ -59,6 +68,13 @@ interface PlannerState {
 
   // Subject actions
   setSelectedSubject: (subject: string | null) => void;
+  /**
+   * Returns the SubjectRecord for the active (selectedProject, selectedSubject)
+   * pair, or null if no row exists yet (offline-only subject, or pre-sync).
+   * Read by SnapshotPanel / CommentsPanel / PlannerTab to find the live
+   * `current_version_id` and the stable `subjects.id` for FK writes.
+   */
+  selectedSubjectRow: () => SubjectRecord | null;
   loadSubjects: (projectName: string) => Promise<void>;
   loadSubjectContent: (projectName: string, subject: string) => Promise<void>;
   setSubjectContent: (content: string) => void;
@@ -85,6 +101,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   selectedProject: null,
   subjects: [],
   selectedSubject: null,
+  subjectRows: [],
   subjectContent: '# Nova Anotação',
   isViewing: false,
   editorBgClass: BG_COLORS[0].value,
@@ -96,6 +113,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   setSelectedProject: (project) => {
     set({ selectedProject: project, selectedSubject: null, subjects: [] });
+    // Clearing the subject also tears down the per-subject versions/comments
+    // store so its slices don't leak into the next subject's view.
+    useSubjectVersionsStore.getState().clearSubject();
     if (project) get().loadSubjects(project.name);
   },
 
@@ -174,7 +194,34 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   setSelectedSubject: (subject) => {
     set({ selectedSubject: subject });
     const project = get().selectedProject;
-    if (project && subject) get().loadSubjectContent(project.name, subject);
+    if (project && subject) {
+      get().loadSubjectContent(project.name, subject);
+      // Pivot the subject-versions store onto the new subject. If we don't
+      // know the row's stable id yet (offline-only / pre-sync), clear so the
+      // panels stay empty rather than showing the previous subject's data.
+      const row = get().subjectRows.find(
+        (r) => r.projectName === project.name && r.fileName === subject,
+      );
+      if (row) {
+        useSubjectVersionsStore.getState().loadForSubject(row.id);
+      } else {
+        useSubjectVersionsStore.getState().clearSubject();
+      }
+    } else {
+      useSubjectVersionsStore.getState().clearSubject();
+    }
+  },
+
+  selectedSubjectRow: () => {
+    const { selectedProject, selectedSubject, subjectRows } = get();
+    if (!selectedProject || !selectedSubject) return null;
+    return (
+      subjectRows.find(
+        (r) =>
+          r.projectName === selectedProject.name &&
+          r.fileName === selectedSubject,
+      ) ?? null
+    );
   },
 
   loadSubjects: async (projectName) => {
@@ -291,9 +338,27 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         console.error(`Failed to write remote subject ${s.projectName}/${s.fileName}:`, e);
       }
     }
+    // Cache the full rows so selectedSubjectRow() can resolve subject.id +
+    // current_version_id without another network round trip. Realtime on the
+    // `subjects` table fires applyRemoteSubjects again on current_version_id
+    // updates, which keeps this slice live.
+    set({ subjectRows: subjects });
     // Reload subjects for the currently selected project
     const selected = get().selectedProject;
     if (selected) get().loadSubjects(selected.name);
+
+    // If a subject is currently selected, make sure the subject-versions
+    // store is pointed at the right id. This handles the case where the row
+    // arrives AFTER the user picked the subject (sync race).
+    const selectedSubject = get().selectedSubject;
+    if (selected && selectedSubject) {
+      const row = subjects.find(
+        (r) => r.projectName === selected.name && r.fileName === selectedSubject,
+      );
+      if (row && useSubjectVersionsStore.getState().currentSubjectId !== row.id) {
+        useSubjectVersionsStore.getState().loadForSubject(row.id);
+      }
+    }
   },
 
   pushAllSubjects: async (userId) => {
@@ -321,6 +386,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       selectedProject: null,
       subjects: [],
       selectedSubject: null,
+      subjectRows: [],
       subjectContent: '# Nova Anotação',
       isViewing: false,
     });

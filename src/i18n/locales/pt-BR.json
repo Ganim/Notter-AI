@@ -21,7 +21,21 @@
     "migrated_link": "Ir para Planos",
     "source_user": "usuário",
     "source_ai": "ia",
-    "source_import": "importação"
+    "source_import": "importação",
+    "versions_title": "Versões",
+    "comments_title": "Comentários",
+    "no_versions": "Nenhuma versão ainda — elas são criadas automaticamente quando você roda IA nesta nota.",
+    "current_marker": "atual",
+    "no_version_for_comments": "Crie uma versão primeiro para comentar.",
+    "no_comments_for_version": "Nenhum comentário nesta versão ainda.",
+    "show_resolved": "Mostrar resolvidos",
+    "hide_resolved": "Esconder resolvidos",
+    "add_comment": "Adicionar comentário",
+    "preview_banner": "Visualizando versão: {{label}} · {{when}}",
+    "adopt_version": "Adotar como atual",
+    "exit_preview": "Voltar para atual",
+    "manual_edit_label": "Edição manual",
+    "ai_revision_label": "{{actor}} · revisão"
   },
   "actions": {
     "title": "Ações",

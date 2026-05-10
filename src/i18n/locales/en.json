@@ -21,7 +21,21 @@
     "migrated_link": "Go to Plans",
     "source_user": "user",
     "source_ai": "ai",
-    "source_import": "import"
+    "source_import": "import",
+    "versions_title": "Versions",
+    "comments_title": "Comments",
+    "no_versions": "No versions yet — they will be created automatically when you run AI on this note.",
+    "current_marker": "current",
+    "no_version_for_comments": "Create a version first to comment.",
+    "no_comments_for_version": "No comments on this version yet.",
+    "show_resolved": "Show resolved",
+    "hide_resolved": "Hide resolved",
+    "add_comment": "Add comment",
+    "preview_banner": "Previewing version: {{label}} · {{when}}",
+    "adopt_version": "Adopt as current",
+    "exit_preview": "Back to current",
+    "manual_edit_label": "Manual edit",
+    "ai_revision_label": "{{actor}} · revision"
   },
   "actions": {
     "title": "Actions",

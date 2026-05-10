@@ -2,13 +2,13 @@
 //
 // No `date-fns` import — see formatRelativeTime helper.
 //
-// P3 minimal patch (post-pivot): rebound to useSubjectVersionsStore. The
-// `currentSnapshotId` filter pivot is temporarily disabled (set to null), so
-// for now the panel shows all comments across the subject's versions. P5
-// will rewire this to read subjects.current_version_id from planner-store
-// and restore the per-version filter + "Add comment" button enable rule.
+// Per-version comment thread. The active version is read live from
+// `subjects.current_version_id` via planner-store.subjectRows. When no
+// version exists yet (brand-new subject pre-snapshot), the add-comment form
+// is hidden and a hint asks the user to create a version first.
 import { useState } from 'react';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
+import { usePlannerStore } from '@/stores/planner-store';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -25,23 +25,37 @@ export function CommentsPanel() {
   const deleteComment = useSubjectVersionsStore((s) => s.deleteComment);
   const toggleResolveComment = useSubjectVersionsStore((s) => s.toggleResolveComment);
 
-  // P5 TODO: read subjects.current_version_id from planner-store.
-  const currentSnapshotId: string | null = null;
+  // Reactive read — re-renders when planner-store.subjectRows changes (e.g.
+  // after an adopt round-trips through postgres_changes).
+  const currentVersionId = usePlannerStore((s) => {
+    if (!s.selectedProject || !s.selectedSubject) return null;
+    return (
+      s.subjectRows.find(
+        (r) =>
+          r.projectName === s.selectedProject!.name &&
+          r.fileName === s.selectedSubject,
+      )?.currentVersionId ?? null
+    );
+  });
+
   const userId = useAuthStore((s) => s.user?.id);
 
   const [body, setBody] = useState('');
   const [showResolved, setShowResolved] = useState(false);
 
-  // Default: comments for the current snapshot version. If no snapshot, show all.
-  const filtered = currentSnapshotId
+  // Default: comments for the current version. When there is no current
+  // version yet, the list is empty (we can't author comments yet either).
+  const filtered = currentVersionId
     ? comments.filter((c) =>
-        showResolved ? c.versionId === currentSnapshotId : !c.resolved && c.versionId === currentSnapshotId,
+        showResolved
+          ? c.versionId === currentVersionId
+          : !c.resolved && c.versionId === currentVersionId,
       )
-    : comments.filter((c) => showResolved || !c.resolved);
+    : [];
 
   const handleAdd = async () => {
-    if (!body.trim() || !currentSnapshotId) return;
-    await addComment(currentSnapshotId, body);
+    if (!body.trim() || !currentVersionId) return;
+    await addComment(currentVersionId, body);
     setBody('');
   };
 
@@ -52,7 +66,7 @@ export function CommentsPanel() {
       {/* Filter toggle */}
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          Comments ({filtered.length})
+          {t('plans.comments_title')} ({filtered.length})
         </p>
         <Button
           size="sm"
@@ -60,15 +74,15 @@ export function CommentsPanel() {
           className="h-6 px-2 text-xs"
           onClick={() => setShowResolved((v) => !v)}
         >
-          {showResolved ? 'Hide resolved' : 'Show resolved'}
+          {showResolved ? t('plans.hide_resolved') : t('plans.show_resolved')}
         </Button>
       </div>
 
       {/* Comment list */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-2">
-        {filtered.length === 0 && (
+        {filtered.length === 0 && currentVersionId && (
           <p className="text-xs text-muted-foreground">
-            {currentSnapshotId ? 'No comments on this version yet.' : 'No snapshot selected — snapshot the plan to add comments.'}
+            {t('plans.no_comments_for_version')}
           </p>
         )}
         {filtered.map((c) => (
@@ -111,7 +125,7 @@ export function CommentsPanel() {
       </div>
 
       {/* Add comment */}
-      {currentSnapshotId ? (
+      {currentVersionId ? (
         <div className="flex flex-col gap-2 shrink-0">
           <Textarea
             value={body}
@@ -120,12 +134,12 @@ export function CommentsPanel() {
             className="text-xs resize-none h-16"
           />
           <Button size="sm" onClick={handleAdd} disabled={!body.trim()}>
-            Add comment
+            {t('plans.add_comment')}
           </Button>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground shrink-0">
-          Snapshot the plan to enable comments.
+          {t('plans.no_version_for_comments')}
         </p>
       )}
     </div>

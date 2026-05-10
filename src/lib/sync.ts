@@ -145,6 +145,7 @@ export interface SubjectRecord {
   projectName: string;
   fileName: string;
   content: string;
+  currentVersionId: string | null;
 }
 
 export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | null> {
@@ -160,9 +161,36 @@ export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | n
       projectName: row.project_name,
       fileName: row.file_name,
       content: row.content,
+      currentVersionId: row.current_version_id ?? null,
     }));
   } catch {
     return null;
+  }
+}
+
+/**
+ * Update the `current_version_id` pointer on a subject row. Used by the
+ * "Adopt version" flow in the subject-versions store. Idempotent: writing the
+ * same value is a no-op.
+ */
+export async function updateSubjectCurrentVersion(
+  userId: string,
+  subjectId: string,
+  versionId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('subjects')
+      .update({
+        current_version_id: versionId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', subjectId)
+      .eq('user_id', userId);
+    if (error) console.error('[sync] updateSubjectCurrentVersion failed:', error);
+  } catch (e) {
+    console.error('[sync] updateSubjectCurrentVersion threw:', e);
   }
 }
 
