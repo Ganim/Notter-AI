@@ -981,7 +981,7 @@ export function PlannerTab() {
       {/* @ts-expect-error shadcn type mismatch */}
       <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
         <ResizablePanel
-          panelRef={projectsPanelRef} defaultSize="15%" minSize="10%"
+          panelRef={projectsPanelRef} defaultSize="30%" minSize="15%"
           collapsible collapsedSize={0}
           onResize={(size) => setProjectsCollapsed(size.asPercentage === 0)}
           className="bg-muted/50"
@@ -1006,7 +1006,7 @@ export function PlannerTab() {
         <ResizableHandle />
 
         <ResizablePanel
-          panelRef={subjectsPanelRef} defaultSize="15%" minSize="10%"
+          panelRef={subjectsPanelRef} defaultSize="30%" minSize="15%"
           collapsible collapsedSize={0}
           onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
           className="bg-muted/20"
@@ -1025,7 +1025,7 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize="70%" minSize="40%" className="flex flex-col bg-background">
+        <ResizablePanel defaultSize="40%" minSize="25%" className="flex flex-col bg-background">
           {(projectsCollapsed || subjectsCollapsed) && (
             <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
               {projectsCollapsed && (
