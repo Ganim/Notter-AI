@@ -1,0 +1,271 @@
+// src/lib/workspaces/workspace-manager.ts
+//
+// Mirrors src/lib/accounts/account-manager.ts one level deeper. The
+// singleton holds the per-account workspaces[] + currentWorkspaceId, and is
+// the sole writer for Supabase mutations (add/rename/remove/setDefault).
+//
+// Bootstrap order (called from auth-store.syncOnLogin AFTER the supabase
+// session is established):
+//   1. fetchWorkspaces(userId) from Supabase.
+//   2. If [] returned, INSERT one default workspace (the migration's
+//      backfill only covers users with projects; project-less accounts get
+//      a workspace lazily here).
+//   3. Read active.json under the account's dir; if present + still valid,
+//      restore currentWorkspaceId. Otherwise seed from is_default=true.
+//   4. Push every workspace's bearer to Rust via notifyMcpWorkspaceAdded.
+
+import {
+  readWorkspaceIndex as _readWorkspaceIndex,
+  writeWorkspaceIndex,
+  readActiveWorkspace,
+  writeActiveWorkspace,
+} from './workspace-storage';
+import { secureSet, secureGet, secureDelete } from '@/lib/accounts/secure-store';
+import { getAccountManager } from '@/lib/accounts/account-manager';
+import { useAuthStore } from '@/stores/auth-store';
+import {
+  fetchWorkspaces, pushWorkspace, renameWorkspace, setWorkspaceDefault,
+  deleteWorkspace, moveProjectsBetweenWorkspaces,
+} from '@/lib/sync';
+import { notifyMcpWorkspaceAdded, notifyMcpWorkspaceRemoved } from '@/lib/mcp';
+import { generateWorkspaceMcpToken } from './mcp-token';
+
+// Silence unused-import warning while keeping the import for future use
+// (e.g. offline fast-boot from index.json before fetchWorkspaces resolves).
+void _readWorkspaceIndex;
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+function workspaceMcpKey(accountId: string, workspaceId: string): string {
+  return `notter:account:${accountId}:workspace:${workspaceId}:mcp_token`;
+}
+
+export class WorkspaceManager {
+  private workspaces: WorkspaceSummary[] = [];
+  private current: string | null = null;
+  private booted = false;
+  private listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private notify(): void {
+    for (const l of this.listeners) {
+      try { l(); } catch (e) { console.error('[workspace-manager] listener failed', e); }
+    }
+  }
+
+  get currentWorkspaceId(): string | null { return this.current; }
+  list(): WorkspaceSummary[] { return [...this.workspaces]; }
+  get(id: string): WorkspaceSummary | null { return this.workspaces.find((w) => w.id === id) ?? null; }
+
+  /** Reset hook called from registerResettableStore on account-switch. */
+  reset(): void {
+    this.workspaces = [];
+    this.current = null;
+    this.booted = false;
+    this.notify();
+  }
+
+  async bootstrap(): Promise<void> {
+    if (this.booted) return;
+    const accountId = getAccountManager().activeAccountId;
+    const userId = useAuthStore.getState().user?.id;
+    if (!accountId || !userId) {
+      console.warn('[workspace-manager] bootstrap skipped — no active account/user');
+      return;
+    }
+
+    // 1. Fetch from Supabase.
+    let remote = (await fetchWorkspaces(userId)) ?? [];
+
+    // 2. Lazy default for project-less accounts.
+    if (remote.length === 0) {
+      const id = crypto.randomUUID();
+      const result = await pushWorkspace({
+        id, userId, name: "User's workspace", isDefault: true,
+      });
+      if (result.ok) {
+        remote = [{
+          id, userId, name: "User's workspace", isDefault: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }];
+      } else {
+        // Re-fetch — a parallel sign-in on another device may have created one.
+        remote = (await fetchWorkspaces(userId)) ?? [];
+      }
+    }
+
+    this.workspaces = remote.map((r) => ({ id: r.id, name: r.name, isDefault: r.isDefault }));
+
+    // 3. Persist index.json for offline fast-boot.
+    await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
+
+    // 4. Restore active pointer.
+    const active = await readActiveWorkspace(accountId);
+    if (active.workspaceId && this.workspaces.some((w) => w.id === active.workspaceId)) {
+      this.current = active.workspaceId;
+    } else {
+      this.current = this.workspaces.find((w) => w.isDefault)?.id ?? this.workspaces[0]?.id ?? null;
+      if (this.current) await writeActiveWorkspace(accountId, { workspaceId: this.current });
+    }
+
+    // 5. Push every bearer to Rust. Auto-mint missing ones.
+    for (const ws of this.workspaces) {
+      const key = workspaceMcpKey(accountId, ws.id);
+      let bearer = await secureGet(key);
+      if (!bearer) {
+        bearer = generateWorkspaceMcpToken();
+        await secureSet(key, bearer);
+      }
+      await notifyMcpWorkspaceAdded(accountId, ws.id, bearer);
+    }
+
+    this.booted = true;
+    this.notify();
+  }
+
+  async switchWorkspace(targetId: string): Promise<void> {
+    if (!this.workspaces.some((w) => w.id === targetId)) {
+      throw new Error(`unknown workspace ${targetId}`);
+    }
+    if (this.current === targetId) return;
+    const accountId = getAccountManager().activeAccountId;
+    if (!accountId) throw new Error('switchWorkspace: no active account');
+    this.current = targetId;
+    await writeActiveWorkspace(accountId, { workspaceId: targetId });
+    this.notify();
+  }
+
+  async add(input: { name: string; isDefault?: boolean }): Promise<WorkspaceSummary> {
+    const accountId = getAccountManager().activeAccountId;
+    const userId = useAuthStore.getState().user?.id;
+    if (!accountId || !userId) throw new Error('add: not signed in');
+    if (this.workspaces.some((w) => w.name === input.name)) {
+      throw new Error('duplicate_name');
+    }
+    const id = crypto.randomUUID();
+    const isDefault = input.isDefault ?? false;
+    const result = await pushWorkspace({ id, userId, name: input.name, isDefault });
+    if (!result.ok) throw new Error(result.code);
+
+    if (isDefault) {
+      // Clear is_default on the previous default in-memory; setWorkspaceDefault
+      // already did the DB writes inside pushWorkspace's transaction window
+      // via the partial unique index — but if it fired in REST order, the
+      // first INSERT may have collided. Be safe: call setWorkspaceDefault
+      // explicitly to converge.
+      await setWorkspaceDefault(id, userId);
+      this.workspaces = this.workspaces.map((w) => ({ ...w, isDefault: false }));
+    }
+
+    const summary: WorkspaceSummary = { id, name: input.name, isDefault };
+    this.workspaces.push(summary);
+    await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
+
+    // Mint + register bearer.
+    const bearer = generateWorkspaceMcpToken();
+    await secureSet(workspaceMcpKey(accountId, id), bearer);
+    await notifyMcpWorkspaceAdded(accountId, id, bearer);
+
+    this.notify();
+    return summary;
+  }
+
+  async rename(id: string, newName: string): Promise<void> {
+    const userId = useAuthStore.getState().user?.id;
+    const accountId = getAccountManager().activeAccountId;
+    if (!userId || !accountId) throw new Error('rename: not signed in');
+    if (this.workspaces.some((w) => w.id !== id && w.name === newName)) {
+      throw new Error('duplicate_name');
+    }
+    const result = await renameWorkspace(id, userId, newName);
+    if (!result.ok) throw new Error(result.code);
+    this.workspaces = this.workspaces.map((w) => (w.id === id ? { ...w, name: newName } : w));
+    await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
+    this.notify();
+  }
+
+  async setDefault(id: string): Promise<void> {
+    const userId = useAuthStore.getState().user?.id;
+    const accountId = getAccountManager().activeAccountId;
+    if (!userId || !accountId) throw new Error('setDefault: not signed in');
+    await setWorkspaceDefault(id, userId);
+    this.workspaces = this.workspaces.map((w) => ({ ...w, isDefault: w.id === id }));
+    await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
+    this.notify();
+  }
+
+  async getMcpToken(workspaceId: string): Promise<string | null> {
+    const accountId = getAccountManager().activeAccountId;
+    if (!accountId) return null;
+    return secureGet(workspaceMcpKey(accountId, workspaceId));
+  }
+
+  async remove(
+    id: string,
+    opts: { moveTargetWorkspaceId: string } | { purge: true },
+  ): Promise<void> {
+    const userId = useAuthStore.getState().user?.id;
+    const accountId = getAccountManager().activeAccountId;
+    if (!userId || !accountId) throw new Error('remove: not signed in');
+    if (this.workspaces.length <= 1) {
+      throw new Error('cannot_remove_last_workspace');
+    }
+    const ws = this.workspaces.find((w) => w.id === id);
+    if (!ws) throw new Error(`unknown workspace ${id}`);
+    if (ws.isDefault && 'moveTargetWorkspaceId' in opts) {
+      throw new Error('cannot_remove_default_workspace');
+    }
+
+    if ('moveTargetWorkspaceId' in opts) {
+      const moved = await moveProjectsBetweenWorkspaces(userId, id, opts.moveTargetWorkspaceId);
+      if (!moved.ok) throw new Error(moved.message);
+    } else {
+      // purge path — projects need to go too. Caller (delete-dialog) issues
+      // the project deletes via usePlannerStore.deleteProject for each project
+      // in the workspace BEFORE calling remove(). This method does not own
+      // the project teardown; it only handles workspace-row removal.
+    }
+
+    const delResult = await deleteWorkspace(id, userId);
+    if (!delResult.ok) {
+      // 'has_projects' means UPDATE didn't cover every row OR purge wasn't
+      // performed by the caller. Surface to UI.
+      throw new Error(delResult.code);
+    }
+
+    // Drop the bearer.
+    const key = workspaceMcpKey(accountId, id);
+    const bearer = await secureGet(key);
+    if (bearer) {
+      await secureDelete(key);
+      await notifyMcpWorkspaceRemoved(bearer);
+    }
+
+    this.workspaces = this.workspaces.filter((w) => w.id !== id);
+    await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
+    if (this.current === id) {
+      this.current = this.workspaces.find((w) => w.isDefault)?.id ?? this.workspaces[0]?.id ?? null;
+      if (this.current) await writeActiveWorkspace(accountId, { workspaceId: this.current });
+    }
+    this.notify();
+  }
+}
+
+let _singleton: WorkspaceManager | null = null;
+export function getWorkspaceManager(): WorkspaceManager {
+  if (!_singleton) _singleton = new WorkspaceManager();
+  return _singleton;
+}
+
+export function _resetForTests(): void {
+  _singleton = null;
+}

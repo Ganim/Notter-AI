@@ -89,3 +89,22 @@ export async function readMcpConfigForAccount(
     return null;
   }
 }
+
+// ─── Workspace bearer registration (Phase C placeholders) ─────────────────
+//
+// Phase I (Rust-side MCP refactor) fills these in with real `invoke()` calls
+// against new Tauri commands (`mcp_register_workspace_bearer`,
+// `mcp_remove_workspace_bearer`). Until then the WorkspaceManager calls these
+// at bootstrap/add/remove time and we no-op so the singleton still wires up.
+
+export async function notifyMcpWorkspaceAdded(
+  _accountId: string,
+  _workspaceId: string,
+  _bearer: string,
+): Promise<void> {
+  // Phase I: invoke('mcp_register_workspace_bearer', { accountId, workspaceId, bearer })
+}
+
+export async function notifyMcpWorkspaceRemoved(_bearer: string): Promise<void> {
+  // Phase I: invoke('mcp_remove_workspace_bearer', { bearer })
+}
