@@ -292,6 +292,17 @@ pub fn run() {
             });
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app = window.app_handle().clone();
+                // Best-effort sync delete; if it fails the next boot's stale
+                // detection will clean it up.
+                if let Ok(base) = app.path().app_local_data_dir() {
+                    let p = base.join("notter-ai").join("mcp").join("endpoint.json");
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             create_pty,
             write_pty,
