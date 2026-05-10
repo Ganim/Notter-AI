@@ -42,7 +42,6 @@ describe('migrateSubjectsToPlans', () => {
   });
 
   it('migrates each subject row into a plans insert with flattened title', async () => {
-    const { supabase } = await import('@/lib/supabase');
     const result = await migrateSubjectsToPlans('u1');
     expect(result.skipped).toBe(false);
     expect(result.migrated).toBe(2);
@@ -61,8 +60,9 @@ describe('migrateSubjectsToPlans', () => {
 
   it('does NOT write sentinel if any row failed', async () => {
     const { supabase } = await import('@/lib/supabase');
-    // Force first insert to fail, second to succeed
-    (supabase.from as any).mockImplementationOnce(() => ({
+    // Replace the default impl so that BOTH the subjects fetch and the plans
+    // insert use this mock (mockImplementationOnce only covers the next call).
+    (supabase.from as any).mockImplementation(() => ({
       select: () => ({
         eq: () => Promise.resolve({
           data: [
