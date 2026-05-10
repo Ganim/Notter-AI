@@ -24,6 +24,29 @@ export type ImportResult =
   | { kind: 'version_added'; subjectId: string; versionId: string }
   | { kind: 'subject_created'; subjectId: string; versionId: string };
 
+export type ImportErrorCode =
+  | 'NO_VERSION_AFTER_TIMEOUT';  // subject created but realtime row didn't arrive within 5s
+
+export class ImportError extends Error {
+  readonly code: ImportErrorCode;
+  readonly subjectId: string | null;
+  readonly projectName: string;
+  readonly fileName: string;
+  constructor(
+    code: ImportErrorCode,
+    projectName: string,
+    fileName: string,
+    subjectId: string | null = null,
+  ) {
+    super(`${code}: ${projectName}/${fileName}`);
+    this.name = 'ImportError';
+    this.code = code;
+    this.subjectId = subjectId;
+    this.projectName = projectName;
+    this.fileName = fileName;
+  }
+}
+
 export async function importMarkdownFile(absolutePath: string): Promise<ImportResult> {
   // The Tauri dialog returns an absolute path; readTextFile honors absolute
   // paths when no baseDir is passed.
@@ -70,11 +93,13 @@ export async function importMarkdownText(
   }
 
   // ── Case B ───────────────────────────────────────────────────────────────
-  // Parse "<project> / <file>" out of the title.
+  // Parse "<project> / <file>" out of the title; split on the LAST ` / `
+  // separator so project names that legitimately contain " / " round-trip
+  // correctly (filenames generally don't, hence the right-most split).
   const titleStr = String(frontmatter.title ?? '').trim();
   let projectName: string;
   let fileNameRaw: string;
-  const slashIdx = titleStr.indexOf(' / ');
+  const slashIdx = titleStr.lastIndexOf(' / ');
   if (slashIdx > 0) {
     projectName = titleStr.slice(0, slashIdx).trim();
     fileNameRaw = titleStr.slice(slashIdx + 3).trim();
@@ -100,9 +125,7 @@ export async function importMarkdownText(
   // populates `subjectRows`. Poll up to 5s (~20 attempts × 250ms).
   const subjectId = await waitForSubjectRow(projectName, fileName, 5000);
   if (!subjectId) {
-    throw new Error(
-      `Subject "${projectName}/${fileName}" was created but did not appear in the local cache within 5s; version not snapshotted`,
-    );
+    throw new ImportError('NO_VERSION_AFTER_TIMEOUT', projectName, fileName);
   }
 
   await useSubjectVersionsStore.getState().loadForSubject(subjectId);

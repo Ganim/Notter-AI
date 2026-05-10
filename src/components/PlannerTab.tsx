@@ -117,7 +117,9 @@ export function PlannerTab() {
         toast.success(t('import_export.import_version_created', { subject: subjectName }));
       }
     } catch (e: any) {
-      if (e?.name === 'FrontmatterError') {
+      if (e?.name === 'ImportError' && e?.code === 'NO_VERSION_AFTER_TIMEOUT') {
+        toast.warning(t('import_export.import_subject_created_no_version'));
+      } else if (e?.name === 'FrontmatterError') {
         if (e.code === 'PARSE_ERROR') {
           toast.error(t('import_export.import_parse_error', { message: e.message }));
         } else {
@@ -142,11 +144,14 @@ export function PlannerTab() {
         toast.success(t('import_export.export_success', { path: result.path }));
       }
     } catch (e: any) {
-      const code = e?.message;
-      if (code === 'export_no_subject') toast.error(t('import_export.export_no_subject'));
-      else if (code === 'export_no_version') toast.error(t('import_export.export_no_version'));
-      else if (code === 'export_version_not_loaded') toast.error(t('import_export.export_version_not_loaded'));
-      else toast.error(t('import_export.export_failed', { message: e?.message ?? String(e) }));
+      if (e?.name === 'ExportError') {
+        if (e.code === 'NO_SUBJECT') toast.error(t('import_export.export_no_subject'));
+        else if (e.code === 'NO_VERSION') toast.error(t('import_export.export_no_version'));
+        else if (e.code === 'VERSION_NOT_LOADED') toast.error(t('import_export.export_version_not_loaded'));
+        else toast.error(t('import_export.export_failed', { message: e?.message ?? String(e) }));
+      } else {
+        toast.error(t('import_export.export_failed', { message: e?.message ?? String(e) }));
+      }
     } finally {
       setIsExporting(false);
     }

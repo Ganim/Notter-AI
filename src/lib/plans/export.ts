@@ -18,28 +18,43 @@ import { usePlannerStore } from '@/stores/planner-store';
 import { tryAccountScopedPath } from '@/lib/accounts/account-paths';
 import { stringifyPlanMarkdown, type ParsedFrontmatter } from '@/lib/plans/frontmatter';
 import { slugifyTitle } from '@/lib/plans/slug';
+import type { SubjectRecord, SubjectVersionRecord } from '@/lib/sync';
 
 export type ExportResult =
   | { cancelled: false; path: string }
   | { cancelled: true };
+
+export type ExportErrorCode =
+  | 'NO_SUBJECT'        // no subject is currently selected
+  | 'NO_VERSION'        // selected subject has no current version yet
+  | 'VERSION_NOT_LOADED'; // requested version isn't in the loaded slice
+
+export class ExportError extends Error {
+  readonly code: ExportErrorCode;
+  constructor(code: ExportErrorCode) {
+    super(code);
+    this.name = 'ExportError';
+    this.code = code;
+  }
+}
 
 export async function exportCurrentVersion(): Promise<ExportResult> {
   const versionsState = useSubjectVersionsStore.getState();
   const subjectRow = usePlannerStore.getState().selectedSubjectRow();
 
   if (!subjectRow) {
-    throw new Error('export_no_subject');
+    throw new ExportError('NO_SUBJECT');
   }
 
   // Resolve the version: preview > current > error
   const targetVersionId =
     versionsState.previewVersionId ?? subjectRow.currentVersionId ?? null;
   if (!targetVersionId) {
-    throw new Error('export_no_version');
+    throw new ExportError('NO_VERSION');
   }
   const target = versionsState.versions.find((v) => v.id === targetVersionId);
   if (!target) {
-    throw new Error('export_version_not_loaded');
+    throw new ExportError('VERSION_NOT_LOADED');
   }
 
   return exportVersionInternal(subjectRow, target);
@@ -48,15 +63,15 @@ export async function exportCurrentVersion(): Promise<ExportResult> {
 export async function exportVersionById(versionId: string): Promise<ExportResult> {
   const versionsState = useSubjectVersionsStore.getState();
   const subjectRow = usePlannerStore.getState().selectedSubjectRow();
-  if (!subjectRow) throw new Error('export_no_subject');
+  if (!subjectRow) throw new ExportError('NO_SUBJECT');
   const target = versionsState.versions.find((v) => v.id === versionId);
-  if (!target) throw new Error('export_version_not_loaded');
+  if (!target) throw new ExportError('VERSION_NOT_LOADED');
   return exportVersionInternal(subjectRow, target);
 }
 
 async function exportVersionInternal(
-  subjectRow: NonNullable<ReturnType<ReturnType<typeof usePlannerStore.getState>['selectedSubjectRow']>>,
-  target: ReturnType<typeof useSubjectVersionsStore.getState>['versions'][number],
+  subjectRow: SubjectRecord,
+  target: SubjectVersionRecord,
 ): Promise<ExportResult> {
   // Build the frontmatter
   const fileNameNoExt = subjectRow.fileName.replace(/\.md$/i, '');
