@@ -71,13 +71,13 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
       })));
       setNewName('');
       setNewIsDefault(false);
-      toast.success(t('workspaces.created', { defaultValue: 'Workspace created' }));
+      toast.success(t('workspaces.created'));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'duplicate_name') {
-        toast.error(t('workspaces.duplicate_name', { defaultValue: 'A workspace with this name already exists.' }));
+        toast.error(t('workspaces.duplicate_name'));
       } else {
-        toast.error(t('workspaces.create_failed', { defaultValue: 'Failed to create workspace.' }));
+        toast.error(t('workspaces.create_failed'));
         console.error(err);
       }
     } finally {
@@ -93,9 +93,9 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'duplicate_name') {
-        toast.error(t('workspaces.duplicate_name', { defaultValue: 'A workspace with this name already exists.' }));
+        toast.error(t('workspaces.duplicate_name'));
       } else {
-        toast.error(t('workspaces.rename_failed', { defaultValue: 'Failed to rename workspace.' }));
+        toast.error(t('workspaces.rename_failed'));
       }
     } finally {
       setBusyId(null);
@@ -108,7 +108,7 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
     try {
       await getWorkspaceManager().setDefault(id);
     } catch {
-      toast.error(t('workspaces.set_default_failed', { defaultValue: 'Failed to set default.' }));
+      toast.error(t('workspaces.set_default_failed'));
     } finally {
       setBusyId(null);
     }
@@ -125,9 +125,9 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
     }
     if (cached) {
       await navigator.clipboard.writeText(cached);
-      toast.success(t('workspaces.copied', { defaultValue: 'MCP config copied' }));
+      toast.success(t('workspaces.copied'));
     } else {
-      toast.error(t('workspaces.mcp_unavailable', { defaultValue: 'MCP server not running yet — try again in a moment.' }));
+      toast.error(t('workspaces.mcp_unavailable'));
     }
   };
 
@@ -136,13 +136,13 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t('workspaces.manage_title', { defaultValue: 'Manage workspaces' })}</DialogTitle>
+            <DialogTitle>{t('workspaces.manage_title')}</DialogTitle>
           </DialogHeader>
 
           {/* Section 1: list */}
           <div className="space-y-1 mt-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-              {t('workspaces.current_section', { defaultValue: 'Current workspaces' })}
+              {t('workspaces.current_section')}
             </p>
             {workspaces.map((ws) => {
               const isOnlyOne = workspaces.length === 1;
@@ -172,7 +172,7 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
                   )}
                   {ws.isDefault && (
                     <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                      {t('workspaces.default_badge', { defaultValue: 'Default' })}
+                      {t('workspaces.default_badge')}
                     </span>
                   )}
                   {!ws.isDefault && (
@@ -181,14 +181,14 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
                       disabled={busyId === ws.id}
                       className="text-xs text-muted-foreground hover:text-foreground"
                     >
-                      {busyId === ws.id ? <Loader2 size={12} className="animate-spin" /> : t('workspaces.set_default', { defaultValue: 'Set as default' })}
+                      {busyId === ws.id ? <Loader2 size={12} className="animate-spin" /> : t('workspaces.set_default')}
                     </button>
                   )}
                   <button
                     onClick={() => setDeleteTarget(ws.id)}
                     disabled={!canDelete}
                     className="p-1 rounded hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={!canDelete ? t('workspaces.cannot_delete_default', { defaultValue: 'Cannot delete the default or the last workspace.' }) : t('workspaces.delete', { defaultValue: 'Delete' })}
+                    title={!canDelete ? t('workspaces.cannot_delete_default') : t('workspaces.delete')}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -200,20 +200,20 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
           {/* Section 2: create */}
           <div className="border-t pt-3 mt-3 space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t('workspaces.create_section', { defaultValue: 'Create workspace' })}
+              {t('workspaces.create_section')}
             </p>
             <div className="flex items-center gap-2">
               <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder={t('workspaces.create_placeholder', { defaultValue: 'Name…' })}
+                placeholder={t('workspaces.create_placeholder')}
                 className="h-8 text-sm flex-1"
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
                 autoFocus={initialMode === 'create'}
               />
               <Label className="flex items-center gap-1 text-xs">
                 <Switch checked={newIsDefault} onCheckedChange={setNewIsDefault} />
-                {t('workspaces.set_default', { defaultValue: 'Set as default' })}
+                {t('workspaces.set_default')}
               </Label>
               <Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim()}>
                 {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
@@ -228,8 +228,8 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
               className="text-xs uppercase tracking-wide text-muted-foreground hover:text-foreground"
             >
               {mcpExpanded
-                ? t('workspaces.mcp_hide', { defaultValue: '▾ Hide MCP configs' })
-                : t('workspaces.mcp_show', { defaultValue: '▸ Show MCP configs' })}
+                ? t('workspaces.mcp_hide')
+                : t('workspaces.mcp_show')}
             </button>
             {mcpExpanded && (
               <div className="mt-2 space-y-1">
@@ -238,7 +238,7 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
                     <span className="truncate">{ws.name}</span>
                     <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={() => handleCopyConfig(ws.id)}>
                       <Copy size={11} />
-                      {t('workspaces.copy_config', { defaultValue: 'Copy MCP config' })}
+                      {t('workspaces.copy_config')}
                     </Button>
                   </div>
                 ))}

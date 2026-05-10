@@ -59,33 +59,27 @@ export function WorkspaceDeleteDialog({ open, workspaceId, onOpenChange }: Props
     try {
       if (mode === 'move') {
         if (!moveTarget) {
-          toast.error(t('workspaces.pick_move_target', { defaultValue: 'Pick a target workspace.' }));
+          toast.error(t('workspaces.pick_move_target'));
           setBusy(false);
           return;
         }
         await getWorkspaceManager().remove(workspaceId, { moveTargetWorkspaceId: moveTarget });
-        toast.success(t('workspaces.deleted_moved', {
-          defaultValue: 'Workspace deleted; projects moved.',
-        }));
+        toast.success(t('workspaces.deleted_moved'));
       } else {
         // Purge: delete every project under the workspace first, then remove.
         for (const p of projectsInTarget) {
           await usePlannerStore.getState().deleteProject(p.name);
         }
         await getWorkspaceManager().remove(workspaceId, { purge: true });
-        toast.success(t('workspaces.deleted_purged', {
-          defaultValue: 'Workspace and its projects deleted.',
-        }));
+        toast.success(t('workspaces.deleted_purged'));
       }
       onOpenChange(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'has_projects') {
-        toast.error(t('workspaces.delete_has_projects', {
-          defaultValue: 'Some projects could not be moved — workspace not deleted. See logs.',
-        }));
+        toast.error(t('workspaces.delete_has_projects'));
       } else {
-        toast.error(t('workspaces.delete_failed', { defaultValue: 'Failed to delete workspace.' }));
+        toast.error(t('workspaces.delete_failed'));
       }
       console.error('[WorkspaceDeleteDialog] failed:', err);
     } finally {
@@ -98,12 +92,11 @@ export function WorkspaceDeleteDialog({ open, workspaceId, onOpenChange }: Props
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {t('workspaces.delete_title', { defaultValue: 'Delete workspace "{{name}}"?', name: target.name })}
+            {t('workspaces.delete_title', { name: target.name })}
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           {t('workspaces.delete_desc', {
-            defaultValue: 'This workspace has {{count}} project(s). What should happen to them?',
             count: projectsInTarget.length,
           })}
         </p>
@@ -118,7 +111,7 @@ export function WorkspaceDeleteDialog({ open, workspaceId, onOpenChange }: Props
             />
             <div className="flex-1">
               <div className="text-sm font-medium">
-                {t('workspaces.delete_move_label', { defaultValue: 'Move all projects to' })}
+                {t('workspaces.delete_move_label')}
               </div>
               {mode === 'move' && (
                 <select
@@ -143,11 +136,10 @@ export function WorkspaceDeleteDialog({ open, workspaceId, onOpenChange }: Props
             />
             <div className="flex-1">
               <div className="text-sm font-medium text-destructive">
-                {t('workspaces.delete_purge_label', { defaultValue: 'Delete projects too' })}
+                {t('workspaces.delete_purge_label')}
               </div>
               <div className="text-xs text-muted-foreground">
                 {t('workspaces.delete_purge_warning', {
-                  defaultValue: 'This permanently deletes {{count}} project(s) and every subject, version, and comment under them. This cannot be undone.',
                   count: projectsInTarget.length,
                 })}
               </div>
@@ -163,7 +155,7 @@ export function WorkspaceDeleteDialog({ open, workspaceId, onOpenChange }: Props
             onClick={handleConfirm}
             disabled={mode === null || busy}
           >
-            {busy ? t('workspaces.deleting', { defaultValue: 'Deleting…' }) : t('workspaces.confirm_delete', { defaultValue: 'Delete' })}
+            {busy ? t('workspaces.deleting') : t('workspaces.confirm_delete')}
           </Button>
         </div>
       </DialogContent>

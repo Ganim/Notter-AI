@@ -3481,3 +3481,33 @@ Documented from spec §11 + plan-author review:
 - **No `uuid` package introduced.** `crypto.randomUUID()` is used in `workspace-manager.ts` and `fs-migration-v2.ts` (the sentinel JSON doesn't need UUIDs; the manager generates one for each new workspace).
 - **Single source of truth per workspace.** Bearer lives ONLY in the Tauri secure store. The in-memory Rust map is rebuilt on every boot from the front-end's `notifyMcpWorkspaceAdded` calls during `WorkspaceManager.bootstrap()`. The per-workspace config file is a synthesis written by the Rust side; it is not authoritative.
 - **No backcompat shim for the M3 `<accountId>-config.json`.** Locked decision (§2b row 1). The Phase H writer deletes any orphan files matching `<id>-config.json` (single dash, no workspace component). Clean break.
+
+---
+
+## Smoke test checklist (Phase N)
+
+Run after Phase M lands, before the Phase N final-verification commit. Every step below must pass in a fresh `npm run tauri dev` session against a real Supabase project. File any defect as a separate commit (or follow-up issue) and re-run from the top. The pre-existing Task M2 checklist above remains the canonical end-to-end pass; this section is the condensed operator checklist suitable for the final Phase N gate.
+
+- [ ] **Boot.** Restart `npm run tauri dev`. After sign-in, verify the default workspace appears in the header `WorkspaceSwitcher`. No console errors. The dropdown opens cleanly and shows the single default row with the `Default` badge.
+
+- [ ] **Create.** Open Manage dialog → "Create workspace" → type `Work` → Enter. Verify (a) toast `Workspace created`, (b) the new workspace appears in both the manager list and the header switcher dropdown.
+
+- [ ] **Switch.** From the header switcher, switch between the default workspace and `Work`. Verify the planner project list filters correctly: default shows all migrated projects, `Work` is empty initially. Switching back restores the default list. No flicker.
+
+- [ ] **Create project in Work.** With `Work` active, create a new project (e.g., `work-proj-1`). Verify the project appears in the sidebar under `Work` only. Sanity-check the Supabase `projects` row: `workspace_id` equals the `Work` workspace id.
+
+- [ ] **Move project.** With the default workspace active, hover a project row → click the kebab → `Move to workspace ▸ Work`. Verify (a) toast `Moved {project} to Work` with an `Undo` action, (b) the project disappears from the default sidebar and appears in the `Work` sidebar after switching. Click `Undo` on the toast → the project returns to the default workspace.
+
+- [ ] **Rename.** In Manage dialog, click the `Work` name → rename to `Trabalho` → Enter. Verify the row updates everywhere (manager, header dropdown). Then try renaming `Trabalho` to the default workspace's exact name → verify the `A workspace with this name already exists.` toast fires and the row does not change.
+
+- [ ] **Set as default.** In Manage dialog, click `Set as default` next to `Trabalho`. Verify the `Default` badge moves from the original default row to `Trabalho`. Sign out + sign in to confirm `currentWorkspaceId` re-seeds from `Trabalho`.
+
+- [ ] **Delete — move path.** In Manage dialog, click the trash icon next to the now-non-default original workspace. In the sub-modal, pick `Move all projects to ▸ Trabalho` → Delete. Verify the projects appear under `Trabalho` after the dialog closes, and the original workspace is gone from the list.
+
+- [ ] **Delete — purge path.** Create a throwaway workspace `Burn` → create one project in it (with a subject + version, if quick). In Manage dialog, click the trash icon on `Burn` → choose `Delete projects too` → confirm. Verify the workspace, project, subject, version, and any comments are gone from Supabase (SQL: `select count(*) from projects where workspace_id = '<burn id>'` returns 0; same for `subjects`).
+
+- [ ] **MCP token isolation.** In Manage dialog → `Show MCP configs` → `Copy MCP config` for `Trabalho`. Run the curl from Task M2 step 8 with the copied bearer; verify the `list_subjects` response contains only subjects from projects under `Trabalho`. Repeat with the other workspace's bearer — the subject lists must not overlap.
+
+- [ ] **Account switch.** Add a second Supabase account → switch to it → verify the `WorkspaceSwitcher` shows only that account's workspaces (auto-created default if first sign-in). Switch back to the original account → the original account's workspace list returns. No cross-account leakage.
+
+If every checkbox above is green, commit the empty-marker `chore(workspaces): manual smoke checklist complete` per Task M2, then proceed to Phase N's `npm run test` + `npm run build` + `cargo check` gate.

@@ -49,14 +49,13 @@ export function MoveProjectToWorkspaceMenu({ projectName, iconSize = 14 }: Props
       await usePlannerStore.getState().moveProjectToWorkspace(projectName, targetWsId);
       toast.success(
         t('workspaces.moved_toast', {
-          defaultValue: 'Moved {{project}} to {{ws}}',
           project: projectName,
           ws: targetName,
         }),
         {
           action: prevWsId
             ? {
-                label: t('workspaces.move_undo', { defaultValue: 'Undo' }),
+                label: t('workspaces.move_undo'),
                 onClick: () => {
                   void usePlannerStore.getState().moveProjectToWorkspace(projectName, prevWsId);
                 },
@@ -65,7 +64,7 @@ export function MoveProjectToWorkspaceMenu({ projectName, iconSize = 14 }: Props
         },
       );
     } catch (err) {
-      toast.error(t('workspaces.move_failed', { defaultValue: 'Failed to move project.' }));
+      toast.error(t('workspaces.move_failed'));
       console.error('[MoveProjectToWorkspaceMenu] move failed', err);
     }
   };
@@ -79,7 +78,7 @@ export function MoveProjectToWorkspaceMenu({ projectName, iconSize = 14 }: Props
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(!open); setSubmenuOpen(false); }}
         className="text-muted-foreground hover:text-foreground p-0.5 rounded-sm hover:bg-muted transition-colors"
-        title={t('workspaces.move_tooltip', { defaultValue: 'Move project to workspace' })}
+        title={t('workspaces.move_tooltip')}
       >
         <MoreVertical size={iconSize} />
       </button>
@@ -94,7 +93,7 @@ export function MoveProjectToWorkspaceMenu({ projectName, iconSize = 14 }: Props
           >
             <FolderInput size={12} />
             <span className="truncate">
-              {t('workspaces.move_to', { defaultValue: 'Move to workspace…' })}
+              {t('workspaces.move_to')}
             </span>
           </button>
           {submenuOpen && (
@@ -109,7 +108,7 @@ export function MoveProjectToWorkspaceMenu({ projectName, iconSize = 14 }: Props
                   {w.name}
                   {w.isDefault ? (
                     <span className="ml-1 text-[10px] text-muted-foreground">
-                      · {t('workspaces.default_badge', { defaultValue: 'Default' })}
+                      · {t('workspaces.default_badge')}
                     </span>
                   ) : null}
                 </button>

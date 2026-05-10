@@ -50,9 +50,7 @@ export function WorkspaceSwitcher() {
       useWorkspacesStore.getState().setCurrentWorkspaceId(id);
       setOpen(false);
     } catch (err: unknown) {
-      toast.error(
-        t('workspaces.switch_failed', { defaultValue: 'Failed to switch workspace' }),
-      );
+      toast.error(t('workspaces.switch_failed'));
       console.error('[WorkspaceSwitcher] switch failed:', err);
     }
   };
@@ -69,8 +67,8 @@ export function WorkspaceSwitcher() {
         <button
           onClick={() => setOpen(!open)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title={t('workspaces.switch_tooltip', { defaultValue: 'Switch workspace' })}
-          aria-label={t('workspaces.switcher_label', { defaultValue: 'Switch workspace' })}
+          title={t('workspaces.switch_tooltip')}
+          aria-label={t('workspaces.switcher_label')}
         >
           <span className="max-w-[140px] truncate">{current.name}</span>
           <ChevronDown size={14} />
@@ -81,9 +79,7 @@ export function WorkspaceSwitcher() {
             <div className="py-1">
               {workspaces.length === 1 && (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
-                  {t('workspaces.only_one', {
-                    defaultValue: 'Only one workspace — add another to switch.',
-                  })}
+                  {t('workspaces.only_one')}
                 </div>
               )}
               {workspaces.map((ws) => {
@@ -106,7 +102,7 @@ export function WorkspaceSwitcher() {
                     </span>
                     {ws.isDefault && (
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        {t('workspaces.default_badge', { defaultValue: 'Default' })}
+                        {t('workspaces.default_badge')}
                       </span>
                     )}
                   </button>
@@ -118,14 +114,14 @@ export function WorkspaceSwitcher() {
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted"
               >
                 <Plus size={12} />
-                {t('workspaces.add', { defaultValue: 'Add workspace' })}
+                {t('workspaces.add')}
               </button>
               <button
                 onClick={() => openManager('manage')}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted"
               >
                 <Settings size={12} />
-                {t('workspaces.manage', { defaultValue: 'Manage workspaces' })}
+                {t('workspaces.manage')}
               </button>
             </div>
           </div>
