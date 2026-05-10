@@ -3,6 +3,40 @@ import { upsertUserRows } from '@/lib/synced-store';
 import type { AgentProfile, Project, BoardTask } from '@/types';
 import type { Action } from '@/types/actions';
 
+export interface PlanRecord {
+  id: string;
+  userId: string;
+  title: string;
+  workingContent: string;
+  currentSnapshotId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanVersionRecord {
+  id: string;
+  planId: string;
+  userId: string;
+  contentMarkdown: string;
+  parentVersionId: string | null;
+  source: 'user' | 'ai' | 'import';
+  sourceActor: string | null;
+  label: string | null;
+  createdAt: string;
+}
+
+export interface PlanCommentRecord {
+  id: string;
+  planId: string;
+  versionId: string;
+  userId: string;
+  authorUserId: string;
+  body: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserPreferences {
   darkMode: boolean;
   language: string;
