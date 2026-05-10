@@ -506,7 +506,7 @@ vi.mock('@/lib/supabase', () => {
   const upsert = vi.fn().mockResolvedValue({ error: null });
   const insert = vi.fn(() => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'v1' }, error: null }) }) }));
   const del = vi.fn(() => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }));
-  const from = vi.fn((table: string) => ({
+  const from = vi.fn((_table: string) => ({
     upsert,
     insert,
     delete: del,
@@ -966,6 +966,7 @@ export const usePlanStore = create<PlanState>((set, get) => {
         authorUserId: userId,
         body: body.trim(),
         resolved: false,
+        updatedAt: now,
       });
     },
 
@@ -990,6 +991,7 @@ export const usePlanStore = create<PlanState>((set, get) => {
         authorUserId: updated.authorUserId,
         body: updated.body,
         resolved: updated.resolved,
+        updatedAt: updated.updatedAt,
       });
     },
 
