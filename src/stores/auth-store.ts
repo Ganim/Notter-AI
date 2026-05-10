@@ -17,11 +17,8 @@ import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
-import { usePlanStore } from '@/stores/plan-store';
-import { migrateSubjectsToPlans } from '@/lib/plans/migration';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import { resetAllStores } from '@/lib/accounts/store-registry';
-import { toast } from 'sonner';
 
 interface AuthState {
   user: User | null;
@@ -90,27 +87,6 @@ async function syncOnLogin(userId: string) {
       const localActions = useActionsStore.getState().actions;
       if (localActions.length > 0) await pushActions(userId, localActions);
     }
-
-    // Subjects → plans one-shot migration. Must run AFTER the session is
-    // established (we are inside syncOnLogin, which only runs after
-    // setSession resolves) — running this from App.tsx before initialize()
-    // would query Supabase without auth and silently no-op under RLS.
-    // The function is idempotent (sentinel-gated), so re-runs are safe.
-    try {
-      const planMigration = await migrateSubjectsToPlans(userId);
-      if (!planMigration.skipped && planMigration.failed.length > 0) {
-        toast.warning(
-          `Plans migration: ${planMigration.migrated} migrated, ${planMigration.failed.length} failed. See logs.`,
-          { duration: 10_000 },
-        );
-        console.warn('[auth] plans migration failures:', planMigration.failed);
-      }
-    } catch (e) {
-      console.error('[auth] plans migration threw:', e);
-    }
-
-    // Plans (load from Supabase + populate local cache)
-    await usePlanStore.getState().load(userId);
   } catch (e) {
     console.error('Sync on login failed:', e);
   }

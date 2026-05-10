@@ -2,13 +2,12 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
 
-type Tab = 'plans' | 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
+type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
 const isDev = import.meta.env.DEV;
 
 const TABS: { key: Tab; labelKey: string }[] = isDev
   ? [
-      { key: 'plans', labelKey: 'nav.plans' },
       { key: 'planner', labelKey: 'nav.planner' },
       { key: 'board', labelKey: 'nav.board' },
       { key: 'agents', labelKey: 'nav.agents' },
@@ -16,7 +15,6 @@ const TABS: { key: Tab; labelKey: string }[] = isDev
       { key: 'terminals', labelKey: 'nav.terminals' },
     ]
   : [
-      { key: 'plans', labelKey: 'nav.plans' },
       { key: 'planner', labelKey: 'nav.planner' },
       { key: 'terminals', labelKey: 'nav.terminals' },
     ];
