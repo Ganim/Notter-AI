@@ -341,3 +341,70 @@ export async function fetchPlans(userId: string): Promise<PlanRecord[] | null> {
     return null;
   }
 }
+
+// ── Plan Versions ─────────────────────────────────────────────────────
+
+export async function fetchPlanVersions(
+  planId: string,
+): Promise<PlanVersionRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('plan_versions')
+      .select('*')
+      .eq('plan_id', planId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[sync] fetchPlanVersions failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      planId: row.plan_id,
+      userId: row.user_id,
+      contentMarkdown: row.content_markdown,
+      parentVersionId: row.parent_version_id ?? null,
+      source: row.source as 'user' | 'ai' | 'import',
+      sourceActor: row.source_actor ?? null,
+      label: row.label ?? null,
+      createdAt: row.created_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchPlanVersions threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Insert a single plan_version row. Uses a direct Supabase insert (not
+ * upsertUserRows) because plan_versions are append-only — never updated.
+ * The trigger set_user_id_on_plan_versions fills user_id server-side.
+ */
+export async function pushPlanVersion(
+  version: Omit<PlanVersionRecord, 'userId' | 'createdAt'>,
+): Promise<{ id: string } | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('plan_versions')
+      .insert({
+        id: version.id,
+        plan_id: version.planId,
+        content_markdown: version.contentMarkdown,
+        parent_version_id: version.parentVersionId ?? null,
+        source: version.source,
+        source_actor: version.sourceActor ?? null,
+        label: version.label ?? null,
+      })
+      .select('id')
+      .single();
+    if (error || !data) {
+      console.error('[sync] pushPlanVersion failed:', error);
+      return null;
+    }
+    return { id: data.id };
+  } catch (e) {
+    console.error('[sync] pushPlanVersion threw:', e);
+    return null;
+  }
+}
