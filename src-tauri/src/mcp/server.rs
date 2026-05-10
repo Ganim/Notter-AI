@@ -15,7 +15,6 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use serde_json::Value as JsonValue;
 use tauri::{AppHandle, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -25,6 +24,8 @@ use crate::mcp::endpoint::{
     delete_endpoint_file, generate_nonce, is_existing_endpoint_alive, now_rfc3339,
     read_endpoint_file, write_endpoint_file, EndpointFile,
 };
+use crate::mcp::tools::dispatch;
+use crate::mcp::types::JsonRpcResponse;
 
 #[derive(Clone)]
 pub struct McpStateInner {
@@ -108,11 +109,11 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
 
     eprintln!("[mcp] listening on {url}");
 
-    // 6. Build the axum router. /mcp is bearer-auth-guarded (Phase E placeholder;
-    //    Phase F replaces with the real JSON-RPC dispatcher). /health stays
+    // 6. Build the axum router. /mcp is bearer-auth-guarded and routes the
+    //    JSON-RPC envelope to the tool dispatcher. /health stays
     //    unauthenticated — it has its own nonce check.
     let app_router = Router::new()
-        .route("/mcp", post(mcp_placeholder))
+        .route("/mcp", post(mcp_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), bearer_auth))
         .route("/health", get(health))
         .with_state(state.clone());
@@ -181,20 +182,38 @@ pub fn fresh_nonce() -> String {
     generate_nonce()
 }
 
-/// Phase E placeholder — echoes the request back so the wiring (axum router,
-/// bearer-auth middleware, AuthContext extension) is end-to-end testable.
-/// Phase F replaces this with the real JSON-RPC dispatcher.
-async fn mcp_placeholder(
+/// JSON-RPC 2.0 entry point. Decodes the envelope, validates the protocol
+/// version, then routes by method name to `tools::dispatch`. All errors are
+/// returned as JSON-RPC error responses (HTTP 200 + `error` payload), per
+/// the JSON-RPC 2.0 spec.
+async fn mcp_handler(
+    AxumState(state): AxumState<McpState>,
     Extension(auth): Extension<AuthContext>,
-    Json(body): Json<JsonValue>,
-) -> Json<JsonValue> {
-    Json(serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": body.get("id").cloned().unwrap_or(JsonValue::Null),
-        "result": {
-            "echo": body,
-            "account_id": auth.account_id,
-            "note": "phase E placeholder — full dispatch lands in Phase F",
+    Json(body): Json<serde_json::Value>,
+) -> Json<JsonRpcResponse> {
+    // Decode envelope.
+    let req: crate::mcp::types::JsonRpcRequest = match serde_json::from_value(body.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(JsonRpcResponse::err(
+                body.get("id").cloned(),
+                -32600,
+                format!("invalid_request: {e}"),
+            ));
         }
-    }))
+    };
+
+    if req.jsonrpc != "2.0" {
+        return Json(JsonRpcResponse::err(
+            req.id,
+            -32600,
+            "invalid_request: jsonrpc must be '2.0'".into(),
+        ));
+    }
+
+    let id = req.id.clone();
+    match dispatch(&req.method, &req.params, &auth, &state).await {
+        Ok(result) => Json(JsonRpcResponse::ok(id, result)),
+        Err(e) => Json(JsonRpcResponse::err(id, e.code(), e.message())),
+    }
 }
