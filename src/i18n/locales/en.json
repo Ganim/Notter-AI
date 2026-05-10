@@ -7,18 +7,9 @@
     "terminals": "Terminals"
   },
   "plans": {
-    "new_plan": "New plan",
-    "delete_plan": "Delete",
-    "delete_confirm": "Delete this plan and all its versions?",
-    "untitled": "Untitled plan",
-    "snapshot_now": "Snapshot now",
-    "snapshot_label_placeholder": "Snapshot label (optional)",
-    "no_plans": "No plans yet — create one above",
     "comment_placeholder": "Add a comment...",
     "resolve": "Mark resolved",
     "unresolve": "Mark unresolved",
-    "migrated_banner": "Your notes have been migrated to the Plans tab.",
-    "migrated_link": "Go to Plans",
     "source_user": "user",
     "source_ai": "ai",
     "source_import": "import",

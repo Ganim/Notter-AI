@@ -1,5 +1,34 @@
 # M2 — Plan Model + UI Implementation Plan
 
+> ## Retrospective (2026-05-10) — superseded mid-execution
+>
+> This plan was executed but the user clarified the UX intent partway through:
+> subjects ARE the plans (1:1), versions+comments anchor to subjects via a new
+> `subjects.id uuid` column, the legacy Planner tab stays as the canonical UI
+> with a collapsible right-side panel for versions+comments, and there is no
+> separate "Plans" navigation tab.
+>
+> Schema delivered:
+> - `2026-05-09-plan-model.sql` — created `plans` / `plan_versions` / `plan_comments`. **Superseded.**
+> - `2026-05-10-subject-versioning.sql` — drops the above, adds `subjects.id`, creates
+>   `subject_versions` / `subject_comments` keyed by subject. **Live.**
+>
+> Code delivered (after redirect):
+> - `src/stores/subject-versions-store.ts` (replaces `plan-store.ts` which was deleted)
+> - `src/components/plans/SnapshotPanel.tsx` + `CommentsPanel.tsx` — refactored to
+>   consume the new store; click-to-preview UX, no manual snapshot button.
+> - `src/components/PlannerTab.tsx` — collapsible right panel + preview-mode banner +
+>   AI auto-snapshot wraps on Process / Transform / OpenHistoryVersion / PlanWithAiButton.
+>
+> Key behavioural changes from the original plan:
+> - No `Plans` nav tab; no `PlansTab` component.
+> - No manual "Snapshot now" button; versions auto-created by AI hooks.
+> - Preview/adopt UX: click a version → banner → Adotar / Voltar.
+> - `subjects.current_version_id` column added; advances on adopt.
+>
+> The body of this document below is preserved as historical context. Do NOT use it as
+> a current spec — for the actual shipped design read commits e1852ff, 6b11b50, 33bd815, d896cae.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land M2 of the Phase 1 pivot — Notter-AI gains a first-class plan document model: a Supabase schema (`plans`, `plan_versions`, `plan_comments`), a `PlanStore` (Zustand) built on the M1 `SyncedStore` primitives, four new UI components (`PlanList`, `PlanEditor`, `SnapshotPanel`, `CommentsPanel`), a one-shot subjects→plans data migration, and deletion of the now-dead `planning-pipeline` code. M1 must be fully merged to `main` before M2 begins — the `SyncedStore` primitives (`upsertUserRows`, `subscribeUserTable`, `makeDebouncedSync`, `runOnce`) and per-account fs scoping (`accountScopedPath`, `registerResettableStore`) are M2's direct foundation.

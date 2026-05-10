@@ -7,18 +7,9 @@
     "terminals": "Terminais"
   },
   "plans": {
-    "new_plan": "Novo plano",
-    "delete_plan": "Excluir",
-    "delete_confirm": "Excluir este plano e todas as suas versões?",
-    "untitled": "Plano sem título",
-    "snapshot_now": "Salvar versão",
-    "snapshot_label_placeholder": "Nome da versão (opcional)",
-    "no_plans": "Nenhum plano ainda — crie um acima",
     "comment_placeholder": "Adicionar comentário...",
     "resolve": "Marcar como resolvido",
     "unresolve": "Reabrir",
-    "migrated_banner": "Suas notas foram migradas para a aba Planos.",
-    "migrated_link": "Ir para Planos",
     "source_user": "usuário",
     "source_ai": "ia",
     "source_import": "importação",
