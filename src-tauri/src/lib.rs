@@ -10,7 +10,7 @@ use std::thread;
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 // --- Event payloads ---
 
@@ -280,6 +280,18 @@ pub fn run() {
             known_keys: std::sync::Mutex::new(Vec::new()),
         })
         .manage(mcp_state.clone())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let state: mcp::McpState = handle.state::<mcp::McpState>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = mcp::start_mcp_server(&handle, state).await {
+                    eprintln!("[mcp] server failed to start: {e}");
+                    // The app keeps running; the UI surfaces the disabled state via
+                    // the absence of endpoint.json (Phase J detects this).
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             create_pty,
             write_pty,
