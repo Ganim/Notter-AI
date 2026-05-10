@@ -32,10 +32,21 @@ pub async fn dispatch(
 
 // ── stubs (filled in Phase G + H) ────────────────────────────────────────
 
-async fn list_subjects(_p: &Value, _a: &AuthContext, _s: &McpState) -> Result<Value, McpError> {
-    Err(McpError::InternalError(
-        "list_subjects: not yet implemented (Phase G)".into(),
-    ))
+async fn list_subjects(
+    _params: &Value,
+    auth: &AuthContext,
+    state: &McpState,
+) -> Result<Value, McpError> {
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    // RLS scopes by user_id automatically.
+    let body = sb
+        .get(
+            "subjects",
+            "select=id,project_name,file_name,current_version_id,updated_at&order=updated_at.desc",
+            &token,
+        )
+        .await?;
+    Ok(body)
 }
 async fn get_subject(_p: &Value, _a: &AuthContext, _s: &McpState) -> Result<Value, McpError> {
     Err(McpError::InternalError(
