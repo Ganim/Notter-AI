@@ -5,8 +5,8 @@
 **Goal:** Land M2 of the Phase 1 pivot — Notter-AI gains a first-class plan document model: a Supabase schema (`plans`, `plan_versions`, `plan_comments`), a `PlanStore` (Zustand) built on the M1 `SyncedStore` primitives, four new UI components (`PlanList`, `PlanEditor`, `SnapshotPanel`, `CommentsPanel`), a one-shot subjects→plans data migration, and deletion of the now-dead `planning-pipeline` code. M1 must be fully merged to `main` before M2 begins — the `SyncedStore` primitives (`upsertUserRows`, `subscribeUserTable`, `makeDebouncedSync`, `runOnce`) and per-account fs scoping (`accountScopedPath`, `registerResettableStore`) are M2's direct foundation.
 
 **Architecture:** Bottom-up, same as M1:
-1. **Schema + sync layer** — Supabase migration (`plans`, `plan_versions`, `plan_comments` tables with RLS + `set_plan_owner_id` trigger); `fetchPlans`/`pushPlans`, `fetchPlanVersions`/`pushPlanVersion`, `fetchPlanComments`/`pushPlanComment` functions added to `src/lib/sync.ts`; `plans`, `plan_versions`, `plan_comments` wired into `realtime.ts` via `subscribeUserTable`.
-2. **`PlanStore`** — Zustand store at `src/stores/plan-store.ts`. Slices: `plans[]`, `currentPlanId`, `workingDraft`, `snapshots[]`, `comments[]`. Built on `makeDebouncedSync` (1s debounce for `working_content`), `upsertUserRows` for inserts, `registerResettableStore` for account-switch resets, and `accountScopedPath` for the local cache file.
+1. **Schema + sync layer** — Supabase migration (`plans`, `plan_versions`, `plan_comments` tables with RLS + `set_plan_owner_id` trigger); `fetchPlans`, `fetchPlanVersions`/`pushPlanVersion`, `fetchPlanComments`/`pushPlanComment`/`deletePlanComment` functions added to `src/lib/sync.ts` (no `pushPlans` — `plans` writes go through direct supabase calls in the store); `plans`, `plan_versions`, `plan_comments` wired into `realtime.ts` via `subscribeUserTable`.
+2. **`PlanStore`** — Zustand store at `src/stores/plan-store.ts`. Slices: `plans[]`, `currentPlanId`, `workingDraft`, `snapshots[]`, `comments[]`. Built on `makeDebouncedSync` (1s debounce for `working_content`), `registerResettableStore` for account-switch resets, and `tryAccountScopedPath` for the local cache file (no-throw on missing active account).
 3. **UI components** — `PlanList`, `PlanEditor` (Monaco), `SnapshotPanel`, `CommentsPanel` in `src/components/plans/`; assembled into a new `PlansTab` wired into `App.tsx` alongside the existing `PlannerTab` (which becomes read-only with a migration banner).
 4. **One-shot migration** — on first M2 launch per account, each `subjects` row becomes a `plan` row. Sentinel file prevents double-run. Legacy `PlannerTab` shows a banner.
 5. **Deletion** — `src/lib/planning/` and `src/components/planning/` deleted; `src/lib/llm/*` workers audited and retirable exports removed.
@@ -29,6 +29,7 @@
 - `src/components/plans/PlanEditor.tsx` — Monaco markdown editor for working draft; 1s debounced upsert; "Snapshot" button.
 - `src/components/plans/SnapshotPanel.tsx` — sidebar list of `plan_versions` for current plan; shows source + label + timestamp; "Snapshot now" button.
 - `src/components/plans/CommentsPanel.tsx` — version-scoped comments; create/delete; resolve toggle.
+- `src/lib/plans/format.ts` — small `formatRelativeTime(iso)` helper used by `SnapshotPanel` and `CommentsPanel`. Avoids pulling in `date-fns` for one cosmetic feature.
 - `src/components/PlansTab.tsx` — top-level tab component; assembles `PlanList` + `PlanEditor` + `SnapshotPanel` + `CommentsPanel`.
 - `src/lib/plans/migration.ts` — one-shot subjects→plans migration; sentinel file `notter-ai/<accountId>/.migration-m2-plans-complete`.
 - `src/lib/plans/__tests__/migration.test.ts`
@@ -36,9 +37,11 @@
 
 ### Modified files
 
-- `src/lib/sync.ts` — add `fetchPlans`, `pushPlans`, `fetchPlanVersions`, `pushPlanVersion`, `fetchPlanComments`, `pushPlanComment`. No existing functions removed.
+- `src/lib/sync.ts` — add `fetchPlans`, `fetchPlanVersions`, `pushPlanVersion`, `fetchPlanComments`, `pushPlanComment`, `deletePlanComment`. No existing functions removed. Fetchers return `[]` (not `null`) when the row set is legitimately empty so realtime DELETEs propagate; only an actual Supabase error returns `null`.
 - `src/lib/realtime.ts` — add `refetchPlans`, `refetchPlanVersions`, `refetchPlanComments` closures + three `subscribeUserTable` calls on the existing channel.
-- `src/stores/auth-store.ts` — add `fetchPlans` call to `syncOnLogin`; add `PlanStore` reset to the reset chain; add plans flush.
+- `src/stores/auth-store.ts` — add `fetchPlans` call to `syncOnLogin`; trigger `migrateSubjectsToPlans` from `syncOnLogin` (after the session is established — running it from `App.tsx` before `initialize()` would query Supabase without auth and silently no-op under RLS); plans flush is automatic via `registerResettableStore`.
+- `src/stores/app-store.ts` — extend the `Tab` union type to include `'plans'`.
+- `src/components/Layout.tsx` — extend the `Tab` union and add `{ key: 'plans', labelKey: 'nav.plans' }` to BOTH `TABS` arrays (dev + prod).
 - `src/App.tsx` — import `PlansTab` and `usePlanStore`; add `plans` key to the tab map; add `usePlanStore.getState().flush()` to the window-close handler.
 - `src/i18n/locales/en.json` — new keys: `nav.plans`, `plans.new_plan`, `plans.delete_plan`, `plans.delete_confirm`, `plans.untitled`, `plans.snapshot_now`, `plans.snapshot_label_placeholder`, `plans.no_plans`, `plans.comment_placeholder`, `plans.resolve`, `plans.unresolve`, `plans.migrated_banner`, `plans.migrated_link`, `plans.source_user`, `plans.source_ai`, `plans.source_import`.
 - `src/i18n/locales/pt-BR.json` — same keys translated.
@@ -91,7 +94,7 @@ This phase creates the three new tables with RLS and the `set_plan_owner_id` tri
 ### Task A1: Write and apply the migration SQL
 
 **Files:**
-- Create: `supabase/migrations/2026-05-09-plan-model.sql`
+- Create: `supabase/migrations/2026-05-09-plan-model.sql` (the `migrations/` subdir does not exist yet — the project currently keeps a single `supabase/schema.sql`. Creating this file establishes the migrations layout. Leave `schema.sql` untouched; it is the historical baseline.)
 
 - [ ] **Step 1: Create the migration file**
 
@@ -197,7 +200,11 @@ git commit -m "feat(schema): add plans, plan_versions, plan_comments tables with
 
 ## Phase B — `sync.ts` fetchers + pushers
 
-This phase adds six new functions to `src/lib/sync.ts` — two per table — following the exact same pattern as the existing `fetchBoardTasks`/`pushBoardTasks` pair. No existing code is changed.
+This phase adds five new functions to `src/lib/sync.ts` for the three new tables. No existing code is changed.
+
+Pattern divergence from M1 (intentional):
+- **No `pushPlans`** — `plans` rows are mutated in three places: `createPlan` (single insert), `renamePlan` (single update), `deletePlan` (single delete). Each runs a direct, narrow Supabase call from the store. The `upsertUserRows` helper would require adding a `UNIQUE (user_id, id)` to `plans` (its `onConflict: 'user_id,id'` needs that constraint), and there is no batch-upsert codepath that justifies it. Keep the schema simple.
+- **`fetchPlans`/`fetchPlanVersions`/`fetchPlanComments` return `[]` for legitimately empty result sets and `null` only on error.** This is critical for realtime DELETE propagation: `refetchPlans` must apply an empty array when the last plan is deleted in another window. Conflating "no rows" with "error" (the M1 fetch pattern) prevents that.
 
 ### Task B1: Define local types for the three plan tables
 
@@ -251,12 +258,12 @@ git add src/lib/sync.ts
 git commit -m "feat(sync): add PlanRecord, PlanVersionRecord, PlanCommentRecord types"
 ```
 
-### Task B2: Add `fetchPlans` and `pushPlans`
+### Task B2: Add `fetchPlans`
 
 **Files:**
 - Modify: `src/lib/sync.ts` (append below the existing `fetchActions`/`pushActions` block)
 
-- [ ] **Step 1: Add the functions**
+- [ ] **Step 1: Add the function**
 
 ```ts
 // src/lib/sync.ts — append at the bottom
@@ -271,8 +278,11 @@ export async function fetchPlans(userId: string): Promise<PlanRecord[] | null> {
       .select('*')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({
+    if (error) {
+      console.error('[sync] fetchPlans failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
       id: row.id,
       userId: row.user_id,
       title: row.title,
@@ -281,28 +291,20 @@ export async function fetchPlans(userId: string): Promise<PlanRecord[] | null> {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
-  } catch {
+  } catch (e) {
+    console.error('[sync] fetchPlans threw:', e);
     return null;
   }
 }
-
-export async function pushPlans(userId: string, plans: PlanRecord[]): Promise<void> {
-  await upsertUserRows('plans', userId, plans, (p) => ({
-    id: p.id,
-    user_id: userId,
-    title: p.title,
-    working_content: p.workingContent,
-    current_snapshot_id: p.currentSnapshotId ?? null,
-    updated_at: new Date().toISOString(),
-  }));
-}
 ```
+
+Note: no `pushPlans` is defined. Plan writes use direct Supabase calls from the store (see C2). See Phase B intro for rationale.
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add src/lib/sync.ts
-git commit -m "feat(sync): add fetchPlans / pushPlans"
+git commit -m "feat(sync): add fetchPlans"
 ```
 
 ### Task B3: Add `fetchPlanVersions` and `pushPlanVersion`
@@ -327,8 +329,11 @@ export async function fetchPlanVersions(
       .select('*')
       .eq('plan_id', planId)
       .order('created_at', { ascending: false });
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({
+    if (error) {
+      console.error('[sync] fetchPlanVersions failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
       id: row.id,
       planId: row.plan_id,
       userId: row.user_id,
@@ -339,7 +344,8 @@ export async function fetchPlanVersions(
       label: row.label ?? null,
       createdAt: row.created_at,
     }));
-  } catch {
+  } catch (e) {
+    console.error('[sync] fetchPlanVersions threw:', e);
     return null;
   }
 }
@@ -408,8 +414,11 @@ export async function fetchPlanComments(
       .select('*')
       .eq('plan_id', planId)
       .order('created_at', { ascending: true });
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({
+    if (error) {
+      console.error('[sync] fetchPlanComments failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
       id: row.id,
       planId: row.plan_id,
       versionId: row.version_id,
@@ -420,7 +429,8 @@ export async function fetchPlanComments(
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
-  } catch {
+  } catch (e) {
+    console.error('[sync] fetchPlanComments threw:', e);
     return null;
   }
 }
@@ -476,7 +486,7 @@ git commit -m "feat(sync): add fetchPlanComments / pushPlanComment / deletePlanC
 
 ## Phase C — `PlanStore` (Zustand) + tests
 
-This phase introduces the central Zustand store for plans. It is built on the M1 primitives: `makeDebouncedSync` (1s debounce on `working_content`), `upsertUserRows` (for plan upserts), `registerResettableStore` (account-switch resets), and `accountScopedPath` (local cache). This phase uses TDD: failing tests first, then implementation.
+This phase introduces the central Zustand store for plans. It is built on the M1 primitives: `makeDebouncedSync` (1s debounce on `working_content`), `registerResettableStore` (account-switch resets), and `tryAccountScopedPath` (local cache, no-throw). It does NOT use `upsertUserRows` — see Phase B intro for why. This phase uses TDD: failing tests first, then implementation.
 
 ### Task C1: Write failing tests for `PlanStore`
 
@@ -507,7 +517,6 @@ vi.mock('@/lib/supabase', () => {
 
 vi.mock('@/lib/sync', () => ({
   fetchPlans: vi.fn().mockResolvedValue([]),
-  pushPlans: vi.fn().mockResolvedValue(undefined),
   fetchPlanVersions: vi.fn().mockResolvedValue([]),
   pushPlanVersion: vi.fn().mockResolvedValue({ id: 'v1' }),
   fetchPlanComments: vi.fn().mockResolvedValue([]),
@@ -628,15 +637,17 @@ git commit -m "test(plan-store): add failing tests (TDD — red phase)"
 
 ```ts
 // src/stores/plan-store.ts
+//
+// UUID generation: uses crypto.randomUUID() to match the rest of the codebase
+// (board-store, action-processor). Do NOT add the `uuid` npm package — it is
+// not a dep and there is no need to introduce one.
 import { create } from 'zustand';
-import { v4 as uuidv4 } from 'uuid';
 import { makeDebouncedSync } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { tryAccountScopedPath } from '@/lib/accounts/account-paths';
 import { useAuthStore } from '@/stores/auth-store';
 import {
   fetchPlans,
-  pushPlans,
   fetchPlanVersions,
   pushPlanVersion,
   fetchPlanComments,
@@ -760,7 +771,7 @@ export const usePlanStore = create<PlanState>((set, get) => {
     async createPlan(title: string) {
       const userId = useAuthStore.getState().user?.id;
       if (!userId || !isSupabaseConfigured) return;
-      const id = uuidv4();
+      const id = crypto.randomUUID();
       const now = new Date().toISOString();
       const newPlan: PlanRecord = {
         id,
@@ -870,7 +881,7 @@ export const usePlanStore = create<PlanState>((set, get) => {
       if (!currentPlanId || !userId) return;
 
       const parentVersionId = snapshots.length > 0 ? snapshots[0].id : null;
-      const versionId = uuidv4();
+      const versionId = crypto.randomUUID();
 
       const result = await pushPlanVersion({
         id: versionId,
@@ -919,8 +930,12 @@ export const usePlanStore = create<PlanState>((set, get) => {
     loadSnapshot(versionId: string) {
       const snap = get().snapshots.find((v) => v.id === versionId);
       if (!snap) return;
-      // Load snapshot content into working draft; does NOT persist to Supabase automatically.
-      // User must click "Save" / let the 1s debounce fire to persist the adoption.
+      // Load snapshot content into the working draft; does NOT persist to Supabase
+      // automatically. The 1s debounce will fire and write working_content.
+      // M3 NOTE: spec §6.5 also wants `plans.current_snapshot_id` to advance to
+      // `versionId` when the user adopts an AI revision. That part is M3 work
+      // (it ties into the "Codex posted v4" toast flow and post_revision tool);
+      // intentionally not implemented here.
       get().updateWorkingDraft(snap.contentMarkdown);
     },
 
@@ -930,7 +945,7 @@ export const usePlanStore = create<PlanState>((set, get) => {
       const { currentPlanId } = get();
       const userId = useAuthStore.getState().user?.id;
       if (!currentPlanId || !userId || !body.trim()) return;
-      const commentId = uuidv4();
+      const commentId = crypto.randomUUID();
       const now = new Date().toISOString();
       const newComment: PlanCommentRecord = {
         id: commentId,
@@ -1214,12 +1229,11 @@ git commit -m "feat(realtime): subscribe plans, plan_versions, plan_comments tab
 - Modify: `src/stores/auth-store.ts`
 - Modify: `src/App.tsx`
 
-- [ ] **Step 1: Add `fetchPlans` call to `syncOnLogin` in `auth-store.ts`**
+- [ ] **Step 1: Add `fetchPlans` + migration call to `syncOnLogin` in `auth-store.ts`**
 
-In `src/stores/auth-store.ts`, add to the import from `@/lib/sync`:
+In `src/stores/auth-store.ts`, extend the named import from `@/lib/sync`:
 
 ```ts
-// Add fetchPlans to the existing named import from '@/lib/sync'
 import {
   fetchPreferences, pushPreferences,
   fetchAgentProfiles, pushAgentProfiles,
@@ -1231,24 +1245,40 @@ import {
 } from '@/lib/sync';
 ```
 
-Add the import:
+Add the imports:
 
 ```ts
-import { usePlanStore } from '@/stores/plan-store';  // NEW
+import { usePlanStore } from '@/stores/plan-store';            // NEW
+import { migrateSubjectsToPlans } from '@/lib/plans/migration'; // NEW (defined in Phase F)
+import { toast } from 'sonner';                                 // NEW (if not already imported)
 ```
 
-Inside `syncOnLogin`, append after the Actions block:
+Inside `syncOnLogin`, append after the Actions block. **Order matters**: run the subjects→plans migration FIRST so the freshly-migrated rows are picked up by `fetchPlans`.
 
 ```ts
-    // Plans
-    const remotePlans = await fetchPlans(userId);
-    if (remotePlans) {
-      usePlanStore.getState().applyRemotePlans(remotePlans);
+    // Subjects → plans one-shot migration. Must run AFTER the session is
+    // established (we are inside syncOnLogin, which only runs after
+    // setSession resolves) — running this from App.tsx before initialize()
+    // would query Supabase without auth and silently no-op under RLS.
+    // The function is idempotent (sentinel-gated), so re-runs are safe.
+    try {
+      const planMigration = await migrateSubjectsToPlans(userId);
+      if (!planMigration.skipped && planMigration.failed.length > 0) {
+        toast.warning(
+          `Plans migration: ${planMigration.migrated} migrated, ${planMigration.failed.length} failed. See logs.`,
+          { duration: 10_000 },
+        );
+        console.warn('[auth] plans migration failures:', planMigration.failed);
+      }
+    } catch (e) {
+      console.error('[auth] plans migration threw:', e);
     }
-    // Note: PlanStore.load() also writes to local cache; call it directly
-    // for the full boot path (includes cache fallback).
+
+    // Plans (load from Supabase + populate local cache)
     await usePlanStore.getState().load(userId);
 ```
+
+`PlanStore.load(userId)` internally calls `fetchPlans(userId)` and writes the result into both the store and the local cache file, so a separate `fetchPlans + applyRemotePlans` call is unnecessary.
 
 - [ ] **Step 2: Add `PlanStore` flush to `App.tsx` window-close handler**
 
@@ -1289,7 +1319,7 @@ Expected: PASS — `tsc` clean.
 
 ```bash
 git add src/stores/auth-store.ts src/App.tsx
-git commit -m "feat(auth): wire PlanStore into syncOnLogin + window-close flush"
+git commit -m "feat(auth): wire PlanStore + subjects→plans migration into syncOnLogin; flush plans on window close"
 ```
 
 ---
@@ -1519,6 +1549,42 @@ git add src/components/plans/PlanEditor.tsx
 git commit -m "feat(ui): add PlanEditor component (Monaco markdown, 1s debounce, Snapshot button)"
 ```
 
+### Task E2b: `formatRelativeTime` helper (zero-dep date formatter)
+
+**Files:**
+- Create: `src/lib/plans/format.ts`
+
+`SnapshotPanel` and `CommentsPanel` both display "x time ago" for `created_at` fields. Rather than add `date-fns` as a runtime dep for a single cosmetic feature, use this small helper. If a richer formatter is ever needed, swap it for `date-fns` then.
+
+- [ ] **Step 1: Create the helper**
+
+```ts
+// src/lib/plans/format.ts
+
+export function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return 'just now';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 45) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/lib/plans/format.ts
+git commit -m "feat(plans): add formatRelativeTime helper (zero-dep date formatter)"
+```
+
 ### Task E3: `SnapshotPanel` component
 
 **Files:**
@@ -1528,12 +1594,15 @@ git commit -m "feat(ui): add PlanEditor component (Monaco markdown, 1s debounce,
 
 ```tsx
 // src/components/plans/SnapshotPanel.tsx
+//
+// No `Badge` import — the shadcn `badge.tsx` component is NOT installed in
+// this project. The "source" pill is a styled <span>, which keeps the dep
+// surface flat. Same applies to `date-fns`: see formatRelativeTime helper.
 import { usePlanStore } from '@/stores/plan-store';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/plans/format';
 
 export function SnapshotPanel() {
   const { t } = useTranslation();
@@ -1564,19 +1633,17 @@ export function SnapshotPanel() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium truncate">{snap.label ?? `v${snap.id.slice(0, 6)}`}</span>
-            <Badge variant="outline" className="text-[10px] py-0 px-1 shrink-0">
+            <span className="text-[10px] py-0 px-1 shrink-0 rounded border border-border text-muted-foreground uppercase tracking-wide">
               {snap.source === 'user' ? t('plans.source_user')
                 : snap.source === 'ai' ? t('plans.source_ai')
                 : t('plans.source_import')}
-            </Badge>
+            </span>
           </div>
           {snap.sourceActor && (
             <span className="text-muted-foreground">{snap.sourceActor}</span>
           )}
           <div className="flex items-center justify-between mt-1">
-            <span className="text-muted-foreground">
-              {formatDistanceToNow(new Date(snap.createdAt), { addSuffix: true })}
-            </span>
+            <span className="text-muted-foreground">{formatRelativeTime(snap.createdAt)}</span>
             <Button
               size="sm"
               variant="ghost"
@@ -1609,8 +1676,12 @@ git commit -m "feat(ui): add SnapshotPanel component (version list with source b
 
 Comments are version-scoped. The panel filters to the `current_snapshot_id` of the selected plan by default, with a toggle to show all versions' comments.
 
+**Intentional UX gate (per spec §6.5):** if the plan has no `current_snapshot_id` yet (i.e. user has never clicked "Snapshot now"), the comment-add textarea is hidden and a hint message tells the user to snapshot first. This is correct: comments anchor to a `version_id`, which doesn't exist until the first snapshot is taken. The friction is small (one click) and prevents an "orphan comments" data shape that would have to be reconciled later.
+
 ```tsx
 // src/components/plans/CommentsPanel.tsx
+//
+// No `date-fns` import — see formatRelativeTime helper.
 import { useState } from 'react';
 import { usePlanStore } from '@/stores/plan-store';
 import { Button } from '@/components/ui/button';
@@ -1619,7 +1690,7 @@ import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, Circle, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/plans/format';
 
 export function CommentsPanel() {
   const { t } = useTranslation();
@@ -1685,9 +1756,7 @@ export function CommentsPanel() {
           >
             <p className="whitespace-pre-wrap">{c.body}</p>
             <div className="flex items-center justify-between mt-1">
-              <span className="text-muted-foreground">
-                {formatDistanceToNow(new Date(c.createdAt), { addSuffix: true })}
-              </span>
+              <span className="text-muted-foreground">{formatRelativeTime(c.createdAt)}</span>
               <div className="flex gap-1">
                 <Button
                   size="sm"
@@ -1746,11 +1815,13 @@ git add src/components/plans/CommentsPanel.tsx
 git commit -m "feat(ui): add CommentsPanel component (version-scoped, resolve toggle, CRUD)"
 ```
 
-### Task E5: `PlansTab` + `App.tsx` wiring + i18n keys
+### Task E5: `PlansTab` + `App.tsx` wiring + i18n keys + `Tab` union extension
 
 **Files:**
 - Create: `src/components/PlansTab.tsx`
-- Modify: `src/App.tsx`
+- Modify: `src/stores/app-store.ts` (extend the `Tab` union)
+- Modify: `src/components/Layout.tsx` (extend the local `Tab` union and add to BOTH `TABS` arrays — dev and prod)
+- Modify: `src/App.tsx` (add to the tab-children map)
 - Modify: `src/i18n/locales/en.json`
 - Modify: `src/i18n/locales/pt-BR.json`
 
@@ -1798,7 +1869,53 @@ export function PlansTab() {
 }
 ```
 
-- [ ] **Step 2: Wire `PlansTab` into `App.tsx`**
+- [ ] **Step 2a: Extend the `Tab` union in `src/stores/app-store.ts`**
+
+The store currently declares (around line 7):
+
+```ts
+type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
+```
+
+Extend it:
+
+```ts
+type Tab = 'plans' | 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
+```
+
+Without this, the `App.tsx` change in Step 2c does not type-check (`LayoutProps['children']` is keyed by `Tab`). Leave `activeTab: 'planner'` as the default for backward compat; users land on the legacy Planner first and click into Plans intentionally.
+
+- [ ] **Step 2b: Extend `Layout.tsx` — `Tab` union + both `TABS` arrays**
+
+In `src/components/Layout.tsx`:
+
+```ts
+// Extend the local Tab type (must mirror app-store):
+type Tab = 'plans' | 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
+```
+
+Add `plans` as the FIRST entry in BOTH the dev and prod `TABS` arrays so it appears leftmost in the navbar:
+
+```ts
+const TABS: { key: Tab; labelKey: string }[] = isDev
+  ? [
+      { key: 'plans', labelKey: 'nav.plans' },     // NEW
+      { key: 'planner', labelKey: 'nav.planner' },
+      { key: 'board', labelKey: 'nav.board' },
+      { key: 'agents', labelKey: 'nav.agents' },
+      { key: 'actions', labelKey: 'nav.actions' },
+      { key: 'terminals', labelKey: 'nav.terminals' },
+    ]
+  : [
+      { key: 'plans', labelKey: 'nav.plans' },     // NEW
+      { key: 'planner', labelKey: 'nav.planner' },
+      { key: 'terminals', labelKey: 'nav.terminals' },
+    ];
+```
+
+Plans ships in BOTH dev and prod — it is the canonical content surface post-M2 (Planner stays as a read-only legacy tab; see Phase F).
+
+- [ ] **Step 2c: Wire `PlansTab` into `App.tsx`**
 
 Add to imports in `src/App.tsx`:
 
@@ -1806,7 +1923,7 @@ Add to imports in `src/App.tsx`:
 import { PlansTab } from '@/components/PlansTab';
 ```
 
-Add `plans` key to the tab map:
+Add `plans` key to the tab-children map:
 
 ```ts
         {{
@@ -1818,8 +1935,6 @@ Add `plans` key to the tab map:
           terminals: <TerminalsTab />,
         }}
 ```
-
-Note: the `Layout` component will need a `plans` nav entry — check `src/components/Layout.tsx` for how nav tabs are defined (they typically map to the keys above) and add the `plans` entry accordingly. If `Layout` drives nav from a hardcoded list, add `{ key: 'plans', label: t('nav.plans') }` in the same position.
 
 - [ ] **Step 3: Add i18n keys to `src/i18n/locales/en.json`**
 
@@ -1892,8 +2007,8 @@ Expected: PASS on both.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/components/PlansTab.tsx src/App.tsx src/i18n/locales/en.json src/i18n/locales/pt-BR.json
-git commit -m "feat(ui): add PlansTab assembling PlanList + PlanEditor + SnapshotPanel + CommentsPanel; wire into App.tsx + i18n"
+git add src/components/PlansTab.tsx src/stores/app-store.ts src/components/Layout.tsx src/App.tsx src/i18n/locales/en.json src/i18n/locales/pt-BR.json
+git commit -m "feat(ui): add PlansTab assembling PlanList + PlanEditor + SnapshotPanel + CommentsPanel; extend Tab union; wire into Layout + App.tsx + i18n"
 ```
 
 ---
@@ -1937,7 +2052,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 }));
 
 vi.mock('@/lib/accounts/account-paths', () => ({
-  accountScopedPath: (rel: string) => `notter-ai/u1/${rel}`,
+  tryAccountScopedPath: (rel: string) => `notter-ai/u1/${rel}`,
 }));
 
 import { migrateSubjectsToPlans } from '@/lib/plans/migration';
@@ -2029,11 +2144,13 @@ git commit -m "test(migration): add failing subjects→plans migration tests (TD
 //
 // Idempotent: if the sentinel exists, the function returns { skipped: true }
 // immediately — no Supabase queries are made.
+//
+// Called from `syncOnLogin` in auth-store (NOT App.tsx) — it must run after
+// the Supabase session is established or RLS blocks the subjects query.
 
 import { exists, writeTextFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { accountScopedPath } from '@/lib/accounts/account-paths';
-import { v4 as uuidv4 } from 'uuid';
+import { tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
 export interface MigrationResult {
   skipped: boolean;
@@ -2046,7 +2163,13 @@ const SENTINEL_REL = '.migration-m2-plans-complete';
 export async function migrateSubjectsToPlans(userId: string): Promise<MigrationResult> {
   if (!isSupabaseConfigured) return { skipped: false, migrated: 0, failed: [] };
 
-  const sentinelPath = accountScopedPath(SENTINEL_REL);
+  // Use tryAccountScopedPath: returns null if no active account is set
+  // (avoids throwing on race conditions during account switch).
+  const sentinelPath = tryAccountScopedPath(SENTINEL_REL);
+  if (!sentinelPath) {
+    console.warn('[migration] no active account; skipping plans migration');
+    return { skipped: true, migrated: 0, failed: [] };
+  }
 
   // Check sentinel
   try {
@@ -2078,7 +2201,7 @@ export async function migrateSubjectsToPlans(userId: string): Promise<MigrationR
 
   for (const row of subjects) {
     const title = `${row.project_name} / ${row.file_name.replace(/\.md$/i, '')}`;
-    const id = uuidv4();
+    const id = crypto.randomUUID();
     try {
       const { error: insertError } = await supabase.from('plans').insert({
         id,
@@ -2109,7 +2232,7 @@ export async function migrateSubjectsToPlans(userId: string): Promise<MigrationR
 
 async function writeSentinel(sentinelPath: string): Promise<void> {
   try {
-    // Ensure parent dir exists (accountScopedPath returns 'notter-ai/<id>/...' relative to AppLocalData)
+    // Ensure parent dir exists (tryAccountScopedPath returns 'notter-ai/<id>/...' relative to AppLocalData)
     const dir = sentinelPath.substring(0, sentinelPath.lastIndexOf('/'));
     const dirExists = await exists(dir, { baseDir: BaseDirectory.AppLocalData });
     if (!dirExists) {
@@ -2137,45 +2260,11 @@ git add src/lib/plans/migration.ts
 git commit -m "feat(migration): add one-shot subjects→plans migration with sentinel guard"
 ```
 
-### Task F3: Call migration on boot in `App.tsx`
+### Task F3: (covered in Phase D, Task D2)
 
-**Files:**
-- Modify: `src/App.tsx`
+The migration call site lives in `syncOnLogin` (auth-store.ts), not `App.tsx`. See Task D2 Step 1. Calling it from `App.tsx` before `initialize()` resolves would query Supabase without an authenticated session — RLS would silently return zero rows and the sentinel would be written with 0 migrated, permanently swallowing the migration.
 
-- [ ] **Step 1: Add migration call**
-
-In `src/App.tsx`, add the import:
-
-```ts
-import { migrateSubjectsToPlans } from '@/lib/plans/migration';
-```
-
-Inside the boot `useEffect`, after the existing `migrateLegacyLayoutIfNeeded` block and before `initialize()`, add:
-
-```ts
-      // M2: one-shot subjects → plans migration per active account
-      if (mgr.activeAccountId) {
-        try {
-          const planMigration = await migrateSubjectsToPlans(mgr.activeAccountId);
-          if (!planMigration.skipped && planMigration.failed.length > 0) {
-            toast.warning(
-              `Plans migration: ${planMigration.migrated} migrated, ${planMigration.failed.length} failed. See logs.`,
-              { duration: 10_000 },
-            );
-            console.warn('[App] plans migration failures:', planMigration.failed);
-          }
-        } catch (e) {
-          console.error('[App] plans migration threw:', e);
-        }
-      }
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add src/App.tsx
-git commit -m "feat(app): call migrateSubjectsToPlans on boot per active account"
-```
+This task is intentionally a no-op stub so the phase numbering matches the original plan.
 
 ### Task F4: Add migration banner to `PlannerTab`
 
@@ -2191,7 +2280,7 @@ In `src/components/PlannerTab.tsx`, add to the top of the component (or to the r
 ```ts
 import { useEffect, useState } from 'react';
 import { exists, BaseDirectory } from '@tauri-apps/plugin-fs';
-import { accountScopedPath } from '@/lib/accounts/account-paths';
+import { tryAccountScopedPath } from '@/lib/accounts/account-paths';
 import { useTranslation } from 'react-i18next';
 ```
 
@@ -2204,7 +2293,8 @@ Inside the component function, add:
   useEffect(() => {
     (async () => {
       try {
-        const path = accountScopedPath('.migration-m2-plans-complete');
+        const path = tryAccountScopedPath('.migration-m2-plans-complete');
+        if (!path) return;  // no active account; nothing to check
         const done = await exists(path, { baseDir: BaseDirectory.AppLocalData });
         setMigrationBannerVisible(done);
       } catch {
@@ -2539,18 +2629,43 @@ git commit -m "chore(m2): final cleanup pass"
 
 ## Open items expected to surface during execution
 
-- Whether `@monaco-editor/react` is already in `package.json` as a prod dep or only dev dep — check before Task E2. If missing, install it (run `sonatype-guide` check first per project convention).
-- Whether `date-fns` is already a dep — used in `SnapshotPanel` and `CommentsPanel`. Check `package.json`.
-- Whether `ResizablePanel` / `ResizableHandle` / `ResizablePanelGroup` components exist in the existing shadcn/ui setup or need adding. If not present, use a simple `flex` layout in `PlansTab.tsx` instead.
-- The exact mechanism for switching tabs from the Planner banner's "Go to Plans" link — look at how `Layout.tsx` drives active tab state (likely an `app-store` slice or context) and use the same call.
-- Whether the `plans` table's `onConflict: 'user_id,id'` upsert works correctly without a composite unique constraint. If Phase A's migration didn't add one, `pushPlans` may need a fallback. Add `UNIQUE (user_id, id)` to the migration if needed.
-- Whether `uuid` (`v4`) is already imported as a dep — used by `plan-store.ts` and `migration.ts`. Check `package.json`; if absent, check the project's UUID generation pattern (M1 may have used `crypto.randomUUID()`).
+Resolved during the pre-execution review (2026-05-10), no longer open:
+- `@monaco-editor/react` is in `package.json` (`^4.7.0`).
+- `date-fns` resolved by adding the zero-dep `formatRelativeTime` helper (Task E2b) — no new dep.
+- `ResizablePanel`/`ResizableHandle`/`ResizablePanelGroup` exist at `src/components/ui/resizable.tsx`.
+- `plans.onConflict: 'user_id,id'` resolved by removing `pushPlans` entirely — store writes are direct, narrow Supabase calls. No UNIQUE constraint needed.
+- `uuid` package: NOT added — replaced with `crypto.randomUUID()` everywhere, matching `board-store.ts` / `action-processor.ts`.
+- `Badge` shadcn component: NOT added — replaced with a styled `<span>` in `SnapshotPanel`.
+
+Still expected to surface during execution:
+- The exact mechanism for switching tabs from the Planner banner's "Go to Plans" link — look at how `Layout.tsx` drives active tab state. It uses `useAppStore()'s setActiveTab(tab)`. Call `setActiveTab('plans')` from the banner click handler.
+- The shape of `PlannerTab.tsx`'s mutation surface (Task F4 read-only mode). The cleanest pattern is probably to gate the relevant `usePlannerStore` actions, not every button — verify the store API before scattering `disabled` props.
 
 ---
 
 ## Self-review notes
 
-This plan covers spec §7 M2 verbatim. The schema in Phase A is copied verbatim from spec §5.1 with zero modification. The `set_plan_owner_id` trigger means clients never need to supply `user_id` on `plan_versions` or `plan_comments` inserts — `pushPlanVersion` and `pushPlanComment` rely on this correctly (they omit `user_id` from the insert payload).
+### Review pass — 2026-05-10
+
+A pre-execution review (manual, by Claude — no Codex pass on this plan; only the upstream Phase 1 spec was Codex-reviewed) found and fixed three blockers, three strong concerns, and several nits. Summary of resulting changes:
+
+| Issue | Fix |
+|---|---|
+| `Tab` union not extended → tsc would fail | Task E5 now extends `Tab` in `app-store.ts` AND `Layout.tsx`, and adds the entry to BOTH dev and prod `TABS` arrays. |
+| Migration ran in `App.tsx` before Supabase session existed → silent zero-migrate under RLS | Migration call moved into `syncOnLogin` (Task D2). Task F3 collapsed to a stub pointer. |
+| `pushPlans` upsert needed `UNIQUE (user_id, id)` not declared in schema | `pushPlans` removed from the plan entirely. All `plans` writes go through narrow direct Supabase calls in the store. |
+| `uuid` package not in `package.json` | Replaced with `crypto.randomUUID()` to match existing convention (`board-store.ts`, `action-processor.ts`). |
+| `Badge` shadcn component not installed | Replaced with a styled `<span>`. |
+| `date-fns` not installed | Added a zero-dep `formatRelativeTime` helper at `src/lib/plans/format.ts` (Task E2b). |
+| `fetchPlans*` returned `null` on legitimately-empty result sets → realtime DELETEs would not propagate | Fetchers now return `[]` for empty success, `null` only on error. |
+| `accountScopedPath` (throws) used in `migration.ts` | Switched to `tryAccountScopedPath` with explicit early return. |
+| `loadSnapshot` did not advance `current_snapshot_id` (spec §6.5) | Documented as M3 work via inline comment. Out of scope for M2. |
+| Comments require an existing snapshot, friction unexplained | Documented as an intentional UX gate (per spec §6.5) in the CommentsPanel section. |
+| `supabase/migrations/` dir does not exist yet | Noted in Task A1. |
+
+### Original notes (still valid)
+
+The schema in Phase A is copied verbatim from spec §5.1 with zero modification. The `set_plan_owner_id` trigger means clients never need to supply `user_id` on `plan_versions` or `plan_comments` inserts — `pushPlanVersion` and `pushPlanComment` rely on this correctly (they omit `user_id` from the insert payload).
 
 Spec §9 error handling is implemented throughout: optimistic local inserts are reverted on Supabase error (`createPlan`, `deletePlan`); per-row try/catch in `migrateSubjectsToPlans` prevents a single bad row from blocking the batch; the sentinel is not written unless all rows succeed; the banner offers implicit re-run on next launch if partial failures occurred.
 
