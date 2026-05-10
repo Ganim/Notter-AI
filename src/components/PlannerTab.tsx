@@ -26,6 +26,7 @@ import { processNoteToAction } from '@/lib/action-processor';
 import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
 import { SnapshotPanel } from '@/components/plans/SnapshotPanel';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
+import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
 import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
 import {
@@ -545,6 +546,7 @@ export function PlannerTab() {
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
               <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
             </div>
           </div>
         ))}
@@ -931,6 +933,7 @@ export function PlannerTab() {
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
                           <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
+                          <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={12} />
                         </div>
                       </div>
                     ))}

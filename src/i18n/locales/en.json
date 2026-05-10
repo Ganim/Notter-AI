@@ -308,7 +308,13 @@
     "default_badge": "Default",
     "add": "Add workspace",
     "manage": "Manage workspaces",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "move_tooltip": "Move project to workspace",
+    "move_to": "Move to workspace…",
+    "moved_toast": "Moved {{project}} to {{ws}}",
+    "move_undo": "Undo",
+    "move_failed": "Failed to move project.",
+    "no_other_workspaces": "No other workspaces"
   },
   "account": {
     "title": "Account",
