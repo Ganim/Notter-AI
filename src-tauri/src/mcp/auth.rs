@@ -53,7 +53,6 @@ pub async fn mcp_remove_account_token(
 
 /// Resolve a Bearer token to an account id by reading the in-memory map.
 /// Returns None on miss (the middleware turns that into 401).
-#[allow(dead_code)] // Consumed in Phase E (Bearer-auth middleware).
 pub async fn lookup_account_for_token(
     state: &McpState,
     bearer: &str,
@@ -101,4 +100,54 @@ pub async fn mcp_set_supabase_config(
     s.supabase_url = args.url;
     s.supabase_anon_key = args.anon_key;
     Ok(())
+}
+
+use axum::{
+    extract::{Request, State as AxumState},
+    http::StatusCode,
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Json,
+};
+
+/// Bearer-auth middleware. Rejects with 401 + JSON-RPC unauthorized error if
+/// the Authorization header is absent, malformed, or carries an unknown token.
+/// On success, stores AuthContext in the request extensions for handlers to read.
+pub async fn bearer_auth(
+    AxumState(state): AxumState<crate::mcp::server::McpState>,
+    mut req: Request,
+    next: Next,
+) -> Response {
+    let bearer = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "));
+
+    let Some(token) = bearer else {
+        return unauthorized_response("missing or malformed Authorization header");
+    };
+
+    let account_id = match lookup_account_for_token(&state, token).await {
+        Some(a) => a,
+        None => return unauthorized_response("unknown token"),
+    };
+
+    req.extensions_mut().insert(AuthContext { account_id });
+    next.run(req).await
+}
+
+fn unauthorized_response(msg: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": null,
+            "error": {
+                "code": -32002,
+                "message": format!("unauthorized: {msg}"),
+            }
+        })),
+    )
+        .into_response()
 }

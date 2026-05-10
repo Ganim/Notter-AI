@@ -11,13 +11,16 @@ use std::sync::Arc;
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
-    routing::get,
-    Router,
+    middleware,
+    routing::{get, post},
+    Extension, Json, Router,
 };
+use serde_json::Value as JsonValue;
 use tauri::{AppHandle, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+use crate::mcp::auth::{bearer_auth, AuthContext};
 use crate::mcp::endpoint::{
     delete_endpoint_file, generate_nonce, is_existing_endpoint_alive, now_rfc3339,
     read_endpoint_file, write_endpoint_file, EndpointFile,
@@ -105,8 +108,12 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
 
     eprintln!("[mcp] listening on {url}");
 
-    // 6. Build the axum router. Phase E + F add /mcp; this phase only adds /health.
+    // 6. Build the axum router. /mcp is bearer-auth-guarded (Phase E placeholder;
+    //    Phase F replaces with the real JSON-RPC dispatcher). /health stays
+    //    unauthenticated — it has its own nonce check.
     let app_router = Router::new()
+        .route("/mcp", post(mcp_placeholder))
+        .route_layer(middleware::from_fn_with_state(state.clone(), bearer_auth))
         .route("/health", get(health))
         .with_state(state.clone());
 
@@ -172,4 +179,22 @@ async fn health(
 // for endpoint.rs's tests without making them depend on rand directly.
 pub fn fresh_nonce() -> String {
     generate_nonce()
+}
+
+/// Phase E placeholder — echoes the request back so the wiring (axum router,
+/// bearer-auth middleware, AuthContext extension) is end-to-end testable.
+/// Phase F replaces this with the real JSON-RPC dispatcher.
+async fn mcp_placeholder(
+    Extension(auth): Extension<AuthContext>,
+    Json(body): Json<JsonValue>,
+) -> Json<JsonValue> {
+    Json(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": body.get("id").cloned().unwrap_or(JsonValue::Null),
+        "result": {
+            "echo": body,
+            "account_id": auth.account_id,
+            "note": "phase E placeholder — full dispatch lands in Phase F",
+        }
+    }))
 }
