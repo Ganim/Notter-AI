@@ -28,3 +28,6 @@ dist-ssr
 
 # Superpowers brainstorming sessions
 .superpowers/
+
+# Playwright MCP debug artifacts
+.playwright-mcp/
