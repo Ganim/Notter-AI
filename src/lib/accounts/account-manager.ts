@@ -88,10 +88,16 @@ export class AccountManager {
       await pushMcpSupabaseConfig(supabaseUrl, supabaseAnon);
     }
     // Push every known account's MCP bearer to Rust so the (token -> accountId)
-    // map is populated before the first POST /mcp arrives.
+    // map is populated before the first POST /mcp arrives. Auto-repair any
+    // account missing an mcp_token (can happen for OAuth sign-ins or accounts
+    // created before the M1 secureSet path landed).
     for (const a of this.accounts) {
-      const bearer = await secureGet(accountKeys.mcpToken(a.id));
-      if (bearer) await notifyMcpAccountAdded(a.id, bearer);
+      let bearer = await secureGet(accountKeys.mcpToken(a.id));
+      if (!bearer) {
+        bearer = generateMcpToken();
+        await secureSet(accountKeys.mcpToken(a.id), bearer);
+      }
+      await notifyMcpAccountAdded(a.id, bearer);
     }
 
     this.booted = true;
