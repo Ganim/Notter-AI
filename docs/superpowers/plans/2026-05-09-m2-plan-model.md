@@ -1839,7 +1839,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 
 export function PlansTab() {
   return (
-    <ResizablePanelGroup direction="horizontal" className="h-full">
+    <ResizablePanelGroup orientation="horizontal" className="h-full">
       {/* Left sidebar: plan list */}
       <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
         <PlanList />
@@ -1856,7 +1856,7 @@ export function PlansTab() {
 
       {/* Right sidebar: snapshots + comments */}
       <ResizablePanel defaultSize={30} minSize={20} maxSize={40}>
-        <ResizablePanelGroup direction="vertical">
+        <ResizablePanelGroup orientation="vertical">
           <ResizablePanel defaultSize={50}>
             <SnapshotPanel />
           </ResizablePanel>
@@ -2366,6 +2366,17 @@ git commit -m "feat(planner): add migration banner + read-only mode after subjec
 
 ## Phase G — Delete `src/lib/planning/`, audit `src/lib/llm/*`
 
+> **STATUS (2026-05-10): Phase G deferred to Phase 3.**
+> Pre-execution audit confirmed active planning-pipeline callers in the frozen Actions/executor path:
+> - `src/stores/actions-store.ts` imports `runPipeline`, `PipelineError`, `ProjectContext`, `StageRunResult` from `@/lib/planning`.
+> - `src/stores/__tests__/actions-store-planning.test.ts` exercises that path.
+> - `src/components/actions/ActionDetail.tsx` renders `<PlanReviewPanel>` and `<PlanStageStrip>` from `@/components/planning`.
+> - `src/components/PlannerTab.tsx` renders `<PlanWithAiButton>` from `@/components/planning`.
+>
+> Per spec §8, `actions-foundation` is "partially superseded" in M2 — the executor and Actions tab remain **frozen** (kept alive, no new feature work) until Phase 3 decides their fate. Deleting the planning code now would break the frozen path. M2 leaves the planning code in place; deletion happens when the Actions tab is retired in Phase 3.
+>
+> Tasks G1–G4 below are kept for reference but **must not be executed in M2**.
+
 This phase removes dead code. It MUST run after all prior phases are merged and the app builds cleanly. Every deletion is preceded by a `grep` verification of zero callers.
 
 ### Task G1: Verify zero callers for `src/lib/planning/`
@@ -2567,14 +2578,7 @@ Run through these steps with a real Supabase account (test user):
 
 ### Task H2: Final cleanup pass
 
-- [ ] **Step 1: Confirm planning dead code is fully removed**
-
-```bash
-grep -rn "from '@/lib/planning" src/
-grep -rn "from '@/components/planning" src/
-```
-
-Expected: zero results.
+- [ ] **Step 1: Confirm planning dead code is fully removed** *(SKIPPED in M2 — Phase G deferred to Phase 3; see Phase G status block.)*
 
 - [ ] **Step 2: Confirm no destructive delete-then-insert on new tables**
 
