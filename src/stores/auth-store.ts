@@ -11,12 +11,15 @@ import {
   fetchSubjects,
   fetchBoardTasks, pushBoardTasks,
   fetchActions, pushActions,
+  fetchWorkspaces,
 } from '@/lib/sync';
 import { useAppStore } from '@/stores/app-store';
 import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
+import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import { resetAllStores } from '@/lib/accounts/store-registry';
 import { notifyMcpAccountTokenChanged, notifyMcpAccountRemoved } from '@/lib/mcp';
@@ -36,6 +39,20 @@ interface AuthState {
 
 async function syncOnLogin(userId: string) {
   try {
+    // Workspaces — must boot FIRST. Projects fetch filters by workspace_id and
+    // PlannerStore derives its visible projects from currentWorkspaceId, so the
+    // workspace context has to land before any project/subject hydration runs.
+    // bootstrap() handles the lazy default workspace if the user has none.
+    try {
+      await getWorkspaceManager().bootstrap();
+      const remoteWs = await fetchWorkspaces(userId);
+      if (remoteWs) useWorkspacesStore.getState().applyRemoteWorkspaces(remoteWs);
+      const currentId = getWorkspaceManager().currentWorkspaceId;
+      if (currentId) useWorkspacesStore.getState().setCurrentWorkspaceId(currentId);
+    } catch (e) {
+      console.error('[auth] workspaces bootstrap failed:', e);
+    }
+
     // Preferences
     const remotePrefs = await fetchPreferences(userId);
     if (remotePrefs) {
@@ -300,6 +317,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: async () => {
     if (!isSupabaseConfigured) return;
     stopRealtimeSync();
+    // Drop the WorkspaceManager singleton state — next sign-in will rebuild it.
+    getWorkspaceManager().reset();
     // Capture the user id BEFORE signOut clears the session — the
     // onAuthStateChange listener can't reliably get this.
     const previousId = (await supabase.auth.getSession()).data.session?.user?.id;

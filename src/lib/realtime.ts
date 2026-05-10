@@ -5,10 +5,11 @@ import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   fetchAgentProfiles, fetchProjects, fetchSubjects, fetchBoardTasks, fetchActions,
-  fetchSubjectVersions, fetchSubjectComments,
+  fetchSubjectVersions, fetchSubjectComments, fetchWorkspaces,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
 
@@ -58,6 +59,10 @@ export function startRealtimeSync(userId: string): void {
     const comments = await fetchSubjectComments(currentSubjectId);
     if (comments) useSubjectVersionsStore.getState().applyRemoteComments(comments);
   };
+  const refetchWorkspaces = async () => {
+    const rows = await fetchWorkspaces(userId);
+    if (rows) useWorkspacesStore.getState().applyRemoteWorkspaces(rows);
+  };
 
   // Unique channel name per call. supabase.channel(name) returns the SAME
   // object for the same name, even after removeChannel(); calling .on() on
@@ -85,6 +90,7 @@ export function startRealtimeSync(userId: string): void {
   );
 
   ch = subscribeUserTable(ch, 'agent_profiles',    userId, refetchProfiles);
+  ch = subscribeUserTable(ch, 'workspaces',        userId, refetchWorkspaces);
   ch = subscribeUserTable(ch, 'projects',          userId, refetchProjects);
   ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);
   ch = subscribeUserTable(ch, 'subject_versions',  userId, refetchSubjectVersions);
