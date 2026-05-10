@@ -107,6 +107,15 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
         s.url = Some(url.clone());
     }
 
+    // 5b. Bind happens AFTER the front-end's account-manager.bootstrap may
+    // have already registered bearer tokens (race), in which case
+    // mcp_register_bearer's call to write_per_account_configs ran with
+    // s.url still None and produced files with empty url. Re-emit now that
+    // url is set so the per-account files reflect the real URL.
+    if let Err(e) = write_per_account_configs(app, &state).await {
+        eprintln!("[mcp] post-bind write_per_account_configs failed: {e}");
+    }
+
     eprintln!("[mcp] listening on {url}");
 
     // 6. Build the axum router. /mcp is bearer-auth-guarded and routes the
@@ -280,18 +289,30 @@ pub async fn write_per_account_configs(
     Ok(())
 }
 
-/// Tauri command — the Phase J dialog calls this to display the per-account
-/// config file (path + contents) to the user.
+/// Tauri command — the Phase J dialog calls this to display the active
+/// account's MCP URL + bearer token. Synthesizes the config directly from
+/// in-memory state (the per-account file at `<dir>/<accountId>-config.json`
+/// is just a convenience for CLIs that read it; the dialog doesn't need
+/// the file to exist).
 #[tauri::command]
 pub async fn mcp_read_account_config(
-    app: tauri::AppHandle,
     account_id: String,
+    state: tauri::State<'_, McpState>,
 ) -> Result<McpAccountConfig, String> {
-    let dir = mcp_dir(&app)?;
-    let path = dir.join(format!("{}-config.json", account_id));
-    let raw = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
-    serde_json::from_str::<McpAccountConfig>(&raw)
-        .map_err(|e| format!("parse {}: {e}", path.display()))
+    let s = state.read().await;
+    let url = s
+        .url
+        .clone()
+        .ok_or_else(|| "MCP server not yet bound".to_string())?;
+    let bearer = s
+        .token_to_account
+        .iter()
+        .find(|(_, acct)| acct.as_str() == account_id)
+        .map(|(tok, _)| tok.clone())
+        .ok_or_else(|| format!("no bearer registered for account {account_id}"))?;
+    Ok(McpAccountConfig {
+        url,
+        bearer_token: bearer,
+        generated_at: crate::mcp::endpoint::now_rfc3339(),
+    })
 }
