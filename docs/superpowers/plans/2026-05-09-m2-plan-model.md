@@ -1829,6 +1829,8 @@ git commit -m "feat(ui): add CommentsPanel component (version-scoped, resolve to
 
 - [ ] **Step 1: Create `PlansTab.tsx`**
 
+> **react-resizable-panels v4 sizing note:** numeric `defaultSize`/`minSize`/`maxSize` values are interpreted as **pixels**, not percentages (per the lib's typedefs: "Numeric values are assumed to be pixels. Strings without explicit units are assumed to be percentages."). Always pass percentages as strings (`"20%"`). The plan originally used numeric values which collapsed the layout to ~100px total — fixed in commit landing this section.
+
 ```tsx
 // src/components/PlansTab.tsx
 import { PlanList } from '@/components/plans/PlanList';
@@ -1841,27 +1843,27 @@ export function PlansTab() {
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full">
       {/* Left sidebar: plan list */}
-      <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
+      <ResizablePanel defaultSize="20%" minSize="15%" maxSize="30%">
         <PlanList />
       </ResizablePanel>
 
       <ResizableHandle />
 
       {/* Center: Monaco editor */}
-      <ResizablePanel defaultSize={50} minSize={30}>
+      <ResizablePanel defaultSize="50%" minSize="30%">
         <PlanEditor />
       </ResizablePanel>
 
       <ResizableHandle />
 
       {/* Right sidebar: snapshots + comments */}
-      <ResizablePanel defaultSize={30} minSize={20} maxSize={40}>
+      <ResizablePanel defaultSize="30%" minSize="20%" maxSize="40%">
         <ResizablePanelGroup orientation="vertical">
-          <ResizablePanel defaultSize={50}>
+          <ResizablePanel defaultSize="50%">
             <SnapshotPanel />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel defaultSize={50}>
+          <ResizablePanel defaultSize="50%">
             <CommentsPanel />
           </ResizablePanel>
         </ResizablePanelGroup>
