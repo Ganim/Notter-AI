@@ -4,9 +4,11 @@ import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
+import { usePlanStore } from '@/stores/plan-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   fetchAgentProfiles, fetchProjects, fetchSubjects, fetchBoardTasks, fetchActions,
+  fetchPlans, fetchPlanVersions, fetchPlanComments,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
 
@@ -44,6 +46,22 @@ export function startRealtimeSync(userId: string): void {
     const actions = await fetchActions(userId);
     if (actions) useActionsStore.getState().applyRemoteActions(actions);
   };
+  const refetchPlans = async () => {
+    const plans = await fetchPlans(userId);
+    if (plans) usePlanStore.getState().applyRemotePlans(plans);
+  };
+  const refetchPlanVersions = async () => {
+    const currentPlanId = usePlanStore.getState().currentPlanId;
+    if (!currentPlanId) return;
+    const versions = await fetchPlanVersions(currentPlanId);
+    if (versions) usePlanStore.getState().applyRemoteSnapshots(versions);
+  };
+  const refetchPlanComments = async () => {
+    const currentPlanId = usePlanStore.getState().currentPlanId;
+    if (!currentPlanId) return;
+    const comments = await fetchPlanComments(currentPlanId);
+    if (comments) usePlanStore.getState().applyRemoteComments(comments);
+  };
 
   // Unique channel name per call. supabase.channel(name) returns the SAME
   // object for the same name, even after removeChannel(); calling .on() on
@@ -75,6 +93,9 @@ export function startRealtimeSync(userId: string): void {
   ch = subscribeUserTable(ch, 'subjects',       userId, refetchSubjects);
   ch = subscribeUserTable(ch, 'board_tasks',    userId, refetchBoardTasks);
   ch = subscribeUserTable(ch, 'actions',        userId, refetchActions);
+  ch = subscribeUserTable(ch, 'plans',          userId, refetchPlans);
+  ch = subscribeUserTable(ch, 'plan_versions',  userId, refetchPlanVersions);
+  ch = subscribeUserTable(ch, 'plan_comments',  userId, refetchPlanComments);
 
   channel = ch.subscribe();
 }
