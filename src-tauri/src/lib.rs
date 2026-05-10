@@ -239,6 +239,23 @@ async fn llm_request(payload: LlmRequestPayload) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Build the MCP server state. Token maps are initially empty; Phase D's
+    // boot routine repopulates from the secure store, and the front-end pushes
+    // access tokens via mcp_update_account_token. Supabase URL + anon key are
+    // pushed by the front-end at boot via mcp_set_supabase_config (Vite's
+    // import.meta.env.VITE_* values are bundled into the front-end JS and not
+    // visible to Rust).
+    let mcp_state: mcp::McpState = std::sync::Arc::new(tokio::sync::RwLock::new(
+        mcp::McpStateInner {
+            token_to_account: std::collections::HashMap::new(),
+            access_tokens: std::collections::HashMap::new(),
+            url: None,
+            nonce: mcp::endpoint::generate_nonce(),
+            supabase_url: String::new(),
+            supabase_anon_key: String::new(),
+        },
+    ));
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -262,6 +279,7 @@ pub fn run() {
         .manage(secure_store::SecureStoreState {
             known_keys: std::sync::Mutex::new(Vec::new()),
         })
+        .manage(mcp_state.clone())
         .invoke_handler(tauri::generate_handler![
             create_pty,
             write_pty,
@@ -277,6 +295,9 @@ pub fn run() {
             secure_store::secure_get,
             secure_store::secure_delete,
             secure_store::secure_register_known_keys,
+            mcp::auth::mcp_update_account_token,
+            mcp::auth::mcp_remove_account_token,
+            mcp::auth::mcp_set_supabase_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
