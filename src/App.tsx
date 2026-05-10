@@ -13,6 +13,7 @@ import { useBoardStore } from '@/stores/board-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useAgentsStore } from '@/stores/agents-store';
 import { useAppStore } from '@/stores/app-store';
+import { usePlanStore } from '@/stores/plan-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getAccountManager } from '@/lib/accounts/account-manager';
@@ -69,6 +70,7 @@ function App() {
                 usePlannerStore.getState().flush().catch((e) => console.error('[App] planner flush', e)),
                 useAgentsStore.getState().flush().catch((e) => console.error('[App] agents flush', e)),
                 useAppStore.getState().flush().catch((e) => console.error('[App] app flush', e)),
+                usePlanStore.getState().flush().catch((e) => console.error('[App] plans flush', e)),
               ]),
               new Promise<void>((resolve) => setTimeout(resolve, 1500)),
             ]);
