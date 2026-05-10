@@ -1,8 +1,14 @@
 // src/components/plans/CommentsPanel.tsx
 //
 // No `date-fns` import — see formatRelativeTime helper.
+//
+// P3 minimal patch (post-pivot): rebound to useSubjectVersionsStore. The
+// `currentSnapshotId` filter pivot is temporarily disabled (set to null), so
+// for now the panel shows all comments across the subject's versions. P5
+// will rewire this to read subjects.current_version_id from planner-store
+// and restore the per-version filter + "Add comment" button enable rule.
 import { useState } from 'react';
-import { usePlanStore } from '@/stores/plan-store';
+import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -13,14 +19,14 @@ import { formatRelativeTime } from '@/lib/plans/format';
 
 export function CommentsPanel() {
   const { t } = useTranslation();
-  const comments = usePlanStore((s) => s.comments);
-  const currentPlanId = usePlanStore((s) => s.currentPlanId);
-  const plans = usePlanStore((s) => s.plans);
-  const addComment = usePlanStore((s) => s.addComment);
-  const deleteComment = usePlanStore((s) => s.deleteComment);
-  const toggleResolveComment = usePlanStore((s) => s.toggleResolveComment);
+  const comments = useSubjectVersionsStore((s) => s.comments);
+  const currentSubjectId = useSubjectVersionsStore((s) => s.currentSubjectId);
+  const addComment = useSubjectVersionsStore((s) => s.addComment);
+  const deleteComment = useSubjectVersionsStore((s) => s.deleteComment);
+  const toggleResolveComment = useSubjectVersionsStore((s) => s.toggleResolveComment);
 
-  const currentSnapshotId = plans.find((p) => p.id === currentPlanId)?.currentSnapshotId ?? null;
+  // P5 TODO: read subjects.current_version_id from planner-store.
+  const currentSnapshotId: string | null = null;
   const userId = useAuthStore((s) => s.user?.id);
 
   const [body, setBody] = useState('');
@@ -39,7 +45,7 @@ export function CommentsPanel() {
     setBody('');
   };
 
-  if (!currentPlanId) return null;
+  if (!currentSubjectId) return null;
 
   return (
     <div className="flex flex-col h-full gap-2 p-3">

@@ -4,11 +4,11 @@ import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
-import { usePlanStore } from '@/stores/plan-store';
+import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   fetchAgentProfiles, fetchProjects, fetchSubjects, fetchBoardTasks, fetchActions,
-  fetchPlans, fetchPlanVersions, fetchPlanComments,
+  fetchSubjectVersions, fetchSubjectComments,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
 
@@ -46,21 +46,17 @@ export function startRealtimeSync(userId: string): void {
     const actions = await fetchActions(userId);
     if (actions) useActionsStore.getState().applyRemoteActions(actions);
   };
-  const refetchPlans = async () => {
-    const plans = await fetchPlans(userId);
-    if (plans) usePlanStore.getState().applyRemotePlans(plans);
+  const refetchSubjectVersions = async () => {
+    const currentSubjectId = useSubjectVersionsStore.getState().currentSubjectId;
+    if (!currentSubjectId) return;
+    const versions = await fetchSubjectVersions(currentSubjectId);
+    if (versions) useSubjectVersionsStore.getState().applyRemoteVersions(versions);
   };
-  const refetchPlanVersions = async () => {
-    const currentPlanId = usePlanStore.getState().currentPlanId;
-    if (!currentPlanId) return;
-    const versions = await fetchPlanVersions(currentPlanId);
-    if (versions) usePlanStore.getState().applyRemoteSnapshots(versions);
-  };
-  const refetchPlanComments = async () => {
-    const currentPlanId = usePlanStore.getState().currentPlanId;
-    if (!currentPlanId) return;
-    const comments = await fetchPlanComments(currentPlanId);
-    if (comments) usePlanStore.getState().applyRemoteComments(comments);
+  const refetchSubjectComments = async () => {
+    const currentSubjectId = useSubjectVersionsStore.getState().currentSubjectId;
+    if (!currentSubjectId) return;
+    const comments = await fetchSubjectComments(currentSubjectId);
+    if (comments) useSubjectVersionsStore.getState().applyRemoteComments(comments);
   };
 
   // Unique channel name per call. supabase.channel(name) returns the SAME
@@ -88,14 +84,13 @@ export function startRealtimeSync(userId: string): void {
     },
   );
 
-  ch = subscribeUserTable(ch, 'agent_profiles', userId, refetchProfiles);
-  ch = subscribeUserTable(ch, 'projects',       userId, refetchProjects);
-  ch = subscribeUserTable(ch, 'subjects',       userId, refetchSubjects);
-  ch = subscribeUserTable(ch, 'board_tasks',    userId, refetchBoardTasks);
-  ch = subscribeUserTable(ch, 'actions',        userId, refetchActions);
-  ch = subscribeUserTable(ch, 'plans',          userId, refetchPlans);
-  ch = subscribeUserTable(ch, 'plan_versions',  userId, refetchPlanVersions);
-  ch = subscribeUserTable(ch, 'plan_comments',  userId, refetchPlanComments);
+  ch = subscribeUserTable(ch, 'agent_profiles',    userId, refetchProfiles);
+  ch = subscribeUserTable(ch, 'projects',          userId, refetchProjects);
+  ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);
+  ch = subscribeUserTable(ch, 'subject_versions',  userId, refetchSubjectVersions);
+  ch = subscribeUserTable(ch, 'subject_comments',  userId, refetchSubjectComments);
+  ch = subscribeUserTable(ch, 'board_tasks',       userId, refetchBoardTasks);
+  ch = subscribeUserTable(ch, 'actions',           userId, refetchActions);
 
   channel = ch.subscribe();
 }

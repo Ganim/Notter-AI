@@ -3,7 +3,14 @@
 // No `Badge` import — the shadcn `badge.tsx` component is NOT installed in
 // this project. The "source" pill is a styled <span>, which keeps the dep
 // surface flat. Same applies to `date-fns`: see formatRelativeTime helper.
-import { usePlanStore } from '@/stores/plan-store';
+//
+// P3 minimal patch (post-pivot): rebound to useSubjectVersionsStore. The
+// `currentSnapshotId` highlight is temporarily disabled (set to null) — the
+// new schema tracks that on subjects.current_version_id, but the planner
+// store doesn't surface it yet. P5 will rewire this to read the live pointer
+// from planner-store and to actually load the version contents into the
+// editor when the Load button is clicked.
+import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -11,24 +18,24 @@ import { formatRelativeTime } from '@/lib/plans/format';
 
 export function SnapshotPanel() {
   const { t } = useTranslation();
-  const snapshots = usePlanStore((s) => s.snapshots);
-  const currentPlanId = usePlanStore((s) => s.currentPlanId);
-  const plans = usePlanStore((s) => s.plans);
-  const loadSnapshot = usePlanStore((s) => s.loadSnapshot);
+  const versions = useSubjectVersionsStore((s) => s.versions);
+  const currentSubjectId = useSubjectVersionsStore((s) => s.currentSubjectId);
+  const loadSnapshot = useSubjectVersionsStore((s) => s.loadSnapshot);
 
-  const currentSnapshotId = plans.find((p) => p.id === currentPlanId)?.currentSnapshotId ?? null;
+  // P5 TODO: read subjects.current_version_id from planner-store.
+  const currentSnapshotId: string | null = null;
 
-  if (!currentPlanId) return null;
+  if (!currentSubjectId) return null;
 
   return (
     <div className="flex flex-col gap-1 p-3 h-full overflow-y-auto">
       <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-        Versions ({snapshots.length})
+        Versions ({versions.length})
       </p>
-      {snapshots.length === 0 && (
+      {versions.length === 0 && (
         <p className="text-xs text-muted-foreground">No snapshots yet — click "Snapshot now" to save the current state.</p>
       )}
-      {snapshots.map((snap) => (
+      {versions.map((snap) => (
         <div
           key={snap.id}
           className={cn(

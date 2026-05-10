@@ -3,19 +3,9 @@ import { upsertUserRows } from '@/lib/synced-store';
 import type { AgentProfile, Project, BoardTask } from '@/types';
 import type { Action } from '@/types/actions';
 
-export interface PlanRecord {
+export interface SubjectVersionRecord {
   id: string;
-  userId: string;
-  title: string;
-  workingContent: string;
-  currentSnapshotId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PlanVersionRecord {
-  id: string;
-  planId: string;
+  subjectId: string;
   userId: string;
   contentMarkdown: string;
   parentVersionId: string | null;
@@ -25,9 +15,9 @@ export interface PlanVersionRecord {
   createdAt: string;
 }
 
-export interface PlanCommentRecord {
+export interface SubjectCommentRecord {
   id: string;
-  planId: string;
+  subjectId: string;
   versionId: string;
   userId: string;
   authorUserId: string;
@@ -151,6 +141,7 @@ export async function pushProjects(userId: string, projects: Project[]): Promise
 // ── Subjects (markdown notes) ─────────────────────────────────────────
 
 export interface SubjectRecord {
+  id: string;
   projectName: string;
   fileName: string;
   content: string;
@@ -165,6 +156,7 @@ export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | n
       .eq('user_id', userId);
     if (error || !data || data.length === 0) return null;
     return data.map((row: any) => ({
+      id: row.id,
       projectName: row.project_name,
       fileName: row.file_name,
       content: row.content,
@@ -313,54 +305,25 @@ export async function pushActions(userId: string, actions: Action[]): Promise<vo
   }));
 }
 
-// ── Plans ─────────────────────────────────────────────────────────────
+// ── Subject Versions ──────────────────────────────────────────────────
 
-export async function fetchPlans(userId: string): Promise<PlanRecord[] | null> {
+export async function fetchSubjectVersions(
+  subjectId: string,
+): Promise<SubjectVersionRecord[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data, error } = await supabase
-      .from('plans')
+      .from('subject_versions')
       .select('*')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false });
-    if (error) {
-      console.error('[sync] fetchPlans failed:', error);
-      return null;
-    }
-    return (data ?? []).map((row: any) => ({
-      id: row.id,
-      userId: row.user_id,
-      title: row.title,
-      workingContent: row.working_content,
-      currentSnapshotId: row.current_snapshot_id ?? null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
-  } catch (e) {
-    console.error('[sync] fetchPlans threw:', e);
-    return null;
-  }
-}
-
-// ── Plan Versions ─────────────────────────────────────────────────────
-
-export async function fetchPlanVersions(
-  planId: string,
-): Promise<PlanVersionRecord[] | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data, error } = await supabase
-      .from('plan_versions')
-      .select('*')
-      .eq('plan_id', planId)
+      .eq('subject_id', subjectId)
       .order('created_at', { ascending: false });
     if (error) {
-      console.error('[sync] fetchPlanVersions failed:', error);
+      console.error('[sync] fetchSubjectVersions failed:', error);
       return null;
     }
     return (data ?? []).map((row: any) => ({
       id: row.id,
-      planId: row.plan_id,
+      subjectId: row.subject_id,
       userId: row.user_id,
       contentMarkdown: row.content_markdown,
       parentVersionId: row.parent_version_id ?? null,
@@ -370,26 +333,27 @@ export async function fetchPlanVersions(
       createdAt: row.created_at,
     }));
   } catch (e) {
-    console.error('[sync] fetchPlanVersions threw:', e);
+    console.error('[sync] fetchSubjectVersions threw:', e);
     return null;
   }
 }
 
 /**
- * Insert a single plan_version row. Uses a direct Supabase insert (not
- * upsertUserRows) because plan_versions are append-only — never updated.
- * The trigger set_user_id_on_plan_versions fills user_id server-side.
+ * Insert a single subject_version row. Uses a direct Supabase insert (not
+ * upsertUserRows) because subject_versions are append-only — never updated.
+ * The trigger set_user_id_on_subject_versions fills user_id server-side from
+ * the parent subjects row, so the caller does NOT pass user_id.
  */
-export async function pushPlanVersion(
-  version: Omit<PlanVersionRecord, 'userId' | 'createdAt'>,
+export async function pushSubjectVersion(
+  version: Omit<SubjectVersionRecord, 'userId' | 'createdAt'>,
 ): Promise<{ id: string } | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data, error } = await supabase
-      .from('plan_versions')
+      .from('subject_versions')
       .insert({
         id: version.id,
-        plan_id: version.planId,
+        subject_id: version.subjectId,
         content_markdown: version.contentMarkdown,
         parent_version_id: version.parentVersionId ?? null,
         source: version.source,
@@ -399,35 +363,35 @@ export async function pushPlanVersion(
       .select('id')
       .single();
     if (error || !data) {
-      console.error('[sync] pushPlanVersion failed:', error);
+      console.error('[sync] pushSubjectVersion failed:', error);
       return null;
     }
     return { id: data.id };
   } catch (e) {
-    console.error('[sync] pushPlanVersion threw:', e);
+    console.error('[sync] pushSubjectVersion threw:', e);
     return null;
   }
 }
 
-// ── Plan Comments ─────────────────────────────────────────────────────
+// ── Subject Comments ──────────────────────────────────────────────────
 
-export async function fetchPlanComments(
-  planId: string,
-): Promise<PlanCommentRecord[] | null> {
+export async function fetchSubjectComments(
+  subjectId: string,
+): Promise<SubjectCommentRecord[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data, error } = await supabase
-      .from('plan_comments')
+      .from('subject_comments')
       .select('*')
-      .eq('plan_id', planId)
+      .eq('subject_id', subjectId)
       .order('created_at', { ascending: true });
     if (error) {
-      console.error('[sync] fetchPlanComments failed:', error);
+      console.error('[sync] fetchSubjectComments failed:', error);
       return null;
     }
     return (data ?? []).map((row: any) => ({
       id: row.id,
-      planId: row.plan_id,
+      subjectId: row.subject_id,
       versionId: row.version_id,
       userId: row.user_id,
       authorUserId: row.author_user_id,
@@ -437,46 +401,47 @@ export async function fetchPlanComments(
       updatedAt: row.updated_at,
     }));
   } catch (e) {
-    console.error('[sync] fetchPlanComments threw:', e);
+    console.error('[sync] fetchSubjectComments threw:', e);
     return null;
   }
 }
 
 /**
- * Upsert a single plan_comment row (covers create + resolve-toggle + edit).
- * The trigger set_user_id_on_plan_comments fills user_id server-side on INSERT.
- * On update (resolve toggle), send the full row so user_id is not clobbered.
+ * Upsert a single subject_comment row (covers create + resolve-toggle + edit).
+ * The trigger set_user_id_on_subject_comments fills user_id server-side on
+ * INSERT from the parent subjects row. On UPDATE (resolve toggle / edit) the
+ * existing user_id stays put because we don't pass it.
  */
-export async function pushPlanComment(
-  comment: Omit<PlanCommentRecord, 'userId' | 'createdAt'> & { userId?: string },
+export async function pushSubjectComment(
+  comment: Omit<SubjectCommentRecord, 'userId' | 'createdAt'> & { userId?: string },
 ): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    const { error } = await supabase.from('plan_comments').upsert({
+    const { error } = await supabase.from('subject_comments').upsert({
       id: comment.id,
-      plan_id: comment.planId,
+      subject_id: comment.subjectId,
       version_id: comment.versionId,
       author_user_id: comment.authorUserId,
       body: comment.body,
       resolved: comment.resolved,
-      updated_at: new Date().toISOString(),
+      updated_at: comment.updatedAt ?? new Date().toISOString(),
     });
-    if (error) console.error('[sync] pushPlanComment failed:', error);
+    if (error) console.error('[sync] pushSubjectComment failed:', error);
   } catch (e) {
-    console.error('[sync] pushPlanComment threw:', e);
+    console.error('[sync] pushSubjectComment threw:', e);
   }
 }
 
-export async function deletePlanComment(commentId: string, userId: string): Promise<void> {
+export async function deleteSubjectComment(commentId: string, userId: string): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
     const { error } = await supabase
-      .from('plan_comments')
+      .from('subject_comments')
       .delete()
       .eq('id', commentId)
       .eq('user_id', userId);
-    if (error) console.error('[sync] deletePlanComment failed:', error);
+    if (error) console.error('[sync] deleteSubjectComment failed:', error);
   } catch (e) {
-    console.error('[sync] deletePlanComment threw:', e);
+    console.error('[sync] deleteSubjectComment threw:', e);
   }
 }
