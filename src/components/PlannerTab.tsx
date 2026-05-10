@@ -180,7 +180,7 @@ export function PlannerTab() {
   const versionsPanelRef = useRef<PanelImperativeHandle>(null);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [subjectsCollapsed, setSubjectsCollapsed] = useState(false);
-  const [isVersionsPanelCollapsed, setIsVersionsPanelCollapsed] = useState(false);
+  const [isVersionsPanelCollapsed, setIsVersionsPanelCollapsed] = useState(true);
 
   const windowWidth = useWindowWidth();
   const isSmall = windowWidth < 640;
@@ -201,6 +201,13 @@ export function PlannerTab() {
     if (ref.isCollapsed()) ref.expand();
     else ref.collapse();
   };
+
+  // Start the versions/comments side panel collapsed. The defaultSize on the
+  // ResizablePanel only applies on first render; we need an imperative collapse()
+  // after mount so the panel begins hidden until the user toggles it open.
+  useEffect(() => {
+    versionsPanelRef.current?.collapse();
+  }, []);
 
   // --- Effects ---
   useEffect(() => {
@@ -894,7 +901,7 @@ export function PlannerTab() {
         {/* @ts-expect-error shadcn type mismatch */}
         <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
           <ResizablePanel
-            panelRef={projectsPanelRef} defaultSize={35} minSize={20}
+            panelRef={projectsPanelRef} defaultSize="35%" minSize="20%"
             collapsible collapsedSize={0}
             onResize={(size) => setProjectsCollapsed(size.asPercentage === 0)}
             className="bg-muted/50"
@@ -939,7 +946,7 @@ export function PlannerTab() {
             </div>
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel defaultSize={65} minSize={40} className="flex flex-col bg-background">
+          <ResizablePanel defaultSize="65%" minSize="40%" className="flex flex-col bg-background">
             {projectsCollapsed && (
               <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
                 <button onClick={() => projectsPanelRef.current?.expand()} className="flex items-center gap-1.5 px-2 py-1 rounded-sm text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
@@ -974,7 +981,7 @@ export function PlannerTab() {
       {/* @ts-expect-error shadcn type mismatch */}
       <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
         <ResizablePanel
-          panelRef={projectsPanelRef} defaultSize={20} minSize={10}
+          panelRef={projectsPanelRef} defaultSize="15%" minSize="10%"
           collapsible collapsedSize={0}
           onResize={(size) => setProjectsCollapsed(size.asPercentage === 0)}
           className="bg-muted/50"
@@ -999,7 +1006,7 @@ export function PlannerTab() {
         <ResizableHandle />
 
         <ResizablePanel
-          panelRef={subjectsPanelRef} defaultSize={25} minSize={10}
+          panelRef={subjectsPanelRef} defaultSize="15%" minSize="10%"
           collapsible collapsedSize={0}
           onResize={(size) => setSubjectsCollapsed(size.asPercentage === 0)}
           className="bg-muted/20"
@@ -1018,7 +1025,7 @@ export function PlannerTab() {
 
         <ResizableHandle />
 
-        <ResizablePanel defaultSize={55} minSize={30} className="flex flex-col bg-background">
+        <ResizablePanel defaultSize="70%" minSize="40%" className="flex flex-col bg-background">
           {(projectsCollapsed || subjectsCollapsed) && (
             <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/30 shrink-0">
               {projectsCollapsed && (
