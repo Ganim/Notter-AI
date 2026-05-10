@@ -408,3 +408,75 @@ export async function pushPlanVersion(
     return null;
   }
 }
+
+// ── Plan Comments ─────────────────────────────────────────────────────
+
+export async function fetchPlanComments(
+  planId: string,
+): Promise<PlanCommentRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('plan_comments')
+      .select('*')
+      .eq('plan_id', planId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[sync] fetchPlanComments failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      planId: row.plan_id,
+      versionId: row.version_id,
+      userId: row.user_id,
+      authorUserId: row.author_user_id,
+      body: row.body,
+      resolved: row.resolved,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchPlanComments threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Upsert a single plan_comment row (covers create + resolve-toggle + edit).
+ * The trigger set_user_id_on_plan_comments fills user_id server-side on INSERT.
+ * On update (resolve toggle), send the full row so user_id is not clobbered.
+ */
+export async function pushPlanComment(
+  comment: Omit<PlanCommentRecord, 'userId' | 'createdAt'> & { userId?: string },
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase.from('plan_comments').upsert({
+      id: comment.id,
+      plan_id: comment.planId,
+      version_id: comment.versionId,
+      author_user_id: comment.authorUserId,
+      body: comment.body,
+      resolved: comment.resolved,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) console.error('[sync] pushPlanComment failed:', error);
+  } catch (e) {
+    console.error('[sync] pushPlanComment threw:', e);
+  }
+}
+
+export async function deletePlanComment(commentId: string, userId: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('plan_comments')
+      .delete()
+      .eq('id', commentId)
+      .eq('user_id', userId);
+    if (error) console.error('[sync] deletePlanComment failed:', error);
+  } catch (e) {
+    console.error('[sync] deletePlanComment threw:', e);
+  }
+}
