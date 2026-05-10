@@ -53,7 +53,10 @@ import { importMarkdownText } from '@/lib/plans/import';
 import { stringifyPlanMarkdown } from '@/lib/plans/frontmatter';
 
 const FM = {
-  subject_id: 'unknown1-2222-4222-9222-222222222222',
+  // Valid UUID shape but absent from subjectRows in this suite — exercises
+  // the case-B (subject-not-found) path. Original spec used "unknown1-..."
+  // which fails frontmatter UUID validation before reaching the orchestrator.
+  subject_id: '22222222-2222-4222-9222-222222222222',
   version_id: 'b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b2b2',
   parent_version_id: null,
   title: 'My Project / new-note.md',
