@@ -114,15 +114,14 @@ export async function pushAgentProfiles(userId: string, profiles: AgentProfile[]
 
 // ── Projects ──────────────────────────────────────────────────────────
 
-export async function fetchProjects(userId: string): Promise<Project[] | null> {
+export async function fetchProjects(userId: string, workspaceId?: string): Promise<Project[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('user_id', userId);
+    let q = supabase.from('projects').select('*').eq('user_id', userId);
+    if (workspaceId) q = q.eq('workspace_id', workspaceId);
+    const { data, error } = await q;
     if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({ name: row.name, path: row.path }));
+    return data.map((row: any) => ({ name: row.name, path: row.path, workspaceId: row.workspace_id }));
   } catch {
     return null;
   }
@@ -134,6 +133,7 @@ export async function pushProjects(userId: string, projects: Project[]): Promise
     user_id: userId,
     name: p.name,
     path: p.path,
+    workspace_id: p.workspaceId,
     updated_at: new Date().toISOString(),
   }));
 }
@@ -331,6 +331,219 @@ export async function pushActions(userId: string, actions: Action[]): Promise<vo
     data: a,
     updated_at: new Date().toISOString(),
   }));
+}
+
+// ── Workspaces ────────────────────────────────────────────────────────
+
+export interface WorkspaceRecord {
+  id: string;
+  userId: string;
+  name: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchWorkspaces(userId: string): Promise<WorkspaceRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('workspaces')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[sync] fetchWorkspaces failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      isDefault: row.is_default,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchWorkspaces threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Insert a single workspace row. The caller chooses the id (crypto.randomUUID).
+ * Direct insert, not upsertUserRows, because `add` is a single-row write and
+ * the `(user_id, name)` UNIQUE constraint requires error reporting rather
+ * than silent merge.
+ */
+export async function pushWorkspace(
+  workspace: Omit<WorkspaceRecord, 'createdAt' | 'updatedAt'>,
+): Promise<{ ok: true } | { ok: false; code: 'duplicate_name' | 'unknown'; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { error } = await supabase.from('workspaces').insert({
+      id: workspace.id,
+      user_id: workspace.userId,
+      name: workspace.name,
+      is_default: workspace.isDefault,
+    });
+    if (error) {
+      // Postgres unique-violation code is 23505.
+      if ((error as any).code === '23505') {
+        return { ok: false, code: 'duplicate_name', message: error.message };
+      }
+      console.error('[sync] pushWorkspace failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[sync] pushWorkspace threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+export async function renameWorkspace(
+  workspaceId: string,
+  userId: string,
+  newName: string,
+): Promise<{ ok: true } | { ok: false; code: 'duplicate_name' | 'unknown'; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { error } = await supabase
+      .from('workspaces')
+      .update({ name: newName, updated_at: new Date().toISOString() })
+      .eq('id', workspaceId)
+      .eq('user_id', userId);
+    if (error) {
+      if ((error as any).code === '23505') {
+        return { ok: false, code: 'duplicate_name', message: error.message };
+      }
+      console.error('[sync] renameWorkspace failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[sync] renameWorkspace threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Set `workspaceId` as the default for `userId`. Issues two updates so the
+ * partial-unique-default index is never violated:
+ *   1. Clear `is_default` on the current default (where `is_default = true`).
+ *   2. Set `is_default = true` on the target.
+ * Sequential is fine — Supabase serializes our writes per request.
+ */
+export async function setWorkspaceDefault(
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    // Step 1: clear the existing default.
+    await supabase
+      .from('workspaces')
+      .update({ is_default: false, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('is_default', true);
+    // Step 2: set the new one.
+    const { error } = await supabase
+      .from('workspaces')
+      .update({ is_default: true, updated_at: new Date().toISOString() })
+      .eq('id', workspaceId)
+      .eq('user_id', userId);
+    if (error) console.error('[sync] setWorkspaceDefault step 2 failed:', error);
+  } catch (e) {
+    console.error('[sync] setWorkspaceDefault threw:', e);
+  }
+}
+
+/**
+ * Delete a workspace. Caller is responsible for resolving children FIRST
+ * (move or purge). The `ON DELETE RESTRICT` on projects.workspace_id will
+ * cause this to fail with 23503 if any project still references the workspace
+ * — that's the safety net the spec relies on (§4.2).
+ *
+ * Returns ok:false on the 23503 path so the UI can show a specific toast.
+ */
+export async function deleteWorkspace(
+  workspaceId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; code: 'has_projects' | 'unknown'; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { error } = await supabase
+      .from('workspaces')
+      .delete()
+      .eq('id', workspaceId)
+      .eq('user_id', userId);
+    if (error) {
+      if ((error as any).code === '23503') {
+        return { ok: false, code: 'has_projects', message: error.message };
+      }
+      console.error('[sync] deleteWorkspace failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[sync] deleteWorkspace threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Re-target a single project to a different workspace. Used by the "Move to
+ * workspace" UI affordance. Subjects/versions/comments travel with the
+ * project automatically — they're scoped via the FK chain, not via a
+ * denormalized workspace_id of their own.
+ */
+export async function updateProjectWorkspace(
+  userId: string,
+  projectName: string,
+  targetWorkspaceId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({ workspace_id: targetWorkspaceId, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('name', projectName);
+    if (error) console.error('[sync] updateProjectWorkspace failed:', error);
+  } catch (e) {
+    console.error('[sync] updateProjectWorkspace threw:', e);
+  }
+}
+
+/**
+ * Move every project from `fromWorkspaceId` to `toWorkspaceId` for the
+ * given user. Used by the "move-then-delete" flow in WorkspaceDeleteDialog.
+ * Returns the number of rows affected so the UI can verify before issuing
+ * the workspace delete.
+ */
+export async function moveProjectsBetweenWorkspaces(
+  userId: string,
+  fromWorkspaceId: string,
+  toWorkspaceId: string,
+): Promise<{ ok: true; movedCount: number } | { ok: false; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, message: 'supabase not configured' };
+  try {
+    const { data, error, count } = await supabase
+      .from('projects')
+      .update({ workspace_id: toWorkspaceId, updated_at: new Date().toISOString() }, { count: 'exact' })
+      .eq('user_id', userId)
+      .eq('workspace_id', fromWorkspaceId)
+      .select('name');
+    if (error) {
+      console.error('[sync] moveProjectsBetweenWorkspaces failed:', error);
+      return { ok: false, message: error.message };
+    }
+    return { ok: true, movedCount: count ?? data?.length ?? 0 };
+  } catch (e: any) {
+    console.error('[sync] moveProjectsBetweenWorkspaces threw:', e);
+    return { ok: false, message: e?.message ?? String(e) };
+  }
 }
 
 // ── Subject Versions ──────────────────────────────────────────────────

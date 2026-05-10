@@ -141,7 +141,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   createProject: async (name, path) => {
     await mkdir(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    const newProject: Project = { name, path };
+    // Phase B placeholder: workspaceId is empty until Phase C creates the
+    // useWorkspacesStore and Phase E refactors this call site to stamp
+    // currentWorkspaceId. Filesystem persistence and the local store work
+    // with the empty string; remote sync of new projects is therefore gated
+    // until Phase E. The migration in Phase G will backfill workspace_id.
+    const newProject: Project = { name, path, workspaceId: '' };
     const newProjects = [...get().projects, newProject];
     set({ projects: newProjects });
     await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });

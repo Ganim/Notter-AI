@@ -13,6 +13,7 @@ export interface AgentProfile {
 export interface Project {
   name: string;
   path: string;
+  workspaceId: string;
 }
 
 export type ShellType = 'powershell' | 'bash' | 'cmd';
