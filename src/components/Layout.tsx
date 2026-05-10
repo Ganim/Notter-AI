@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
@@ -51,7 +52,10 @@ export function Layout({ children }: LayoutProps) {
             </span>
           )}
         </div>
-        <UserMenu />
+        <div className="flex items-center gap-1">
+          <WorkspaceSwitcher />
+          <UserMenu />
+        </div>
       </div>
 
       {/* Content — all tabs stay mounted, only active is visible */}

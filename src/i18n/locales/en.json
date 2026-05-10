@@ -300,6 +300,16 @@
     "switch_failed": "Failed to switch account",
     "fs_migration_partial": "Filesystem migration partial — see logs"
   },
+  "workspaces": {
+    "switcher_label": "Switch workspace",
+    "switch_tooltip": "Switch workspace",
+    "switch_failed": "Failed to switch workspace",
+    "only_one": "Only one workspace — add another to switch.",
+    "default_badge": "Default",
+    "add": "Add workspace",
+    "manage": "Manage workspaces",
+    "loading": "Loading..."
+  },
   "account": {
     "title": "Account",
     "display_name": "Display name",
