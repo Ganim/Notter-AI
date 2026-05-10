@@ -151,6 +151,17 @@
     "best_for": "Best for",
     "ollama_not_installed_hint": "Ollama is not installed. Click \"Install Ollama\" above to download and install it automatically. The installer runs silently — no popup windows."
   },
+  "mcp": {
+    "menu_label": "MCP config",
+    "dialog_title": "MCP server config",
+    "dialog_description": "Point your external CLI (claude-code, codex, aider) at this URL with the bearer token below.",
+    "url_label": "URL",
+    "token_label": "Bearer token",
+    "copy_button": "Copy JSON",
+    "copied_toast": "MCP config copied to clipboard",
+    "disabled_banner": "MCP server unavailable",
+    "disabled_reason": "The local server failed to bind. Restart the app; if it persists, check the logs."
+  },
   "updater": {
     "title": "Updates",
     "checking": "Checking for updates...",
