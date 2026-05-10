@@ -30,8 +30,8 @@ use crate::mcp::types::JsonRpcResponse;
 
 #[derive(Clone)]
 pub struct McpStateInner {
-    /// token (e.g. "notter_acc_xxxx") -> account id
-    pub token_to_account: HashMap<String, String>,
+    /// bearer token (e.g. "notter_ws_xxxx") -> { account_id, workspace_id }
+    pub token_to_owner: HashMap<String, crate::mcp::auth::AuthOwner>,
     /// account id -> (access_token, expires_at_unix_seconds)
     pub access_tokens: HashMap<String, (String, i64)>,
     /// public URL ("http://127.0.0.1:54781/mcp") set after bind succeeds
@@ -75,9 +75,9 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
         }
     }
 
-    // 2. Repopulate token_to_account from secure store. Done elsewhere
-    // (the front-end calls notifyMcpAccountAdded for each known account
-    // during AccountManager.bootstrap) — but as a defense, we also try
+    // 2. Repopulate token_to_owner from secure store. Done elsewhere
+    // (the front-end calls notifyMcpWorkspaceAdded for each known workspace
+    // during WorkspaceManager.bootstrap) — but as a defense, we also try
     // to read directly from the keyring here. See repopulate_bearer_tokens.
     repopulate_bearer_tokens(&state).await;
 
@@ -108,13 +108,13 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
         s.url = Some(url.clone());
     }
 
-    // 5b. Bind happens AFTER the front-end's account-manager.bootstrap may
+    // 5b. Bind happens AFTER the front-end's workspace-manager.bootstrap may
     // have already registered bearer tokens (race), in which case
-    // mcp_register_bearer's call to write_per_account_configs ran with
+    // mcp_register_bearer's call to write_per_workspace_configs ran with
     // s.url still None and produced files with empty url. Re-emit now that
-    // url is set so the per-account files reflect the real URL.
-    if let Err(e) = write_per_account_configs(app, &state).await {
-        eprintln!("[mcp] post-bind write_per_account_configs failed: {e}");
+    // url is set so the per-workspace files reflect the real URL.
+    if let Err(e) = write_per_workspace_configs(app, &state).await {
+        eprintln!("[mcp] post-bind write_per_workspace_configs failed: {e}");
     }
 
     eprintln!("[mcp] listening on {url}");
@@ -155,23 +155,19 @@ async fn bind_with_retries() -> Result<TcpListener, String> {
     ))
 }
 
-/// Read every secure-store key matching `notter:account:<id>:mcp_token` and
-/// populate the bearer-token map. Falls through silently on any error — the
-/// front-end will repopulate via mcp_update_account_token + mcp_register on
-/// the next auth event.
+/// Read every secure-store key matching `notter:account:<id>:workspace:<wid>:mcp_token`
+/// and populate the bearer-token map. Falls through silently on any error —
+/// the front-end will repopulate via mcp_register_bearer on the next workspace
+/// bootstrap event.
 ///
-/// NOTE: at the time this runs, the keyring entries exist (M1 wrote them)
-/// but the Rust SecureStoreState's known_keys index is empty (it is repopulated
-/// by the front-end's `secure_register_known_keys` call during
-/// AccountManager.bootstrap). To avoid a chicken-and-egg, this function
-/// reads the index.json directly from disk to enumerate accounts, then
-/// reads each account's mcp_token via the keyring.
+/// NOTE: at the time this runs, the keyring entries exist (M1/Workspaces wrote
+/// them) but the Rust SecureStoreState's known_keys index is empty (it is
+/// repopulated by the front-end's `secure_register_known_keys` call during
+/// WorkspaceManager.bootstrap). To avoid a chicken-and-egg, this function
+/// is intentionally a no-op; the front-end's notifyMcpWorkspaceAdded does the
+/// repopulation.
 async fn repopulate_bearer_tokens(state: &McpState) {
     let _ = state; // populated by the front-end on add; safe to leave empty
-    // Future: we could read accounts/index.json here and pull each
-    // account's mcp_token via keyring::Entry. For Phase D the front-end
-    // does it via a dedicated `notifyMcpAccountAdded` Tauri command (added
-    // in Phase I); leaving as a no-op keeps Phase D dependency-free.
 }
 
 async fn health(
@@ -221,29 +217,35 @@ async fn mcp_handler(
 }
 
 // ---------------------------------------------------------------------------
-// Phase K — per-account stable config file
+// Phase H — per-workspace stable config file
 // ---------------------------------------------------------------------------
 //
 // External CLIs (Codex, Claude Code, etc.) prefer a stable file path they can
 // point at in their MCP config. `endpoint.json` carries the live URL but is
-// shared across all accounts. For each account we additionally write
-// `<appLocalData>/notter-ai/mcp/<accountId>-config.json` containing the URL +
-// that account's bearer token, refreshed on every `mcp_register_bearer` call.
+// shared across all (account, workspace) pairs. For each pair we additionally
+// write `<appLocalData>/notter-ai/mcp/<accountId>-<workspaceId>-config.json`
+// containing the URL + that pair's bearer token, refreshed on every
+// `mcp_register_bearer` call.
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct McpAccountConfig {
+pub struct McpWorkspaceConfig {
     pub url: String,
     pub bearer_token: String,
+    pub account_id: String,
+    pub workspace_id: String,
     pub generated_at: String,
 }
 
-/// Iterate the current `token_to_account` map and write one
-/// `<accountId>-config.json` per registered account. Each file is rewritten
-/// in full on every call; we never merge/patch.
+/// Iterate the current `token_to_owner` map and write one
+/// `<accountId>-<workspaceId>-config.json` per registered (account, workspace)
+/// pair. Each file is rewritten in full on every call; we never merge/patch.
+///
+/// Also performs the M3 → workspaces clean-break cleanup: any legacy
+/// `<accountId>-config.json` files left over from before Phase H are deleted.
 ///
 /// Takes a read lock internally — callers MUST drop any write lock on `state`
 /// before invoking this (tokio's RwLock is not reentrant).
-pub async fn write_per_account_configs(
+pub async fn write_per_workspace_configs(
     app: &AppHandle,
     state: &McpState,
 ) -> Result<(), String> {
@@ -255,57 +257,90 @@ pub async fn write_per_account_configs(
     let (url, entries) = {
         let s = state.read().await;
         let url = s.url.clone().unwrap_or_default();
-        let entries: Vec<(String, String)> = s
-            .token_to_account
+        let entries: Vec<(String, crate::mcp::auth::AuthOwner)> = s
+            .token_to_owner
             .iter()
-            .map(|(tok, acct)| (acct.clone(), tok.clone()))
+            .map(|(tok, owner)| (tok.clone(), owner.clone()))
             .collect();
         (url, entries)
     };
 
     let generated_at = crate::mcp::endpoint::now_rfc3339();
 
-    for (account_id, bearer_token) in entries {
-        let cfg = McpAccountConfig {
+    for (bearer_token, owner) in entries {
+        let cfg = McpWorkspaceConfig {
             url: url.clone(),
             bearer_token,
+            account_id: owner.account_id.clone(),
+            workspace_id: owner.workspace_id.clone(),
             generated_at: generated_at.clone(),
         };
-        let json = serde_json::to_string_pretty(&cfg)
-            .map_err(|e| format!("serde: {e}"))?;
-        let path = dir.join(format!("{}-config.json", account_id));
+        let json =
+            serde_json::to_string_pretty(&cfg).map_err(|e| format!("serde: {e}"))?;
+        let path = dir.join(format!(
+            "{}-{}-config.json",
+            owner.account_id, owner.workspace_id
+        ));
         tokio::fs::write(&path, json)
             .await
             .map_err(|e| format!("write {}: {e}", path.display()))?;
     }
 
+    // Locked decision §2b (workspaces design): delete any leftover M3
+    // `<accountId>-config.json` files. They had exactly one '-' separator
+    // (between the account id segments-less file body and the suffix) — we
+    // detect by filename shape rather than by trying to enumerate account
+    // ids. Any file matching `*-config.json` with a single dash is legacy.
+    if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with("-config.json") && name.matches('-').count() == 1 {
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
+
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadWorkspaceConfigArgs {
+    pub account_id: String,
+    pub workspace_id: String,
+}
+
 /// Tauri command — the Phase J dialog calls this to display the active
-/// account's MCP URL + bearer token. Synthesizes the config directly from
-/// in-memory state (the per-account file at `<dir>/<accountId>-config.json`
-/// is just a convenience for CLIs that read it; the dialog doesn't need
-/// the file to exist).
+/// (account, workspace) pair's MCP URL + bearer token. Synthesizes the config
+/// directly from in-memory state.
 #[tauri::command]
-pub async fn mcp_read_account_config(
-    account_id: String,
+pub async fn mcp_read_workspace_config(
+    args: ReadWorkspaceConfigArgs,
     state: tauri::State<'_, McpState>,
-) -> Result<McpAccountConfig, String> {
+) -> Result<McpWorkspaceConfig, String> {
     let s = state.read().await;
     let url = s
         .url
         .clone()
         .ok_or_else(|| "MCP server not yet bound".to_string())?;
-    let bearer = s
-        .token_to_account
+    let (bearer, owner) = s
+        .token_to_owner
         .iter()
-        .find(|(_, acct)| acct.as_str() == account_id)
-        .map(|(tok, _)| tok.clone())
-        .ok_or_else(|| format!("no bearer registered for account {account_id}"))?;
-    Ok(McpAccountConfig {
+        .find(|(_, owner)| {
+            owner.account_id == args.account_id && owner.workspace_id == args.workspace_id
+        })
+        .map(|(tok, owner)| (tok.clone(), owner.clone()))
+        .ok_or_else(|| {
+            format!(
+                "no bearer registered for ({}, {})",
+                args.account_id, args.workspace_id
+            )
+        })?;
+    Ok(McpWorkspaceConfig {
         url,
         bearer_token: bearer,
+        account_id: owner.account_id,
+        workspace_id: owner.workspace_id,
         generated_at: crate::mcp::endpoint::now_rfc3339(),
     })
 }

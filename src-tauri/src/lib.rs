@@ -247,7 +247,7 @@ pub fn run() {
     // visible to Rust).
     let mcp_state: mcp::McpState = std::sync::Arc::new(tokio::sync::RwLock::new(
         mcp::McpStateInner {
-            token_to_account: std::collections::HashMap::new(),
+            token_to_owner: std::collections::HashMap::new(),
             access_tokens: std::collections::HashMap::new(),
             url: None,
             nonce: mcp::endpoint::generate_nonce(),
@@ -322,7 +322,8 @@ pub fn run() {
             mcp::auth::mcp_remove_account_token,
             mcp::auth::mcp_set_supabase_config,
             mcp::auth::mcp_register_bearer,
-            mcp::server::mcp_read_account_config,
+            mcp::auth::mcp_revoke_bearer,
+            mcp::server::mcp_read_workspace_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

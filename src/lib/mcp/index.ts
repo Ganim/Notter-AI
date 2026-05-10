@@ -4,7 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 /**
  * Notify the Rust MCP server that an account's Supabase access token has
  * rotated. Front-end is the SOLE Supabase refresh owner per spec §6.2; the
- * Rust server is a passive consumer of these pushes.
+ * Rust server is a passive consumer of these pushes. Access tokens stay
+ * per-account — they're tied to the Supabase user session, not to a
+ * particular workspace.
  */
 export async function notifyMcpAccountTokenChanged(
   accountId: string,
@@ -23,29 +25,15 @@ export async function notifyMcpAccountTokenChanged(
 
 /**
  * Notify the Rust MCP server that an account has been removed (or signed out).
- * Drops the per-account access-token slice and any active bearer mapping.
+ * Drops the per-account access-token slice AND every bearer mapping (across
+ * all workspaces) belonging to that account. Still called from
+ * AccountManager.remove and from signOut.
  */
 export async function notifyMcpAccountRemoved(accountId: string): Promise<void> {
   try {
     await invoke('mcp_remove_account_token', { accountId });
   } catch (e) {
     console.warn('[mcp] notifyMcpAccountRemoved failed:', e);
-  }
-}
-
-/**
- * Register a per-account Bearer token with the Rust server. Called from
- * AccountManager.bootstrap() and AccountManager.add() so the server knows
- * which Bearer corresponds to which account.
- */
-export async function notifyMcpAccountAdded(
-  accountId: string,
-  bearerToken: string,
-): Promise<void> {
-  try {
-    await invoke('mcp_register_bearer', { accountId, bearerToken });
-  } catch (e) {
-    console.warn('[mcp] notifyMcpAccountAdded failed:', e);
   }
 }
 
@@ -66,45 +54,64 @@ export async function pushMcpSupabaseConfig(
   }
 }
 
-/**
- * Read the per-account stable config file at
- * `<appLocalData>/notter-ai/mcp/<accountId>-config.json`.
- * Used by the "Copy MCP config" UI in Phase J. The backing Tauri command
- * (`mcp_read_account_config`) is added in Phase K — until then this returns
- * null, and the UI surfaces a "MCP unavailable" state.
- */
-export interface McpConfig {
-  url: string;
-  bearer_token: string;
-  generated_at: string;
-}
+// ─── Workspace-aware MCP bridge (Phase H) ─────────────────────────────────
 
-export async function readMcpConfigForAccount(
+/**
+ * Register a per-workspace bearer token with the Rust server. Called by
+ * `WorkspaceManager.bootstrap()` (once per known workspace) and by
+ * `WorkspaceManager.add()` (for newly created workspaces).
+ */
+export async function notifyMcpWorkspaceAdded(
   accountId: string,
-): Promise<McpConfig | null> {
+  workspaceId: string,
+  bearerToken: string,
+): Promise<void> {
   try {
-    return await invoke<McpConfig>('mcp_read_account_config', { accountId });
+    await invoke('mcp_register_bearer', {
+      args: { accountId, workspaceId, bearerToken },
+    });
   } catch (e) {
-    console.warn('[mcp] readMcpConfigForAccount failed:', e);
-    return null;
+    console.warn('[mcp] notifyMcpWorkspaceAdded failed:', e);
   }
 }
 
-// ─── Workspace bearer registration (Phase C placeholders) ─────────────────
-//
-// Phase I (Rust-side MCP refactor) fills these in with real `invoke()` calls
-// against new Tauri commands (`mcp_register_workspace_bearer`,
-// `mcp_remove_workspace_bearer`). Until then the WorkspaceManager calls these
-// at bootstrap/add/remove time and we no-op so the singleton still wires up.
-
-export async function notifyMcpWorkspaceAdded(
-  _accountId: string,
-  _workspaceId: string,
-  _bearer: string,
+/**
+ * Revoke a single bearer in the Rust map. Used by `WorkspaceManager.remove()`
+ * so the deleted workspace's CLI immediately 401s.
+ */
+export async function notifyMcpWorkspaceRemoved(
+  bearerToken: string,
 ): Promise<void> {
-  // Phase I: invoke('mcp_register_workspace_bearer', { accountId, workspaceId, bearer })
+  try {
+    await invoke('mcp_revoke_bearer', { args: { bearerToken } });
+  } catch (e) {
+    console.warn('[mcp] notifyMcpWorkspaceRemoved failed:', e);
+  }
 }
 
-export async function notifyMcpWorkspaceRemoved(_bearer: string): Promise<void> {
-  // Phase I: invoke('mcp_remove_workspace_bearer', { bearer })
+/**
+ * Read the per-workspace stable config file at
+ * `<appLocalData>/notter-ai/mcp/<accountId>-<workspaceId>-config.json`.
+ * Used by the "Copy MCP config" UI in `WorkspaceManagerDialog`.
+ */
+export interface McpWorkspaceConfig {
+  url: string;
+  bearer_token: string;
+  account_id: string;
+  workspace_id: string;
+  generated_at: string;
+}
+
+export async function readMcpConfigForWorkspace(
+  accountId: string,
+  workspaceId: string,
+): Promise<McpWorkspaceConfig | null> {
+  try {
+    return await invoke<McpWorkspaceConfig>('mcp_read_workspace_config', {
+      args: { accountId, workspaceId },
+    });
+  } catch (e) {
+    console.warn('[mcp] readMcpConfigForWorkspace failed:', e);
+    return null;
+  }
 }

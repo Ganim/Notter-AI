@@ -81,7 +81,10 @@ describe('AccountManager.bootstrap', () => {
 });
 
 describe('AccountManager.add', () => {
-  it('persists the refresh token + mcp token to secure store and writes the index', async () => {
+  it('persists the refresh token to secure store and writes the index', async () => {
+    // Phase H (Workspaces): the per-account mcp_token is no longer minted at
+    // add-time. WorkspaceManager owns the per-workspace bearer surface, so
+    // only the refresh token is persisted here.
     const mgr = new AccountManager();
     await mgr.bootstrap();
     await mgr.add({
@@ -93,9 +96,10 @@ describe('AccountManager.add', () => {
     expect(secureMock.secureSet).toHaveBeenCalledWith(
       'notter:account:u1:refresh_token', 'rt-xyz',
     );
-    expect(secureMock.secureSet).toHaveBeenCalledWith(
+    // Assert no mcp_token write happened.
+    expect(secureMock.secureSet).not.toHaveBeenCalledWith(
       'notter:account:u1:mcp_token',
-      expect.stringMatching(/^notter_acc_/),
+      expect.anything(),
     );
     expect(storageMock.writeAccountIndex).toHaveBeenCalled();
     expect(mgr.list()).toHaveLength(1);

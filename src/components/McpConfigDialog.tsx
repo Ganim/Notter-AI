@@ -1,9 +1,15 @@
 // src/components/McpConfigDialog.tsx
+//
+// Shows the current workspace's MCP config (URL + bearer token). This is the
+// "Copy MCP config" affordance reachable from UserMenu. Phase J ships a
+// dedicated WorkspaceManagerDialog with per-row copy; this dialog stays as a
+// fast path for the active workspace.
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuthStore } from '@/stores/auth-store';
-import { readMcpConfigForAccount, type McpConfig } from '@/lib/mcp';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
+import { readMcpConfigForWorkspace, type McpWorkspaceConfig } from '@/lib/mcp';
 import { toast } from 'sonner';
 
 interface Props {
@@ -14,19 +20,20 @@ interface Props {
 export function McpConfigDialog({ open, onOpenChange }: Props) {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [config, setConfig] = useState<McpConfig | null>(null);
+  const currentWorkspaceId = useWorkspacesStore((s) => s.currentWorkspaceId);
+  const [config, setConfig] = useState<McpWorkspaceConfig | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!open || !user) {
+    if (!open || !user || !currentWorkspaceId) {
       setConfig(null);
       return;
     }
     setLoading(true);
-    readMcpConfigForAccount(user.id)
+    readMcpConfigForWorkspace(user.id, currentWorkspaceId)
       .then(setConfig)
       .finally(() => setLoading(false));
-  }, [open, user]);
+  }, [open, user, currentWorkspaceId]);
 
   const onCopy = async () => {
     if (!config) return;

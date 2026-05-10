@@ -1,12 +1,11 @@
 // src/lib/accounts/account-manager.ts
 import { readAccountIndex, writeAccountIndex, readActiveAccount, writeActiveAccount } from './account-storage';
-import { secureSet, secureDelete, secureGet, secureRegisterKnownKeys, accountKeys } from './secure-store';
+import { secureSet, secureGet, secureDelete, secureRegisterKnownKeys, accountKeys } from './secure-store';
 import { supabase, isSupabaseConfigured, _bindAccountManager } from '@/lib/supabase';
 import { resetAllStores } from '@/lib/accounts/store-registry';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import {
   pushMcpSupabaseConfig,
-  notifyMcpAccountAdded,
   notifyMcpAccountRemoved,
 } from '@/lib/mcp';
 import type { AccountSummary } from './types';
@@ -18,14 +17,10 @@ export interface AddAccountInput {
   refreshToken: string;
 }
 
-function generateMcpToken(): string {
-  // 32 bytes → base64url, prefixed for human recognition.
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const b64 = btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `notter_acc_${b64}`;
-}
+// Phase H (Workspaces): the per-account bearer surface was removed. Bearer
+// tokens now belong to (account, workspace) pairs and are minted +
+// registered by WorkspaceManager. The legacy `notter_acc_*` mcp_token is no
+// longer the bearer surface — see src/lib/workspaces/mcp-token.ts.
 
 export class AccountManager {
   private accounts: AccountSummary[] = [];
@@ -67,7 +62,9 @@ export class AccountManager {
     this.active = active.accountId;
 
     // Repopulate the Rust-side known-key index so secure_register_known_keys
-    // returns sane results during this run.
+    // returns sane results during this run. The legacy per-account mcp_token
+    // key is still registered so secureDelete() during `remove()` finds it
+    // (cleanup path for accounts that pre-date the workspaces pivot).
     const keys: string[] = [];
     for (const a of this.accounts) {
       keys.push(accountKeys.refreshToken(a.id), accountKeys.mcpToken(a.id));
@@ -87,18 +84,9 @@ export class AccountManager {
     if (supabaseUrl && supabaseAnon) {
       await pushMcpSupabaseConfig(supabaseUrl, supabaseAnon);
     }
-    // Push every known account's MCP bearer to Rust so the (token -> accountId)
-    // map is populated before the first POST /mcp arrives. Auto-repair any
-    // account missing an mcp_token (can happen for OAuth sign-ins or accounts
-    // created before the M1 secureSet path landed).
-    for (const a of this.accounts) {
-      let bearer = await secureGet(accountKeys.mcpToken(a.id));
-      if (!bearer) {
-        bearer = generateMcpToken();
-        await secureSet(accountKeys.mcpToken(a.id), bearer);
-      }
-      await notifyMcpAccountAdded(a.id, bearer);
-    }
+    // Phase H (Workspaces): per-account bearer registration was removed.
+    // WorkspaceManager.bootstrap() (called from syncOnLogin) now owns the
+    // bearer surface, registering one bearer per `(account, workspace)` pair.
 
     this.booted = true;
   }
@@ -108,12 +96,10 @@ export class AccountManager {
       throw new Error(`Account ${input.id} already added`);
     }
     await secureSet(accountKeys.refreshToken(input.id), input.refreshToken);
-    await secureSet(accountKeys.mcpToken(input.id), generateMcpToken());
 
-    // Phase I (M3) — register the freshly minted bearer with Rust so the
-    // newly added account is reachable over MCP without a restart.
-    const newBearer = await secureGet(accountKeys.mcpToken(input.id));
-    if (newBearer) await notifyMcpAccountAdded(input.id, newBearer);
+    // Phase H (Workspaces): no per-account MCP bearer is minted here. The
+    // first workspace for the new account is created by WorkspaceManager
+    // during syncOnLogin, which mints + registers a per-workspace bearer.
 
     const summary: AccountSummary = {
       id: input.id,
