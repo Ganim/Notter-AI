@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { exists, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { tryAccountScopedPath } from '@/lib/accounts/account-paths';
 import { usePlannerStore } from '@/stores/planner-store';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -88,6 +90,26 @@ export function PlannerTab() {
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const setSelectedAction = useActionsStore((s) => s.setSelected);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // M2 migration banner: visible once the subjects→plans sentinel has been
+  // written for the active account. While visible, the Planner tab is in
+  // read-only mode (mutations disabled, Monaco readOnly).
+  const [migrationBannerVisible, setMigrationBannerVisible] = useState(false);
+  const isReadOnly = migrationBannerVisible;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const path = tryAccountScopedPath('.migration-m2-plans-complete');
+        if (!path) return; // no active account; nothing to check
+        const done = await exists(path, { baseDir: BaseDirectory.AppLocalData });
+        setMigrationBannerVisible(done);
+      } catch {
+        // If the check fails, don't show the banner.
+      }
+    })();
+  }, [authUser?.id]);
+
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
@@ -178,6 +200,7 @@ export function PlannerTab() {
   };
 
   const insertMarkdown = (prefix: string, suffix = '') => {
+    if (isReadOnly) return;
     const editor = editorRef.current;
     if (!editor) return;
     const selection = editor.getSelection();
@@ -196,6 +219,7 @@ export function PlannerTab() {
   };
 
   const insertLine = (prefix: string, cursorLineOffset?: number) => {
+    if (isReadOnly) return;
     const editor = editorRef.current;
     if (!editor) return;
     const pos = editor.getPosition();
@@ -247,6 +271,7 @@ export function PlannerTab() {
   };
 
   const handleEditorChange = (value: string | undefined) => {
+    if (isReadOnly) return;
     const val = value || '';
     setSubjectContent(val);
     if (selectedProject && selectedSubject) saveSubjectContent(selectedProject.name, selectedSubject, val);
@@ -259,6 +284,7 @@ export function PlannerTab() {
   };
 
   const handleCreateProjectSubmit = async () => {
+    if (isReadOnly) return;
     if (!newProjectName.trim() || !newProjectPath.trim()) return;
     try {
       await createProject(newProjectName, newProjectPath);
@@ -270,37 +296,42 @@ export function PlannerTab() {
   };
 
   const confirmDeleteProject = async () => {
+    if (isReadOnly) return;
     if (!deleteProjectTarget) return;
     try { await deleteProject(deleteProjectTarget); setDeleteProjectTarget(null); toast.success(t('planner.project_deleted')); }
     catch (e: any) { toast.error(t('planner.error_delete_project', { error: e })); }
   };
 
   const handleRenameProjectSubmit = async () => {
+    if (isReadOnly) return;
     if (!renameProjectTarget || !renameValue.trim() || renameValue === renameProjectTarget) return;
     try { await renameProject(renameProjectTarget, renameValue); setRenameProjectTarget(null); setRenameValue(''); toast.success(t('planner.project_renamed')); }
     catch (e: any) { toast.error(t('planner.error_rename_project', { error: e })); }
   };
 
   const handleCreateSubjectSubmit = async () => {
+    if (isReadOnly) return;
     if (!selectedProject || !newSubjectName.trim()) return;
     try { await createSubject(selectedProject.name, newSubjectName); setIsSubjectDialogOpen(false); setNewSubjectName(''); toast.success(t('planner.subject_created')); }
     catch (e: any) { toast.error(t('planner.error_create_subject', { error: e })); }
   };
 
   const confirmDeleteSubject = async () => {
+    if (isReadOnly) return;
     if (!deleteSubjectTarget || !selectedProject) return;
     try { await deleteSubject(selectedProject.name, deleteSubjectTarget); setDeleteSubjectTarget(null); toast.success(t('planner.subject_deleted')); }
     catch (e: any) { toast.error(t('planner.error_delete_subject', { error: e })); }
   };
 
   const handleRenameSubjectSubmit = async () => {
+    if (isReadOnly) return;
     if (!renameSubjectTarget || !selectedProject || !renameValue.trim() || renameValue === renameSubjectTarget.replace('.md', '')) return;
     try { await renameSubject(selectedProject.name, renameSubjectTarget, renameValue); setRenameSubjectTarget(null); setRenameValue(''); toast.success(t('planner.subject_renamed')); }
     catch (e: any) { toast.error(t('planner.error_rename_subject', { error: e })); }
   };
 
-  const triggerProjectDialog = () => { setNewProjectName(''); setNewProjectPath(''); setIsProjectDialogOpen(true); };
-  const triggerSubjectDialog = () => { setNewSubjectName(''); setIsSubjectDialogOpen(true); };
+  const triggerProjectDialog = () => { if (isReadOnly) return; setNewProjectName(''); setNewProjectPath(''); setIsProjectDialogOpen(true); };
+  const triggerSubjectDialog = () => { if (isReadOnly) return; setNewSubjectName(''); setIsSubjectDialogOpen(true); };
 
   const handleTransform = async (profile: import('@/types').AgentProfile) => {
     if (!selectedProject || !selectedSubject || !subjectContent.trim()) return;
@@ -330,6 +361,7 @@ export function PlannerTab() {
   })();
 
   const handleProcess = async () => {
+    if (isReadOnly) return;
     if (!selectedProject || !selectedSubject) return;
     if (!subjectContent.trim()) {
       toast.error(t('planner.process_empty_note'));
@@ -375,6 +407,7 @@ export function PlannerTab() {
   };
 
   const handleOpenHistoryVersion = async (actionId: string) => {
+    if (isReadOnly) return;
     if (!selectedProject || !selectedSubject) return;
     const action = allActions.find((a) => a.id === actionId);
     if (!action) return;
@@ -395,6 +428,20 @@ export function PlannerTab() {
   // --- Shared UI ---
   const tbBtn = 'p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors';
 
+  const renderMigrationBanner = () => (
+    migrationBannerVisible ? (
+      <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200 shrink-0">
+        <span>{t('plans.migrated_banner')}</span>
+        <button
+          className="underline font-medium ml-1"
+          onClick={() => useAppStore.getState().setActiveTab('plans')}
+        >
+          {t('plans.migrated_link')}
+        </button>
+      </div>
+    ) : null
+  );
+
   const renderProjectsList = (onSelect: (p: Project) => void) => (
     <ScrollArea className="flex-1">
       <div className="p-2 space-y-1">
@@ -404,10 +451,12 @@ export function PlannerTab() {
               <span className="truncate">{p.name}</span>
               <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">{p.path}</span>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
-            </div>
+            {!isReadOnly && (
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              </div>
+            )}
           </div>
         ))}
         {projects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
@@ -421,10 +470,12 @@ export function PlannerTab() {
         {subjects.map((subject) => (
           <div key={subject} onClick={() => onSelect(subject)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === subject ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
             <span className="truncate font-normal">{subject.replace('.md', '')}</span>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(subject.replace('.md', '')); setRenameSubjectTarget(subject); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(subject); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
-            </div>
+            {!isReadOnly && (
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); setRenameValue(subject.replace('.md', '')); setRenameSubjectTarget(subject); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(subject); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              </div>
+            )}
           </div>
         ))}
         {subjects.length === 0 && selectedProject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.create_first_subject')}</div>}
@@ -541,7 +592,7 @@ export function PlannerTab() {
             </div>
             <button
               onClick={handleProcess}
-              disabled={isProcessing || !subjectContent.trim() || !canProcess}
+              disabled={isProcessing || !subjectContent.trim() || !canProcess || isReadOnly}
               title={
                 !canProcess
                   ? t('planner.process_no_model')
@@ -579,7 +630,7 @@ export function PlannerTab() {
           height="100%" defaultLanguage="markdown" theme={editorTheme}
           beforeMount={handleEditorWillMount} onMount={handleEditorMount}
           value={subjectContent} onChange={handleEditorChange}
-          options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 }, autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined' }}
+          options={{ minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 }, autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined', readOnly: isReadOnly }}
           className="absolute inset-0"
         />
       ) : (
@@ -611,6 +662,7 @@ export function PlannerTab() {
     return (
       <>
         <div className="flex flex-col h-full">
+          {renderMigrationBanner()}
           {mobilePanel === 'projects' && (
             <>
               <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 bg-muted/50 shrink-0">
@@ -621,7 +673,7 @@ export function PlannerTab() {
                       <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
                   )}
-                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  <button onClick={triggerProjectDialog} disabled={isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
                 </div>
               </div>
               {renderProjectsList(selectProjectMobile)}
@@ -634,7 +686,7 @@ export function PlannerTab() {
                   <button onClick={goBackToProjects} className="p-1 rounded-sm hover:bg-muted transition-colors"><ArrowLeft size={14} /></button>
                   <span className="font-semibold text-xs text-foreground truncate">{selectedProject?.name}</span>
                 </div>
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject || isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
               </div>
               {renderSubjectsList(selectSubjectMobile)}
             </>
@@ -662,8 +714,10 @@ export function PlannerTab() {
   if (isMedium) {
     return (
       <>
-        {/* @ts-expect-error shadcn type mismatch */}
-        <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
+        <div className="flex flex-col h-full w-full">
+          {renderMigrationBanner()}
+          {/* @ts-expect-error shadcn type mismatch */}
+          <ResizablePanelGroup direction="horizontal" className="w-full flex-1 rounded-none">
           <ResizablePanel
             panelRef={projectsPanelRef} defaultSize={35} minSize={20}
             collapsible collapsedSize={0}
@@ -679,7 +733,7 @@ export function PlannerTab() {
                       <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
                   )}
-                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  <button onClick={triggerProjectDialog} disabled={isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
                   <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
                 </div>
               </div>
@@ -692,10 +746,12 @@ export function PlannerTab() {
                           <FolderOpen size={12} className="shrink-0 opacity-50" />
                           <span className="truncate">{p.name}</span>
                         </div>
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
-                        </div>
+                        {!isReadOnly && (
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
+                          </div>
+                        )}
                       </div>
                     ))}
                     {projects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_projects')}</div>}
@@ -704,7 +760,7 @@ export function PlannerTab() {
               </div>
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject || isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
               </div>
               {renderSubjectsList((s) => setSelectedSubject(s))}
             </div>
@@ -722,6 +778,7 @@ export function PlannerTab() {
             {renderEditorPanel()}
           </ResizablePanel>
         </ResizablePanelGroup>
+        </div>
         {renderDialogs()}
       </>
     );
@@ -732,8 +789,10 @@ export function PlannerTab() {
   // ============================
   return (
     <>
-      {/* @ts-expect-error shadcn type mismatch */}
-      <ResizablePanelGroup direction="horizontal" className="w-full h-full rounded-none">
+      <div className="flex flex-col h-full w-full">
+        {renderMigrationBanner()}
+        {/* @ts-expect-error shadcn type mismatch */}
+        <ResizablePanelGroup direction="horizontal" className="w-full flex-1 rounded-none">
         <ResizablePanel
           panelRef={projectsPanelRef} defaultSize={20} minSize={10}
           collapsible collapsedSize={0}
@@ -749,7 +808,7 @@ export function PlannerTab() {
                     <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                   </button>
                 )}
-                <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_project')}><Plus size={14} /></button>
+                <button onClick={triggerProjectDialog} disabled={isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_project')}><Plus size={14} /></button>
                 <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>
             </div>
@@ -769,7 +828,7 @@ export function PlannerTab() {
             <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
               <div className="flex items-center gap-1">
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
+                <button onClick={triggerSubjectDialog} disabled={!selectedProject || isReadOnly} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
                 <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>
             </div>
@@ -797,6 +856,7 @@ export function PlannerTab() {
           {renderEditorPanel()}
         </ResizablePanel>
       </ResizablePanelGroup>
+      </div>
       {renderDialogs()}
     </>
   );
