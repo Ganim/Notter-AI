@@ -116,11 +116,6 @@ pub async fn mcp_register_bearer(
     app: tauri::AppHandle,
     state: tauri::State<'_, McpState>,
 ) -> Result<(), String> {
-    eprintln!(
-        "[mcp] register_bearer account={} token_prefix={}",
-        account_id,
-        &bearer_token[..bearer_token.len().min(16)]
-    );
     {
         let mut s = state.write().await;
         s.token_to_account.retain(|_, v| v != &account_id);
@@ -168,14 +163,15 @@ pub async fn bearer_auth(
 }
 
 fn unauthorized_response(msg: &str) -> Response {
+    let err = crate::mcp::error::McpError::Unauthorized(format!("unauthorized: {msg}"));
     (
         StatusCode::UNAUTHORIZED,
         Json(serde_json::json!({
             "jsonrpc": "2.0",
             "id": null,
             "error": {
-                "code": -32002,
-                "message": format!("unauthorized: {msg}"),
+                "code": err.code(),
+                "message": err.message(),
             }
         })),
     )

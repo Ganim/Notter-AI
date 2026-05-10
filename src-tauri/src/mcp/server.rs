@@ -21,9 +21,10 @@ use tokio::sync::RwLock;
 
 use crate::mcp::auth::{bearer_auth, AuthContext};
 use crate::mcp::endpoint::{
-    delete_endpoint_file, generate_nonce, is_existing_endpoint_alive, now_rfc3339,
-    read_endpoint_file, write_endpoint_file, EndpointFile,
+    delete_endpoint_file, is_existing_endpoint_alive, now_rfc3339, read_endpoint_file,
+    write_endpoint_file, EndpointFile,
 };
+use crate::mcp::error::McpError;
 use crate::mcp::tools::dispatch;
 use crate::mcp::types::JsonRpcResponse;
 
@@ -185,12 +186,6 @@ async fn health(
     }
 }
 
-// Free helper — returns a fresh nonce. Pulled out so server.rs can re-export
-// for endpoint.rs's tests without making them depend on rand directly.
-pub fn fresh_nonce() -> String {
-    generate_nonce()
-}
-
 /// JSON-RPC 2.0 entry point. Decodes the envelope, validates the protocol
 /// version, then routes by method name to `tools::dispatch`. All errors are
 /// returned as JSON-RPC error responses (HTTP 200 + `error` payload), per
@@ -204,20 +199,18 @@ async fn mcp_handler(
     let req: crate::mcp::types::JsonRpcRequest = match serde_json::from_value(body.clone()) {
         Ok(r) => r,
         Err(e) => {
+            let err = McpError::InvalidRequest(format!("invalid_request: {e}"));
             return Json(JsonRpcResponse::err(
                 body.get("id").cloned(),
-                -32600,
-                format!("invalid_request: {e}"),
+                err.code(),
+                err.message(),
             ));
         }
     };
 
     if req.jsonrpc != "2.0" {
-        return Json(JsonRpcResponse::err(
-            req.id,
-            -32600,
-            "invalid_request: jsonrpc must be '2.0'".into(),
-        ));
+        let err = McpError::InvalidRequest("invalid_request: jsonrpc must be '2.0'".into());
+        return Json(JsonRpcResponse::err(req.id, err.code(), err.message()));
     }
 
     let id = req.id.clone();

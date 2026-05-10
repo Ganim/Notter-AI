@@ -6,7 +6,10 @@
 
 #[derive(Debug)]
 pub enum McpError {
-    /// JSON-RPC -32700: parse error.
+    /// JSON-RPC -32700: parse error. Reserved — axum's Json extractor rejects
+    /// malformed JSON at the HTTP layer before our handler runs, so we never
+    /// emit this today. Kept for future SSE / batch parsers.
+    #[allow(dead_code)]
     ParseError(String),
     /// -32600: invalid request shape.
     InvalidRequest(String),
@@ -14,7 +17,9 @@ pub enum McpError {
     MethodNotFound(String),
     /// -32602: invalid params.
     InvalidParams(String),
-    /// -32603: internal error.
+    /// -32603: internal error. Reserved as a generic fallback for future
+    /// dispatch panics or tool-side bugs.
+    #[allow(dead_code)]
     InternalError(String),
     /// -32001 (Notter-specific): the front-end has not yet pushed a fresh
     /// access token (or the latest one is expired). The CLI is expected

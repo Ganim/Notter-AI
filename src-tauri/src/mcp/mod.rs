@@ -15,6 +15,5 @@ pub mod supabase;
 pub mod tools;
 pub mod types;
 
-pub use error::McpError;
+// Public re-exports consumed by lib.rs.
 pub use server::{start_mcp_server, McpState, McpStateInner};
-pub use types::{JsonRpcRequest, JsonRpcResponse};
