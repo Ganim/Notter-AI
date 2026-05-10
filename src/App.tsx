@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
+import { PlansTab } from '@/components/PlansTab';
 import { PlannerTab } from '@/components/PlannerTab';
 import { BoardTab } from '@/components/BoardTab';
 import { AgentsTab } from '@/components/AgentsTab';
@@ -98,6 +99,7 @@ function App() {
       <Toaster />
       <Layout>
         {{
+          plans: <PlansTab />,
           planner: <PlannerTab />,
           board: <BoardTab />,
           agents: <AgentsTab />,

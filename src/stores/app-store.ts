@@ -4,7 +4,7 @@ import { pushPreferences, type UserPreferences } from '@/lib/sync';
 import { makeDebouncedSync } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 
-type Tab = 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
+type Tab = 'plans' | 'planner' | 'board' | 'agents' | 'actions' | 'terminals';
 
 export interface TerminalTheme {
   name: string;
