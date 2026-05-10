@@ -14,6 +14,7 @@ pub struct AuthContext {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateAccountTokenArgs {
     pub account_id: String,
     pub access_token: String,
@@ -83,6 +84,7 @@ pub async fn current_access_token(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetSupabaseConfigArgs {
     pub url: String,
     pub anon_key: String,
@@ -114,6 +116,11 @@ pub async fn mcp_register_bearer(
     app: tauri::AppHandle,
     state: tauri::State<'_, McpState>,
 ) -> Result<(), String> {
+    eprintln!(
+        "[mcp] register_bearer account={} token_prefix={}",
+        account_id,
+        &bearer_token[..bearer_token.len().min(16)]
+    );
     {
         let mut s = state.write().await;
         s.token_to_account.retain(|_, v| v != &account_id);
