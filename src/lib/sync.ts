@@ -312,3 +312,32 @@ export async function pushActions(userId: string, actions: Action[]): Promise<vo
     updated_at: new Date().toISOString(),
   }));
 }
+
+// ── Plans ─────────────────────────────────────────────────────────────
+
+export async function fetchPlans(userId: string): Promise<PlanRecord[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+    if (error) {
+      console.error('[sync] fetchPlans failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      workingContent: row.working_content,
+      currentSnapshotId: row.current_snapshot_id ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchPlans threw:', e);
+    return null;
+  }
+}
