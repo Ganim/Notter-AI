@@ -42,12 +42,13 @@ vi.mock('@/stores/planner-store', () => ({
   },
 }));
 
-const save = vi.fn().mockResolvedValue('C:/Users/Test/exports/live-chat-etapa-2-111111.md');
+const { save, writeTextFile, mkdir, exists } = vi.hoisted(() => ({
+  save: vi.fn().mockResolvedValue('C:/Users/Test/exports/live-chat-etapa-2-111111.md'),
+  writeTextFile: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  exists: vi.fn().mockResolvedValue(false),
+}));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ save }));
-
-const writeTextFile = vi.fn().mockResolvedValue(undefined);
-const mkdir = vi.fn().mockResolvedValue(undefined);
-const exists = vi.fn().mockResolvedValue(false);
 vi.mock('@tauri-apps/plugin-fs', () => ({
   writeTextFile, mkdir, exists,
   BaseDirectory: { AppLocalData: 'AppLocalData' },
