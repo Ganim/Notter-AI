@@ -111,11 +111,17 @@ pub async fn mcp_set_supabase_config(
 pub async fn mcp_register_bearer(
     account_id: String,
     bearer_token: String,
+    app: tauri::AppHandle,
     state: tauri::State<'_, McpState>,
 ) -> Result<(), String> {
-    let mut s = state.write().await;
-    s.token_to_account.retain(|_, v| v != &account_id);
-    s.token_to_account.insert(bearer_token, account_id);
+    {
+        let mut s = state.write().await;
+        s.token_to_account.retain(|_, v| v != &account_id);
+        s.token_to_account.insert(bearer_token, account_id.clone());
+    }
+    // Drop the write lock above before calling write_per_account_configs —
+    // it takes a read lock internally and tokio's RwLock is not reentrant.
+    let _ = crate::mcp::server::write_per_account_configs(&app, state.inner()).await;
     Ok(())
 }
 

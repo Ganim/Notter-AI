@@ -217,3 +217,81 @@ async fn mcp_handler(
         Err(e) => Json(JsonRpcResponse::err(id, e.code(), e.message())),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase K — per-account stable config file
+// ---------------------------------------------------------------------------
+//
+// External CLIs (Codex, Claude Code, etc.) prefer a stable file path they can
+// point at in their MCP config. `endpoint.json` carries the live URL but is
+// shared across all accounts. For each account we additionally write
+// `<appLocalData>/notter-ai/mcp/<accountId>-config.json` containing the URL +
+// that account's bearer token, refreshed on every `mcp_register_bearer` call.
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct McpAccountConfig {
+    pub url: String,
+    pub bearer_token: String,
+    pub generated_at: String,
+}
+
+/// Iterate the current `token_to_account` map and write one
+/// `<accountId>-config.json` per registered account. Each file is rewritten
+/// in full on every call; we never merge/patch.
+///
+/// Takes a read lock internally — callers MUST drop any write lock on `state`
+/// before invoking this (tokio's RwLock is not reentrant).
+pub async fn write_per_account_configs(
+    app: &AppHandle,
+    state: &McpState,
+) -> Result<(), String> {
+    let dir = mcp_dir(app)?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("create_dir_all: {e}"))?;
+
+    let (url, entries) = {
+        let s = state.read().await;
+        let url = s.url.clone().unwrap_or_default();
+        let entries: Vec<(String, String)> = s
+            .token_to_account
+            .iter()
+            .map(|(tok, acct)| (acct.clone(), tok.clone()))
+            .collect();
+        (url, entries)
+    };
+
+    let generated_at = crate::mcp::endpoint::now_rfc3339();
+
+    for (account_id, bearer_token) in entries {
+        let cfg = McpAccountConfig {
+            url: url.clone(),
+            bearer_token,
+            generated_at: generated_at.clone(),
+        };
+        let json = serde_json::to_string_pretty(&cfg)
+            .map_err(|e| format!("serde: {e}"))?;
+        let path = dir.join(format!("{}-config.json", account_id));
+        tokio::fs::write(&path, json)
+            .await
+            .map_err(|e| format!("write {}: {e}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+/// Tauri command — the Phase J dialog calls this to display the per-account
+/// config file (path + contents) to the user.
+#[tauri::command]
+pub async fn mcp_read_account_config(
+    app: tauri::AppHandle,
+    account_id: String,
+) -> Result<McpAccountConfig, String> {
+    let dir = mcp_dir(&app)?;
+    let path = dir.join(format!("{}-config.json", account_id));
+    let raw = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str::<McpAccountConfig>(&raw)
+        .map_err(|e| format!("parse {}: {e}", path.display()))
+}
