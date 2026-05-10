@@ -10,6 +10,7 @@ import {
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
 import { useAuthStore } from './auth-store';
 import { useSubjectVersionsStore } from './subject-versions-store';
+import { useWorkspacesStore } from './workspaces-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
 
@@ -33,8 +34,36 @@ const subjectSync = makeDebouncedSync<SubjectPayload>(
   1000,
 );
 
+/**
+ * Recompute the workspace-filtered view of projects from the canonical
+ * `allProjects` slice. Reads `currentWorkspaceId` from `useWorkspacesStore`.
+ * When no workspace is active (pre-bootstrap), falls back to the full list so
+ * the UI doesn't briefly flicker to empty during sign-in.
+ */
+function recomputeProjects(allProjects: Project[]): Project[] {
+  const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
+  return currentWsId
+    ? allProjects.filter((p) => p.workspaceId === currentWsId)
+    : allProjects;
+}
+
 interface PlannerState {
   // Projects (formerly "subjects/assuntos")
+  /**
+   * Canonical full list of projects across all workspaces for the active
+   * account. Mutations write here first; `projects` is a derived view filtered
+   * by `useWorkspacesStore.currentWorkspaceId`.
+   */
+  allProjects: Project[];
+  /**
+   * Derived view of `allProjects` filtered by `currentWorkspaceId`. Kept as a
+   * state field (not a getter) so Zustand subscribers — including all
+   * `usePlannerStore((s) => s.projects)` selectors across the codebase —
+   * re-render on workspace switch. Updated by:
+   *   1. Every mutation that touches `allProjects` (via `recomputeProjects`).
+   *   2. The `useWorkspacesStore` subscription registered at the bottom of
+   *      this file, which fires on `currentWorkspaceId` changes.
+   */
   projects: Project[];
   selectedProject: Project | null;
 
@@ -65,6 +94,13 @@ interface PlannerState {
   renameProject: (oldName: string, newName: string) => Promise<void>;
   updateProjectPath: (name: string, newPath: string) => Promise<void>;
   deleteProject: (name: string) => Promise<void>;
+  /**
+   * Re-target a project to a different workspace. Used by Phase L's "Move to
+   * workspace" menu. Updates `allProjects` locally, re-derives `projects`, and
+   * pushes the new `workspace_id` to Supabase. Subjects/versions/comments
+   * travel with the project through the FK chain — no client-side cascade.
+   */
+  moveProjectToWorkspace: (projectName: string, targetWorkspaceId: string) => Promise<void>;
 
   // Subject actions
   setSelectedSubject: (subject: string | null) => void;
@@ -97,6 +133,7 @@ interface PlannerState {
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
+  allProjects: [],
   projects: [],
   selectedProject: null,
   subjects: [],
@@ -130,7 +167,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       if (await exists(projectsFile, { baseDir: BaseDirectory.AppLocalData })) {
         const contents = await readTextFile(projectsFile, { baseDir: BaseDirectory.AppLocalData });
         const parsed: Project[] = JSON.parse(contents);
-        set({ projects: parsed });
+        set({ allProjects: parsed, projects: recomputeProjects(parsed) });
       } else {
         await writeTextFile(projectsFile, '[]', { baseDir: BaseDirectory.AppLocalData });
       }
@@ -140,28 +177,33 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   createProject: async (name, path) => {
+    // Phase E: stamp the project with the active workspace id. Pre-bootstrap
+    // (no workspace yet) we bail rather than persist a project with an empty
+    // workspaceId — the UI gates the "+ New project" button on a workspace
+    // existing, so this branch should never fire in normal flows.
+    const wsId = useWorkspacesStore.getState().currentWorkspaceId;
+    if (!wsId) {
+      console.error('[planner] createProject: no active workspace; aborting');
+      return;
+    }
     await mkdir(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    // Phase B placeholder: workspaceId is empty until Phase C creates the
-    // useWorkspacesStore and Phase E refactors this call site to stamp
-    // currentWorkspaceId. Filesystem persistence and the local store work
-    // with the empty string; remote sync of new projects is therefore gated
-    // until Phase E. The migration in Phase G will backfill workspace_id.
-    const newProject: Project = { name, path, workspaceId: '' };
-    const newProjects = [...get().projects, newProject];
-    set({ projects: newProjects });
-    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    projectsSync.schedule(newProjects);
+    const newProject: Project = { name, path, workspaceId: wsId };
+    const newAll = [...get().allProjects, newProject];
+    set({ allProjects: newAll, projects: recomputeProjects(newAll) });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    projectsSync.schedule(newAll);
   },
 
   renameProject: async (oldName, newName) => {
     await rename(accountScopedPath(`NotterProjects/${oldName}`), accountScopedPath(`NotterProjects/${newName}`), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
-    const newProjects = get().projects.map((p) => (p.name === oldName ? { ...p, name: newName } : p));
+    const newAll = get().allProjects.map((p) => (p.name === oldName ? { ...p, name: newName } : p));
     set({
-      projects: newProjects,
+      allProjects: newAll,
+      projects: recomputeProjects(newAll),
       selectedProject: get().selectedProject?.name === oldName ? { ...get().selectedProject!, name: newName } : get().selectedProject,
     });
-    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    projectsSync.schedule(newProjects);
+    await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    projectsSync.schedule(newAll);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, oldName).catch((e) => console.error(e));
     if (userId) renameRemoteSubjectsProject(userId, oldName, newName);
@@ -169,29 +211,56 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   updateProjectPath: async (name, newPath) => {
-    const newProjects = get().projects.map((p) => (p.name === name ? { ...p, path: newPath } : p));
+    const newAll = get().allProjects.map((p) => (p.name === name ? { ...p, path: newPath } : p));
     set({
-      projects: newProjects,
+      allProjects: newAll,
+      projects: recomputeProjects(newAll),
       selectedProject: get().selectedProject?.name === name ? { ...get().selectedProject!, path: newPath } : get().selectedProject,
     });
-    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    projectsSync.schedule(newProjects);
+    await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    projectsSync.schedule(newAll);
   },
 
   deleteProject: async (name) => {
     await remove(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    const newProjects = get().projects.filter((p) => p.name !== name);
+    const newAll = get().allProjects.filter((p) => p.name !== name);
     set({
-      projects: newProjects,
+      allProjects: newAll,
+      projects: recomputeProjects(newAll),
       selectedProject: get().selectedProject?.name === name ? null : get().selectedProject,
       selectedSubject: get().selectedProject?.name === name ? null : get().selectedSubject,
     });
-    await writeTextFile(getProjectsFile(), JSON.stringify(newProjects, null, 2), { baseDir: BaseDirectory.AppLocalData });
-    projectsSync.schedule(newProjects);
+    await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    projectsSync.schedule(newAll);
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, name).catch((e) => console.error(e));
     if (userId) deleteRemoteSubjectsByProject(userId, name);
     useBoardStore.getState().onProjectDeleted(name);
+  },
+
+  moveProjectToWorkspace: async (projectName, targetWorkspaceId) => {
+    const newAll = get().allProjects.map((p) =>
+      p.name === projectName ? { ...p, workspaceId: targetWorkspaceId } : p
+    );
+    const newProjects = recomputeProjects(newAll);
+    // If the moved project was the active selection and no longer belongs to
+    // the current workspace, clear it so the planner UI doesn't render a
+    // phantom. The Phase E workspace-switch subscription does the same thing
+    // for workspace changes; this handles project-level moves.
+    const wasSelected = get().selectedProject?.name === projectName;
+    const stillVisible = newProjects.some((p) => p.name === projectName);
+    set({
+      allProjects: newAll,
+      projects: newProjects,
+      selectedProject: wasSelected && !stillVisible ? null : get().selectedProject,
+      selectedSubject: wasSelected && !stillVisible ? null : get().selectedSubject,
+      subjects: wasSelected && !stillVisible ? [] : get().subjects,
+    });
+    await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+    const { updateProjectWorkspace } = await import('@/lib/sync');
+    await updateProjectWorkspace(userId, projectName, targetWorkspaceId);
   },
 
   // --- Subjects (notes) ---
@@ -326,9 +395,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   applyRemoteProjects: (projects) => {
     if (tryAccountScopedPath('NotterProjects') === null) return;
-    set({ projects });
+    // Phase E: realtime hands us the canonical full list (all workspaces).
+    // Write it to `allProjects` and derive the filtered `projects` view.
+    set({ allProjects: projects, projects: recomputeProjects(projects) });
     writeTextFile(getProjectsFile(), JSON.stringify(projects, null, 2), { baseDir: BaseDirectory.AppLocalData }).catch(() => {});
-    // Ensure local directories exist for each remote project
+    // Ensure local directories exist for each remote project (across all
+    // workspaces — directories are workspace-agnostic on disk).
     for (const p of projects) {
       mkdir(accountScopedPath(`NotterProjects/${p.name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
     }
@@ -367,7 +439,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   pushAllSubjects: async (userId) => {
-    const projects = get().projects;
+    // Iterate the canonical list so a "Force sync" pushes notes from every
+    // workspace's projects, not just the currently-active workspace.
+    const projects = get().allProjects;
     for (const project of projects) {
       try {
         const entries = await readDir(accountScopedPath(`NotterProjects/${project.name}`), { baseDir: BaseDirectory.AppLocalData });
@@ -387,6 +461,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   reset() {
     set({
+      allProjects: [],
       projects: [],
       selectedProject: null,
       subjects: [],
@@ -399,3 +474,35 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 }));
 
 registerResettableStore(() => usePlannerStore.getState().reset());
+
+// ── Workspace-switch reaction ───────────────────────────────────────────────
+// Whenever the active workspace id changes, recompute the filtered `projects`
+// view from the canonical `allProjects` slice. If the currently-selected
+// project no longer belongs to the active workspace, clear it (plus its
+// subjects/selected subject) so the planner UI doesn't render a phantom.
+//
+// Registered at module scope — fires once for the lifetime of the app. We
+// only react when the id actually changes (Zustand sends every state update,
+// not just diffs on this field).
+let _prevWorkspaceId: string | null = useWorkspacesStore.getState().currentWorkspaceId;
+useWorkspacesStore.subscribe((state) => {
+  if (state.currentWorkspaceId === _prevWorkspaceId) return;
+  _prevWorkspaceId = state.currentWorkspaceId;
+
+  const planner = usePlannerStore.getState();
+  const filtered = state.currentWorkspaceId
+    ? planner.allProjects.filter((p) => p.workspaceId === state.currentWorkspaceId)
+    : planner.allProjects;
+
+  const selected = planner.selectedProject;
+  const stillSelected = selected && filtered.some((p) => p.name === selected.name)
+    ? selected
+    : null;
+
+  usePlannerStore.setState({
+    projects: filtered,
+    selectedProject: stillSelected,
+    selectedSubject: stillSelected ? planner.selectedSubject : null,
+    subjects: stillSelected ? planner.subjects : [],
+  });
+});
