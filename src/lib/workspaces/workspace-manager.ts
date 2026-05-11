@@ -30,6 +30,7 @@ import {
 import { notifyMcpWorkspaceAdded, notifyMcpWorkspaceRemoved } from '@/lib/mcp';
 import { generateWorkspaceMcpToken } from './mcp-token';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
+import { usePlannerStore } from '@/stores/planner-store';
 
 // Silence unused-import warning while keeping the import for future use
 // (e.g. offline fast-boot from index.json before fetchWorkspaces resolves).
@@ -251,6 +252,18 @@ export class WorkspaceManager {
     if ('moveTargetWorkspaceId' in opts) {
       const moved = await moveProjectsBetweenWorkspaces(userId, id, opts.moveTargetWorkspaceId);
       if (!moved.ok) throw new Error(moved.message);
+
+      // Optimistically reflect the bulk UPDATE in usePlannerStore.allProjects.
+      // The Supabase realtime UPDATE event would eventually do this via
+      // refetchProjects, but RLS-protected UPDATEs can be slow or lossy —
+      // refresh locally so the destination workspace shows the moved
+      // projects without a page reload. Re-using applyRemoteProjects
+      // triggers the recomputeProjects derivation under the hood.
+      const targetId = opts.moveTargetWorkspaceId;
+      const remapped = usePlannerStore.getState().allProjects.map((p) =>
+        p.workspaceId === id ? { ...p, workspaceId: targetId } : p,
+      );
+      usePlannerStore.getState().applyRemoteProjects(remapped);
     } else {
       // purge path — projects need to go too. Caller (delete-dialog) issues
       // the project deletes via usePlannerStore.deleteProject for each project
