@@ -29,6 +29,7 @@ import {
 } from '@/lib/sync';
 import { notifyMcpWorkspaceAdded, notifyMcpWorkspaceRemoved } from '@/lib/mcp';
 import { generateWorkspaceMcpToken } from './mcp-token';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
 
 // Silence unused-import warning while keeping the import for future use
 // (e.g. offline fast-boot from index.json before fetchWorkspaces resolves).
@@ -58,6 +59,25 @@ export class WorkspaceManager {
   private notify(): void {
     for (const l of this.listeners) {
       try { l(); } catch (e) { console.error('[workspace-manager] listener failed', e); }
+    }
+  }
+
+  /**
+   * Refresh useWorkspacesStore from Supabase. Called after every mutation
+   * (add / rename / setDefault / remove) so the UI updates immediately
+   * instead of waiting for realtime DELETE/INSERT events — Supabase realtime
+   * DELETE events on RLS-protected tables can lag or drop entirely, and the
+   * UI was missing the deleted workspace's disappearance until next refresh.
+   */
+  private async syncStoreFromRemote(userId: string): Promise<void> {
+    try {
+      const rows = await fetchWorkspaces(userId);
+      if (rows) {
+        useWorkspacesStore.getState().applyRemoteWorkspaces(rows);
+      }
+      useWorkspacesStore.getState().setCurrentWorkspaceId(this.current);
+    } catch (e) {
+      console.error('[workspace-manager] syncStoreFromRemote failed:', e);
     }
   }
 
@@ -176,6 +196,7 @@ export class WorkspaceManager {
     await notifyMcpWorkspaceAdded(accountId, id, bearer);
 
     this.notify();
+    await this.syncStoreFromRemote(userId);
     return summary;
   }
 
@@ -191,6 +212,7 @@ export class WorkspaceManager {
     this.workspaces = this.workspaces.map((w) => (w.id === id ? { ...w, name: newName } : w));
     await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
     this.notify();
+    await this.syncStoreFromRemote(userId);
   }
 
   async setDefault(id: string): Promise<void> {
@@ -201,6 +223,7 @@ export class WorkspaceManager {
     this.workspaces = this.workspaces.map((w) => ({ ...w, isDefault: w.id === id }));
     await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
     this.notify();
+    await this.syncStoreFromRemote(userId);
   }
 
   async getMcpToken(workspaceId: string): Promise<string | null> {
@@ -257,6 +280,7 @@ export class WorkspaceManager {
       if (this.current) await writeActiveWorkspace(accountId, { workspaceId: this.current });
     }
     this.notify();
+    await this.syncStoreFromRemote(userId);
   }
 }
 
