@@ -522,7 +522,7 @@ export function PlannerTab() {
               title={t('import_export.export_button_tooltip')}
               className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
             >
-              {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
             </button>
             {!isSmall && (
               <button
@@ -747,7 +747,7 @@ export function PlannerTab() {
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
                   <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
                 </div>
@@ -823,7 +823,7 @@ export function PlannerTab() {
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
                 <div className="flex items-center gap-1">
                   <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
                   <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
                 </div>
@@ -902,7 +902,7 @@ export function PlannerTab() {
               <span>{t('planner.subjects')}</span>
               <div className="flex items-center gap-1">
                 <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-                  {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 </button>
                 <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
                 <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
