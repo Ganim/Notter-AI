@@ -228,7 +228,10 @@
     "history_empty_versions": "No versions yet",
     "create_version": "Create version from current content",
     "version_created": "Version created",
-    "version_create_failed": "Could not create version"
+    "version_create_failed": "Could not create version",
+    "import_subject": "Import .md as new subject",
+    "subject_imported": "Imported as \"{{name}}\"",
+    "subject_import_failed": "Import failed: {{message}}"
   },
   "agents": {
     "profiles": "Agent Profiles",

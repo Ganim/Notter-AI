@@ -11,7 +11,6 @@ import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { open as openDialogPick } from '@tauri-apps/plugin-dialog';
-import { importMarkdownFile } from '@/lib/plans/import';
 import { exportCurrentVersion } from '@/lib/plans/export';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
@@ -82,37 +81,46 @@ export function PlannerTab() {
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Resolve a unique subject filename within the current project by appending
+  // " (2)", " (3)", ... until a free slot is found. Defensive cap at 1000;
+  // beyond that fall back to a timestamp suffix.
+  const makeUniqueSubjectFileName = (base: string, existingFileNames: string[]): string => {
+    const baseNoExt = base.replace(/\.md$/i, '');
+    const candidate = `${baseNoExt}.md`;
+    if (!existingFileNames.includes(candidate)) return candidate;
+    for (let i = 2; i < 1000; i++) {
+      const alt = `${baseNoExt} (${i}).md`;
+      if (!existingFileNames.includes(alt)) return alt;
+    }
+    return `${baseNoExt} (${Date.now()}).md`;
+  };
+
   const handleImport = async () => {
-    if (isImporting) return;
+    if (isImporting || !selectedProject) return;
     setIsImporting(true);
     try {
       const picked = await openDialogPick({
         multiple: false,
         filters: [{ name: 'Markdown', extensions: ['md'] }],
       });
-      if (!picked || Array.isArray(picked)) {
-        // User cancelled or weird multi-pick result — bail silently.
-        return;
-      }
-      const result = await importMarkdownFile(picked);
-      if (result.kind === 'subject_created') {
-        toast.success(t('import_export.import_subject_created'));
-      } else {
-        const subjectName = selectedSubject?.replace(/\.md$/i, '') ?? '';
-        toast.success(t('import_export.import_version_created', { subject: subjectName }));
-      }
+      if (!picked || Array.isArray(picked)) return;
+      const pickedPath = picked as string;
+      const { readTextFile: readFs } = await import('@tauri-apps/plugin-fs');
+      const fileText = await readFs(pickedPath);
+
+      // Derive a base name. Prefer the imported file's basename; frontmatter
+      // title is ignored — the user said imports always create a brand-new
+      // subject, never reuse an existing subject_id linkage.
+      const rawBase = (pickedPath.split(/[\\/]/).pop() ?? 'Imported.md').replace(/\.md$/i, '');
+      const existing = subjectRows
+        .filter((s) => s.projectName === selectedProject.name)
+        .map((s) => s.fileName);
+      const uniqueName = makeUniqueSubjectFileName(rawBase, existing);
+
+      await createSubject(selectedProject.name, uniqueName, fileText);
+      toast.success(t('planner.subject_imported', { name: uniqueName.replace(/\.md$/i, '') }));
     } catch (e: any) {
-      if (e?.name === 'ImportError' && e?.code === 'NO_VERSION_AFTER_TIMEOUT') {
-        toast.warning(t('import_export.import_subject_created_no_version'));
-      } else if (e?.name === 'FrontmatterError') {
-        if (e.code === 'PARSE_ERROR') {
-          toast.error(t('import_export.import_parse_error', { message: e.message }));
-        } else {
-          toast.error(t('import_export.import_invalid_frontmatter', { field: e.field ?? '', message: e.message }));
-        }
-      } else {
-        toast.error(t('import_export.import_failed', { message: e?.message ?? String(e) }));
-      }
+      toast.error(t('planner.subject_import_failed', { message: e?.message ?? String(e) }));
     } finally {
       setIsImporting(false);
     }
@@ -509,14 +517,6 @@ export function PlannerTab() {
         {selectedProject && selectedSubject && (
           <>
             <button
-              onClick={handleImport}
-              disabled={isImporting}
-              title={t('import_export.import_button_tooltip')}
-              className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-            >
-              {isImporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-            </button>
-            <button
               onClick={handleExport}
               disabled={isExporting}
               title={t('import_export.export_button_tooltip')}
@@ -745,7 +745,12 @@ export function PlannerTab() {
                   <button onClick={goBackToProjects} className="p-1 rounded-sm hover:bg-muted transition-colors"><ArrowLeft size={14} /></button>
                   <span className="font-semibold text-xs text-foreground truncate">{selectedProject?.name}</span>
                 </div>
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                <div className="flex items-center gap-1">
+                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  </button>
+                  <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                </div>
               </div>
               {renderSubjectsList(selectSubjectMobile)}
             </>
@@ -816,7 +821,12 @@ export function PlannerTab() {
               </div>
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                <div className="flex items-center gap-1">
+                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                    {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  </button>
+                  <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                </div>
               </div>
               {renderSubjectsList((s) => setSelectedSubject(s))}
             </div>
@@ -891,6 +901,9 @@ export function PlannerTab() {
             <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
               <div className="flex items-center gap-1">
+                <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                  {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                </button>
                 <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
                 <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>

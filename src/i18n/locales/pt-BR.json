@@ -228,7 +228,10 @@
     "history_empty_versions": "Nenhuma versão ainda",
     "create_version": "Criar versão do conteúdo atual",
     "version_created": "Versão criada",
-    "version_create_failed": "Não foi possível criar a versão"
+    "version_create_failed": "Não foi possível criar a versão",
+    "import_subject": "Importar .md como novo assunto",
+    "subject_imported": "Importado como \"{{name}}\"",
+    "subject_import_failed": "Importação falhou: {{message}}"
   },
   "agents": {
     "profiles": "Perfis de Agentes",

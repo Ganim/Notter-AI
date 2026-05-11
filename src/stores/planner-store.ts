@@ -124,7 +124,7 @@ interface PlannerState {
   loadSubjectContent: (projectName: string, subject: string) => Promise<void>;
   setSubjectContent: (content: string) => void;
   saveSubjectContent: (projectName: string, subject: string, content: string) => Promise<void>;
-  createSubject: (projectName: string, name: string) => Promise<void>;
+  createSubject: (projectName: string, name: string, initialContent?: string) => Promise<void>;
   renameSubject: (projectName: string, oldName: string, newName: string) => Promise<void>;
   deleteSubject: (projectName: string, subject: string) => Promise<void>;
 
@@ -345,9 +345,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  createSubject: async (projectName, name) => {
+  createSubject: async (projectName, name, initialContent) => {
     const fileName = name.endsWith('.md') ? name : `${name}.md`;
-    const content = '# Nova Anotação\n\nDescreva o assunto...';
+    const content = initialContent ?? '# Nova Anotação\n\nDescreva o assunto...';
     await writeTextFile(
       accountScopedPath(`NotterProjects/${projectName}/${fileName}`),
       content,
