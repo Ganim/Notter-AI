@@ -43,15 +43,3 @@ export interface TaskMessage {
   type: 'comment' | 'action' | 'status_change';
 }
 
-export interface BoardTask {
-  id: string;
-  projectName: string;
-  subjectName: string | null;
-  title: string;
-  description: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  createdAt: string;
-  updatedAt: string;
-  messages: TaskMessage[];
-}

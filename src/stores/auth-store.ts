@@ -9,14 +9,12 @@ import {
   fetchAgentProfiles, pushAgentProfiles,
   fetchProjects, pushProjects,
   fetchSubjects,
-  fetchBoardTasks, pushBoardTasks,
   fetchActions, pushActions,
   fetchWorkspaces,
 } from '@/lib/sync';
 import { useAppStore } from '@/stores/app-store';
 import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
-import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
@@ -108,15 +106,6 @@ async function syncOnLogin(userId: string) {
       await usePlannerStore.getState().applyRemoteSubjects(remoteSubjects);
     } else {
       await usePlannerStore.getState().pushAllSubjects(userId);
-    }
-
-    // Board tasks
-    const remoteTasks = await fetchBoardTasks(userId);
-    if (remoteTasks) {
-      useBoardStore.getState().applyRemoteTasks(remoteTasks);
-    } else {
-      const localTasks = useBoardStore.getState().tasks;
-      if (localTasks.length > 0) await pushBoardTasks(userId, localTasks);
     }
 
     // Actions

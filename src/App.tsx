@@ -2,14 +2,12 @@ import { useEffect } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
-import { BoardTab } from '@/components/BoardTab';
 import { AgentsTab } from '@/components/AgentsTab';
 import { ActionsTab } from '@/components/ActionsTab';
 import { TerminalsTab } from '@/components/TerminalsTab';
 import { useAuthStore } from '@/stores/auth-store';
 import { useAiStore } from '@/stores/ai-store';
 import { useActionsStore, flushActionsStore } from '@/stores/actions-store';
-import { useBoardStore } from '@/stores/board-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useAgentsStore } from '@/stores/agents-store';
 import { useAppStore } from '@/stores/app-store';
@@ -71,7 +69,6 @@ function App() {
             await Promise.race([
               Promise.all([
                 flushActionsStore().catch((e) => console.error('[App] actions flush', e)),
-                useBoardStore.getState().flush().catch((e) => console.error('[App] board flush', e)),
                 usePlannerStore.getState().flush().catch((e) => console.error('[App] planner flush', e)),
                 useAgentsStore.getState().flush().catch((e) => console.error('[App] agents flush', e)),
                 useAppStore.getState().flush().catch((e) => console.error('[App] app flush', e)),
@@ -103,7 +100,6 @@ function App() {
       <Layout>
         {{
           planner: <PlannerTab />,
-          board: <BoardTab />,
           agents: <AgentsTab />,
           actions: <ActionsTab />,
           terminals: <TerminalsTab />,

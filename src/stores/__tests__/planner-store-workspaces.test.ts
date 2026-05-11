@@ -42,15 +42,6 @@ vi.mock('@/stores/auth-store', () => ({
   useAuthStore: { getState: () => ({ user: { id: 'u1' } }) },
 }));
 
-vi.mock('@/stores/board-store', () => ({
-  useBoardStore: {
-    getState: () => ({
-      onProjectRenamed: vi.fn(),
-      onProjectDeleted: vi.fn(),
-    }),
-  },
-}));
-
 vi.mock('@/stores/subject-versions-store', () => ({
   useSubjectVersionsStore: {
     getState: () => ({

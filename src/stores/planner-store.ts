@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
 import type { EditorTheme, Project } from '@/types';
-import { useBoardStore } from './board-store';
 import {
   pushProjects, pushSubject, deleteRemoteSubject,
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
@@ -216,7 +215,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, oldName).catch((e) => console.error(e));
     if (userId) renameRemoteSubjectsProject(userId, oldName, newName);
-    useBoardStore.getState().onProjectRenamed(oldName, newName);
   },
 
   updateProjectPath: async (name, newPath) => {
@@ -244,7 +242,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const userId = useAuthStore.getState().user?.id;
     if (userId) deleteUserRow('projects', userId, name).catch((e) => console.error(e));
     if (userId) deleteRemoteSubjectsByProject(userId, name);
-    useBoardStore.getState().onProjectDeleted(name);
   },
 
   moveProjectToWorkspace: async (projectName, targetWorkspaceId) => {

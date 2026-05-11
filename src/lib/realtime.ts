@@ -2,13 +2,12 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAppStore } from '@/stores/app-store';
 import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
-import { useBoardStore } from '@/stores/board-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
-  fetchAgentProfiles, fetchProjects, fetchSubjects, fetchBoardTasks, fetchActions,
+  fetchAgentProfiles, fetchProjects, fetchSubjects, fetchActions,
   fetchSubjectVersions, fetchSubjectComments, fetchWorkspaces,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
@@ -38,10 +37,6 @@ export function startRealtimeSync(userId: string): void {
   const refetchSubjects = async () => {
     const subjects = await fetchSubjects(userId);
     if (subjects) await usePlannerStore.getState().applyRemoteSubjects(subjects);
-  };
-  const refetchBoardTasks = async () => {
-    const tasks = await fetchBoardTasks(userId);
-    if (tasks) useBoardStore.getState().applyRemoteTasks(tasks);
   };
   const refetchActions = async () => {
     const actions = await fetchActions(userId);
@@ -95,7 +90,6 @@ export function startRealtimeSync(userId: string): void {
   ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);
   ch = subscribeUserTable(ch, 'subject_versions',  userId, refetchSubjectVersions);
   ch = subscribeUserTable(ch, 'subject_comments',  userId, refetchSubjectComments);
-  ch = subscribeUserTable(ch, 'board_tasks',       userId, refetchBoardTasks);
   ch = subscribeUserTable(ch, 'actions',           userId, refetchActions);
 
   channel = ch.subscribe();

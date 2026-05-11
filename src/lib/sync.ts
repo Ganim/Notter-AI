@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { upsertUserRows } from '@/lib/synced-store';
-import type { AgentProfile, Project, BoardTask } from '@/types';
+import type { AgentProfile, Project } from '@/types';
 import type { Action } from '@/types/actions';
 
 export interface SubjectVersionRecord {
@@ -269,49 +269,6 @@ export async function renameRemoteSubjectsProject(
   } catch (e) {
     console.error('Failed to rename remote subjects project:', e);
   }
-}
-
-// ── Board Tasks ───────────────────────────────────────────────────────
-
-export async function fetchBoardTasks(userId: string): Promise<BoardTask[] | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data, error } = await supabase
-      .from('board_tasks')
-      .select('*')
-      .eq('user_id', userId);
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({
-      id: row.id,
-      projectName: row.project_name,
-      subjectName: row.subject_name,
-      title: row.title,
-      description: row.description,
-      status: row.status,
-      priority: row.priority,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      messages: row.messages ?? [],
-    }));
-  } catch {
-    return null;
-  }
-}
-
-export async function pushBoardTasks(userId: string, tasks: BoardTask[]): Promise<void> {
-  await upsertUserRows('board_tasks', userId, tasks, (t) => ({
-    id: t.id,
-    user_id: userId,
-    project_name: t.projectName,
-    subject_name: t.subjectName,
-    title: t.title,
-    description: t.description,
-    status: t.status,
-    priority: t.priority,
-    created_at: t.createdAt,
-    updated_at: new Date().toISOString(),
-    messages: t.messages,
-  }));
 }
 
 // ── Actions ───────────────────────────────────────────────────────────

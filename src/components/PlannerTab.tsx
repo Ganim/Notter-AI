@@ -15,7 +15,6 @@ import { exportCurrentVersion } from '@/lib/plans/export';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
 import { useWindowWidth } from '@/hooks/useWindowWidth';
-import { useBoardStore } from '@/stores/board-store';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
 import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
@@ -53,13 +52,6 @@ export function PlannerTab() {
   const [renameProjectTarget, setRenameProjectTarget] = useState<string | null>(null);
   const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-
-  // Board dialog states
-  const [isBoardDialogOpen, setIsBoardDialogOpen] = useState(false);
-  const [boardTaskTitle, setBoardTaskTitle] = useState('');
-  const [boardTaskDesc, setBoardTaskDesc] = useState('');
-  const [boardTaskPriority, setBoardTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
-  const { createTaskFromPlanner } = useBoardStore();
 
   // Sync
   const authUser = useAuthStore((s) => s.user);
@@ -1036,57 +1028,6 @@ export function PlannerTab() {
             <DialogFooter>
               <button onClick={() => setDeleteSubjectTarget(null)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('planner.cancel')}</button>
               <button onClick={confirmDeleteSubject} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors">{t('planner.delete')}</button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Create Board Task */}
-        <Dialog open={isBoardDialogOpen} onOpenChange={setIsBoardDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('board.create_task')}</DialogTitle>
-              <DialogDescription>{t('board.create_task_desc')}</DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('board.project')}</label>
-                <input type="text" readOnly value={selectedProject?.name || ''} className="w-full bg-muted/50 border border-border rounded-md p-2 text-sm text-foreground" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('board.subject')}</label>
-                <input type="text" readOnly value={selectedSubject?.replace('.md', '') || ''} className="w-full bg-muted/50 border border-border rounded-md p-2 text-sm text-foreground" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('board.title_label')}</label>
-                <input autoFocus type="text" value={boardTaskTitle} onChange={(e) => setBoardTaskTitle(e.target.value)} placeholder={t('board.title_placeholder')} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('board.description_label')}</label>
-                <textarea value={boardTaskDesc} onChange={(e) => setBoardTaskDesc(e.target.value)} placeholder={t('board.description_placeholder')} rows={3} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring resize-y" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('board.priority_label')}</label>
-                <select value={boardTaskPriority} onChange={(e) => setBoardTaskPriority(e.target.value as 'low' | 'medium' | 'high')} className="w-full bg-background text-foreground border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring">
-                  <option value="low">{t('board.priority_low')}</option>
-                  <option value="medium">{t('board.priority_medium')}</option>
-                  <option value="high">{t('board.priority_high')}</option>
-                </select>
-              </div>
-            </div>
-            <DialogFooter>
-              <button onClick={() => setIsBoardDialogOpen(false)} className="px-4 py-2 rounded-md font-medium text-sm hover:bg-muted transition-colors">{t('board.cancel')}</button>
-              <button
-                onClick={() => {
-                  if (!selectedProject || !selectedSubject || !boardTaskTitle.trim()) return;
-                  createTaskFromPlanner(selectedProject.name, selectedSubject, boardTaskTitle, boardTaskDesc, boardTaskPriority);
-                  setIsBoardDialogOpen(false);
-                  toast.success(t('board.task_created'));
-                }}
-                disabled={!boardTaskTitle.trim()}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50"
-              >
-                {t('board.create_task')}
-              </button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
