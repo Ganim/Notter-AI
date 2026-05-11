@@ -36,6 +36,29 @@ vi.mock('@/stores/auth-store', () => ({
   useAuthStore: { getState: () => ({ user: { id: 'u1' } }) },
 }));
 
+// usePlannerStore is consumed by workspace-manager.remove() (move path) to
+// optimistically reflect bulk project moves. Mock so the real module — which
+// imports the full @/lib/sync surface beyond our partial mock — never loads.
+vi.mock('@/stores/planner-store', () => ({
+  usePlannerStore: {
+    getState: () => ({
+      allProjects: [] as { name: string; workspaceId: string }[],
+      applyRemoteProjects: vi.fn(),
+    }),
+  },
+}));
+
+// useWorkspacesStore is consumed by workspace-manager's syncStoreFromRemote
+// after every mutation. Mock to avoid loading the real store + its zustand setup.
+vi.mock('@/stores/workspaces-store', () => ({
+  useWorkspacesStore: {
+    getState: () => ({
+      applyRemoteWorkspaces: vi.fn(),
+      setCurrentWorkspaceId: vi.fn(),
+    }),
+  },
+}));
+
 import { getWorkspaceManager, _resetForTests } from '../workspace-manager';
 import * as sync from '@/lib/sync';
 
