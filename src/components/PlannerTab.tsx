@@ -18,7 +18,7 @@ import { useWindowWidth } from '@/hooks/useWindowWidth';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
 import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
-import { Loader2, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
+import { Loader2, History, RefreshCw, MessageSquare, Upload, Download } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -169,7 +169,6 @@ export function PlannerTab() {
   const versionsPanelRef = useRef<PanelImperativeHandle>(null);
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [subjectsCollapsed, setSubjectsCollapsed] = useState(false);
-  const [isVersionsPanelCollapsed, setIsVersionsPanelCollapsed] = useState(true);
 
   const windowWidth = useWindowWidth();
   const isSmall = windowWidth < 640;
@@ -516,15 +515,6 @@ export function PlannerTab() {
             >
               {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
             </button>
-            {!isSmall && (
-              <button
-                onClick={toggleVersionsPanel}
-                title={t('plans.comments_title')}
-                className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                {isVersionsPanelCollapsed ? <PanelRightOpen size={12} /> : <PanelRightClose size={12} />}
-              </button>
-            )}
             <div ref={historyRef} className="relative">
               <button
                 onClick={() => setHistoryOpen((v) => !v)}
@@ -613,6 +603,15 @@ export function PlannerTab() {
                 </div>
               )}
             </div>
+            {!isSmall && (
+              <button
+                onClick={toggleVersionsPanel}
+                title={t('plans.comments_title')}
+                className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <MessageSquare size={12} />
+              </button>
+            )}
           </>
         )}
       </div>
@@ -738,7 +737,7 @@ export function PlannerTab() {
                   <span className="font-semibold text-xs text-foreground truncate">{selectedProject?.name}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                     {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
                   <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
@@ -814,7 +813,7 @@ export function PlannerTab() {
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
                 <div className="flex items-center gap-1">
-                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                  <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                     {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
                   <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
@@ -840,7 +839,6 @@ export function PlannerTab() {
             panelRef={versionsPanelRef}
             defaultSize="28%" minSize="15%" maxSize="45%"
             collapsible collapsedSize={0}
-            onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
             className="bg-muted/10"
           >
             {renderCommentsPanel()}
@@ -893,7 +891,7 @@ export function PlannerTab() {
             <div className="p-3 border-b border-border/50 uppercase flex items-center justify-between">
               <span>{t('planner.subjects')}</span>
               <div className="flex items-center gap-1">
-                <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                   {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 </button>
                 <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
@@ -930,7 +928,6 @@ export function PlannerTab() {
           panelRef={versionsPanelRef}
           defaultSize="25%" minSize="15%" maxSize="40%"
           collapsible collapsedSize={0}
-          onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
           className="bg-muted/10"
         >
           {renderCommentsPanel()}
