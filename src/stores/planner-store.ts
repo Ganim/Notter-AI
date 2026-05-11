@@ -101,6 +101,15 @@ interface PlannerState {
    * travel with the project through the FK chain — no client-side cascade.
    */
   moveProjectToWorkspace: (projectName: string, targetWorkspaceId: string) => Promise<void>;
+  /**
+   * Optimistically reflect a `subjects.current_version_id` change in the
+   * local subjectRows slice. Realtime UPDATE events for the subjects table
+   * are RLS-protected and frequently lag (same root cause as the workspaces
+   * bug fixes f248994 / 697ac90), so callers (preview-banner Adopt, force-
+   * create button) patch the slice directly after a successful Supabase
+   * update so the "current" marker in the History dropdown moves.
+   */
+  markSubjectCurrentVersion: (subjectId: string, versionId: string) => void;
 
   // Subject actions
   setSelectedSubject: (subject: string | null) => void;
@@ -261,6 +270,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     if (!userId) return;
     const { updateProjectWorkspace } = await import('@/lib/sync');
     await updateProjectWorkspace(userId, projectName, targetWorkspaceId);
+  },
+
+  markSubjectCurrentVersion: (subjectId, versionId) => {
+    set((s) => ({
+      subjectRows: s.subjectRows.map((r) =>
+        r.id === subjectId ? { ...r, currentVersionId: versionId } : r,
+      ),
+    }));
   },
 
   // --- Subjects (notes) ---

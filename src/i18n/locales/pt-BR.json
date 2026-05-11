@@ -225,7 +225,10 @@
     "error_delete_subject": "Erro ao deletar assunto: {{error}}",
     "project_path": "Pasta",
     "history": "Histórico",
-    "history_empty_versions": "Nenhuma versão ainda"
+    "history_empty_versions": "Nenhuma versão ainda",
+    "create_version": "Criar versão do conteúdo atual",
+    "version_created": "Versão criada",
+    "version_create_failed": "Não foi possível criar a versão"
   },
   "agents": {
     "profiles": "Perfis de Agentes",

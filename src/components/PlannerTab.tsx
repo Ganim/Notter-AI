@@ -543,8 +543,35 @@ export function PlannerTab() {
               </button>
               {historyOpen && (
                 <div className="absolute right-0 top-8 z-50 w-80 bg-popover border border-border rounded-md shadow-lg py-1 max-h-96 overflow-auto">
-                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
-                    {t('planner.history')}
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border flex items-center justify-between gap-2">
+                    <span>{t('planner.history')}</span>
+                    <button
+                      onClick={async () => {
+                        const row = usePlannerStore.getState().selectedSubjectRow();
+                        if (!row) return;
+                        const v = await useSubjectVersionsStore.getState().snapshotAndAdopt({
+                          contentMarkdown: subjectContent,
+                          source: 'user',
+                          label: t('plans.manual_edit_label'),
+                          parentVersionId: row.currentVersionId ?? null,
+                        });
+                        if (v) {
+                          // Optimistic marker update so the History dropdown reflects
+                          // the new current version immediately (realtime UPDATE on
+                          // subjects.current_version_id can lag — same pattern as
+                          // commits f248994 / 697ac90).
+                          usePlannerStore.getState().markSubjectCurrentVersion(v.subjectId, v.id);
+                          toast.success(t('planner.version_created'));
+                        } else {
+                          toast.error(t('planner.version_create_failed'));
+                        }
+                      }}
+                      disabled={!selectedSubject}
+                      title={t('planner.create_version')}
+                      className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed normal-case"
+                    >
+                      <Plus size={12} />
+                    </button>
                   </div>
                   {versionList.length === 0 ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
@@ -621,6 +648,8 @@ export function PlannerTab() {
               if (adopted && selectedProject && selectedSubject) {
                 setSubjectContent(adopted.contentMarkdown);
                 await saveSubjectContent(selectedProject.name, selectedSubject, adopted.contentMarkdown);
+                // Move the "current" marker in the History dropdown right away.
+                usePlannerStore.getState().markSubjectCurrentVersion(adopted.subjectId, adopted.id);
               }
             }}
           >

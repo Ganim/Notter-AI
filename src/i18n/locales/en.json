@@ -225,7 +225,10 @@
     "error_delete_subject": "Error deleting subject: {{error}}",
     "project_path": "Folder",
     "history": "History",
-    "history_empty_versions": "No versions yet"
+    "history_empty_versions": "No versions yet",
+    "create_version": "Create version from current content",
+    "version_created": "Version created",
+    "version_create_failed": "Could not create version"
   },
   "agents": {
     "profiles": "Agent Profiles",
