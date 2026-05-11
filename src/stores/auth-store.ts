@@ -22,7 +22,7 @@ import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import { resetAllStores } from '@/lib/accounts/store-registry';
-import { notifyMcpAccountTokenChanged, notifyMcpAccountRemoved } from '@/lib/mcp';
+import { notifyMcpAccountTokenChanged, notifyMcpAccountSignedOut } from '@/lib/mcp';
 
 interface AuthState {
   user: User | null;
@@ -345,7 +345,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     // onAuthStateChange listener can't reliably get this.
     const previousId = (await supabase.auth.getSession()).data.session?.user?.id;
     await supabase.auth.signOut();
-    if (previousId) await notifyMcpAccountRemoved(previousId);
+    if (previousId) await notifyMcpAccountSignedOut(previousId);
     await getAccountManager().setActiveAccountId(null);
     set({ user: null, session: null });
     resetAllStores();

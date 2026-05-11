@@ -7,6 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 import {
   notifyMcpAccountTokenChanged,
   notifyMcpAccountRemoved,
+  notifyMcpAccountSignedOut,
   pushMcpSupabaseConfig,
   notifyMcpAccountRegistered,
   readMcpConfigForAccount,
@@ -35,10 +36,16 @@ describe('mcp glue', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('notifyMcpAccountRemoved forwards to mcp_remove_account_token', async () => {
+  it('notifyMcpAccountRemoved forwards to mcp_remove_account_token (hard revoke)', async () => {
     invokeMock.mockResolvedValue(undefined);
     await notifyMcpAccountRemoved('acc1');
     expect(invokeMock).toHaveBeenCalledWith('mcp_remove_account_token', { accountId: 'acc1' });
+  });
+
+  it('notifyMcpAccountSignedOut forwards to mcp_clear_account_access_token (soft clear)', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await notifyMcpAccountSignedOut('acc1');
+    expect(invokeMock).toHaveBeenCalledWith('mcp_clear_account_access_token', { accountId: 'acc1' });
   });
 
   it('notifyMcpAccountRegistered forwards to mcp_register_bearer with the camelCase args envelope', async () => {

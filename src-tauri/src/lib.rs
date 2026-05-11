@@ -320,6 +320,7 @@ pub fn run() {
             secure_store::secure_register_known_keys,
             mcp::auth::mcp_update_account_token,
             mcp::auth::mcp_remove_account_token,
+            mcp::auth::mcp_clear_account_access_token,
             mcp::auth::mcp_set_supabase_config,
             mcp::auth::mcp_register_bearer,
             mcp::server::mcp_read_account_config,

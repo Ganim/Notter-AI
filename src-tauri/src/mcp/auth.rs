@@ -38,9 +38,11 @@ pub async fn mcp_update_account_token(
     Ok(())
 }
 
-/// Tauri command — front-end calls when an account is removed from
-/// AccountManager (also on signOut). Drops the per-account access token AND
-/// any bearer mapped to this account.
+/// Tauri command — front-end calls when an account is REMOVED from
+/// AccountManager (hard revocation). Drops the per-account access token AND
+/// the bearer mapping. NOT called on signOut — signOut keeps the account
+/// cadastrada and uses `mcp_clear_account_access_token` (soft) instead so the
+/// bearer survives the round-trip.
 #[tauri::command]
 pub async fn mcp_remove_account_token(
     account_id: String,
@@ -50,6 +52,21 @@ pub async fn mcp_remove_account_token(
     s.access_tokens.remove(&account_id);
     s.token_to_account
         .retain(|_, owner| owner != &account_id);
+    Ok(())
+}
+
+/// Tauri command — soft clear of the per-account access token. Used by
+/// signOut: the Supabase session ends but the account stays cadastrada, so
+/// the bearer (which represents the account identity, not the session) must
+/// survive. Next sign-in re-pushes the access token via the
+/// `SIGNED_IN` / `TOKEN_REFRESHED` listener.
+#[tauri::command]
+pub async fn mcp_clear_account_access_token(
+    account_id: String,
+    state: tauri::State<'_, McpState>,
+) -> Result<(), String> {
+    let mut s = state.write().await;
+    s.access_tokens.remove(&account_id);
     Ok(())
 }
 
@@ -236,6 +253,27 @@ mod tests {
         assert!(s.access_tokens.get("acc-1").is_none());
         assert_eq!(s.token_to_account.len(), 1);
         assert!(s.token_to_account.contains_key("tok-c"));
+    }
+
+    #[tokio::test]
+    async fn soft_clear_drops_only_access_token() {
+        // Verifies the signOut contract: bearer stays, access token goes.
+        let state = make_state();
+        {
+            let mut s = state.write().await;
+            s.access_tokens
+                .insert("acc-1".into(), ("at".into(), i64::MAX));
+            s.token_to_account.insert("tok-a".into(), "acc-1".into());
+        }
+        // Simulate mcp_clear_account_access_token.
+        {
+            let mut s = state.write().await;
+            s.access_tokens.remove("acc-1");
+        }
+        let s = state.read().await;
+        assert!(s.access_tokens.get("acc-1").is_none());
+        assert_eq!(s.token_to_account.len(), 1);
+        assert_eq!(s.token_to_account.get("tok-a"), Some(&"acc-1".to_string()));
     }
 
     #[tokio::test]

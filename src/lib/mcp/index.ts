@@ -22,15 +22,31 @@ export async function notifyMcpAccountTokenChanged(
 }
 
 /**
- * Notify the Rust MCP server that an account has been removed (or signed out).
- * Drops the per-account access-token slice AND the bearer mapping. Called
- * from AccountManager.remove and from signOut.
+ * Notify the Rust MCP server that an account has been REMOVED from the app
+ * (hard revocation). Drops both the per-account access token slice AND the
+ * bearer mapping. Used by AccountManager.remove. NOT by signOut — signOut
+ * uses `notifyMcpAccountSignedOut` because the bearer must survive a
+ * sign-out/sign-in cycle (it represents the account identity).
  */
 export async function notifyMcpAccountRemoved(accountId: string): Promise<void> {
   try {
     await invoke('mcp_remove_account_token', { accountId });
   } catch (e) {
     console.warn('[mcp] notifyMcpAccountRemoved failed:', e);
+  }
+}
+
+/**
+ * Notify the Rust MCP server that the active session has ended (signOut).
+ * Soft clear: drops the per-account access token but keeps the bearer
+ * mapping. Next sign-in re-pushes the access token via the
+ * `SIGNED_IN`/`TOKEN_REFRESHED` listener, no bearer churn needed.
+ */
+export async function notifyMcpAccountSignedOut(accountId: string): Promise<void> {
+  try {
+    await invoke('mcp_clear_account_access_token', { accountId });
+  } catch (e) {
+    console.warn('[mcp] notifyMcpAccountSignedOut failed:', e);
   }
 }
 
