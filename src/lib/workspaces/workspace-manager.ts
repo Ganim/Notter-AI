@@ -96,7 +96,12 @@ export class WorkspaceManager {
     const accountId = getAccountManager().activeAccountId;
     const userId = useAuthStore.getState().user?.id;
     if (!accountId || !userId) {
-      console.warn('[workspace-manager] bootstrap skipped — no active account/user');
+      // Benign race during signInWithEmail: supabase.auth.signInWithPassword
+      // dispatches SIGNED_IN before setActiveAccountId() runs, so the first
+      // bootstrap attempt sees a null accountId. The subsequent setSession
+      // re-fires SIGNED_IN with active set and bootstrap succeeds. Demoted
+      // from warn to debug to avoid log noise on every signin.
+      console.debug('[workspace-manager] bootstrap deferred — auth state not yet settled');
       return;
     }
 

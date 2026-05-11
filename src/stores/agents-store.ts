@@ -93,6 +93,14 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 
   saveProfiles: async (profiles) => {
     try {
+      // Ensure the per-account AgentProfiles/ subdir exists before writing.
+      // Cold-start (and the fs-migration paths) can leave the dir uncreated
+      // even after the account is active.
+      const agentProfilesPath = tryAccountScopedPath('AgentProfiles');
+      if (agentProfilesPath === null) return; // no active account
+      if (!(await exists(agentProfilesPath, { baseDir: BaseDirectory.AppLocalData }))) {
+        await mkdir(agentProfilesPath, { baseDir: BaseDirectory.AppLocalData, recursive: true });
+      }
       await writeTextFile(getProfilesFile(), JSON.stringify(profiles, null, 2), { baseDir: BaseDirectory.AppLocalData });
       profilesSync.schedule(profiles);
     } catch (e) {
