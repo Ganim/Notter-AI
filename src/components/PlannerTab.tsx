@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
@@ -17,18 +17,10 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
 import { useWindowWidth } from '@/hooks/useWindowWidth';
 import { useBoardStore } from '@/stores/board-store';
-import { useAgentsStore } from '@/stores/agents-store';
-import { useActionsStore } from '@/stores/actions-store';
-import { useAiStore } from '@/stores/ai-store';
-import { useAppStore } from '@/stores/app-store';
-import { translateNote } from '@/lib/translator';
-import { processNoteToAction } from '@/lib/action-processor';
-import { PlanWithAiButton } from '@/components/planning/PlanWithAiButton';
-import { SnapshotPanel } from '@/components/plans/SnapshotPanel';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
 import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
-import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
+import { Loader2, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -68,18 +60,7 @@ export function PlannerTab() {
   const [boardTaskTitle, setBoardTaskTitle] = useState('');
   const [boardTaskDesc, setBoardTaskDesc] = useState('');
   const [boardTaskPriority, setBoardTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
-  const { createTaskFromPlanner, createTasksFromNote } = useBoardStore();
-  const { profiles } = useAgentsStore();
-  const [isTransformOpen, setIsTransformOpen] = useState(false);
-  const [, setIsTransforming] = useState(false);
-
-  // Action processing (Phase 3 + Phase 5 multi-provider)
-  const activeModelTag = useAiStore((s) => s.activeModelTag);
-  const ollamaStatus = useAiStore((s) => s.ollamaStatus);
-  const activeProviderId = useAiStore((s) => s.activeProviderId);
-  const cloudConfigs = useAiStore((s) => s.cloudConfigs);
-  const addAction = useActionsStore((s) => s.addAction);
-  const allActions = useActionsStore((s) => s.actions);
+  const { createTaskFromPlanner } = useBoardStore();
 
   // Sync
   const authUser = useAuthStore((s) => s.user);
@@ -160,19 +141,23 @@ export function PlannerTab() {
       setIsExporting(false);
     }
   };
-  const setActiveTab = useAppStore((s) => s.setActiveTab);
-  const setSelectedAction = useActionsStore((s) => s.setSelected);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
-  // Actions for the current subject (sorted newest first)
-  const subjectHistory = useMemo(() => {
-    if (!selectedProject || !selectedSubject) return [];
-    return allActions
-      .filter((a) => a.projectName === selectedProject.name && a.subjectName === selectedSubject)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [allActions, selectedProject, selectedSubject]);
+  // Reactive read of the live current_version_id for the selected subject.
+  // Drives the "current" marker badge in the History dropdown. The
+  // `subjectRows` slice is replaced wholesale on every postgres_changes event
+  // for the `subjects` table, so this re-runs on remote adopts too.
+  const currentVersionId = usePlannerStore((s) => {
+    if (!s.selectedProject || !s.selectedSubject) return null;
+    return (
+      s.subjectRows.find(
+        (r) =>
+          r.projectName === s.selectedProject!.name &&
+          r.fileName === s.selectedSubject,
+      )?.currentVersionId ?? null
+    );
+  });
 
   // Editor & layout refs
   const editorRef = useRef<any>(null);
@@ -400,128 +385,6 @@ export function PlannerTab() {
   const triggerProjectDialog = () => { setNewProjectName(''); setIsProjectDialogOpen(true); };
   const triggerSubjectDialog = () => { setNewSubjectName(''); setIsSubjectDialogOpen(true); };
 
-  const handleTransform = async (profile: import('@/types').AgentProfile) => {
-    if (!selectedProject || !selectedSubject || !subjectContent.trim()) return;
-    setIsTransformOpen(false);
-    setIsTransforming(true);
-    // Pre-AI snapshot: capture the user's pre-Wand2 note so it can be restored
-    // even though `translateNote` only emits board tasks (no editor mutation).
-    const row = usePlannerStore.getState().selectedSubjectRow();
-    if (subjectContent.trim()) {
-      await useSubjectVersionsStore.getState().snapshotCurrent({
-        contentMarkdown: subjectContent,
-        source: 'user',
-        label: t('plans.manual_edit_label'),
-        parentVersionId: row?.currentVersionId ?? null,
-      });
-    }
-    try {
-      const result = await translateNote(profile, subjectContent);
-      if (result.error) {
-        toast.error(t('board.transform_error', { error: result.error }));
-      } else {
-        createTasksFromNote(selectedProject.name, selectedSubject, result.tasks);
-        toast.success(t('board.transform_success', { count: result.tasks.length }));
-      }
-    } catch (e: any) {
-      toast.error(t('board.transform_error', { error: e.message }));
-    } finally {
-      setIsTransforming(false);
-    }
-  };
-
-  const canProcess = (() => {
-    if (activeProviderId === 'ollama') {
-      return ollamaStatus === 'running' && !!activeModelTag;
-    }
-    const cfg = cloudConfigs[activeProviderId];
-    return !!cfg?.apiKey.trim() && !!cfg?.model.trim();
-  })();
-
-  const handleProcess = async () => {
-    if (!selectedProject || !selectedSubject) return;
-    if (!subjectContent.trim()) {
-      toast.error(t('planner.process_empty_note'));
-      return;
-    }
-    if (!canProcess) {
-      toast.error(t('planner.process_no_model'));
-      return;
-    }
-    setIsProcessing(true);
-    // Pre-AI snapshot: processNoteToAction generates an Action (no editor
-    // mutation) but `handleProcess` clears subjectContent on success — record
-    // the pre-clear note so the user can restore it from the panel.
-    {
-      const row = usePlannerStore.getState().selectedSubjectRow();
-      if (subjectContent.trim()) {
-        await useSubjectVersionsStore.getState().snapshotCurrent({
-          contentMarkdown: subjectContent,
-          source: 'user',
-          label: t('plans.manual_edit_label'),
-          parentVersionId: row?.currentVersionId ?? null,
-        });
-      }
-    }
-    try {
-      let modelTag: string;
-      let apiKey: string | undefined;
-      if (activeProviderId === 'ollama') {
-        modelTag = activeModelTag!;
-      } else {
-        const cfg = cloudConfigs[activeProviderId];
-        modelTag = cfg.model;
-        apiKey = cfg.apiKey;
-      }
-
-      const action = await processNoteToAction({
-        projectName: selectedProject.name,
-        subjectName: selectedSubject,
-        noteMarkdown: subjectContent,
-        providerId: activeProviderId,
-        modelTag,
-        apiKey,
-      });
-      await addAction(action);
-      toast.success(t('planner.process_success', { count: action.tasks.length }));
-
-      // Clear the note for a new version, then navigate to the Actions tab
-      setSubjectContent('');
-      await saveSubjectContent(selectedProject.name, selectedSubject, '');
-      setSelectedAction(action.id);
-      setActiveTab('actions');
-    } catch (e: any) {
-      toast.error(t('planner.process_error', { error: e.message ?? String(e) }));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleOpenHistoryVersion = async (actionId: string) => {
-    if (!selectedProject || !selectedSubject) return;
-    const action = allActions.find((a) => a.id === actionId);
-    if (!action) return;
-    if (subjectContent.trim() && !confirm(t('planner.history_open_confirm'))) {
-      return;
-    }
-    // Pre-swap snapshot: about to clobber the editor with a historical Action's
-    // input. Record what's there now so the user can restore it from the panel.
-    {
-      const row = usePlannerStore.getState().selectedSubjectRow();
-      if (subjectContent.trim()) {
-        await useSubjectVersionsStore.getState().snapshotCurrent({
-          contentMarkdown: subjectContent,
-          source: 'user',
-          label: t('plans.manual_edit_label'),
-          parentVersionId: row?.currentVersionId ?? null,
-        });
-      }
-    }
-    setSubjectContent(action.originalMarkdown);
-    await saveSubjectContent(selectedProject.name, selectedSubject, action.originalMarkdown);
-    setHistoryOpen(false);
-  };
-
   // --- Mobile navigation ---
   const selectProjectMobile = (p: Project) => { setSelectedProject(p); setMobilePanel('subjects'); };
   const selectSubjectMobile = (s: string) => { setSelectedSubject(s); setMobilePanel('editor'); };
@@ -664,7 +527,7 @@ export function PlannerTab() {
             {!isSmall && (
               <button
                 onClick={toggleVersionsPanel}
-                title={isVersionsPanelCollapsed ? t('plans.versions_title') : t('plans.comments_title')}
+                title={t('plans.comments_title')}
                 className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 {isVersionsPanelCollapsed ? <PanelRightOpen size={12} /> : <PanelRightClose size={12} />}
@@ -683,69 +546,54 @@ export function PlannerTab() {
                   <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
                     {t('planner.history')}
                   </div>
-                  {subjectHistory.length === 0 ? (
+                  {versionList.length === 0 ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
-                      {t('planner.history_empty')}
+                      {t('planner.history_empty_versions')}
                     </div>
                   ) : (
-                    subjectHistory.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => handleOpenHistoryVersion(a.id)}
-                        className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border/50 last:border-b-0"
-                      >
-                        <div className="text-xs font-medium text-foreground truncate">
-                          {a.title || '(untitled)'}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {new Date(a.createdAt).toLocaleString()} · {a.tasks.length} tasks
-                        </div>
-                      </button>
-                    ))
+                    versionList.map((v) => {
+                      const isCurrent = currentVersionId === v.id;
+                      return (
+                        <button
+                          key={v.id}
+                          onClick={() => {
+                            useSubjectVersionsStore.getState().enterPreview(v.id);
+                            setHistoryOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border/50 last:border-b-0 ${isCurrent ? 'bg-primary/5' : ''}`}
+                        >
+                          <div className="text-xs font-medium text-foreground truncate flex items-center justify-between gap-2">
+                            <span className="truncate">{v.label ?? `v${v.id.slice(0, 6)}`}</span>
+                            {isCurrent && (
+                              <span className="text-[9px] uppercase tracking-wider text-primary shrink-0">
+                                {t('plans.current_marker')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-2">
+                            <span>{formatRelativeTime(v.createdAt)}</span>
+                            <span className="opacity-60">·</span>
+                            <span>
+                              {v.source === 'user'
+                                ? t('plans.source_user')
+                                : v.source === 'ai'
+                                ? t('plans.source_ai')
+                                : t('plans.source_import')}
+                            </span>
+                            {v.sourceActor && (
+                              <>
+                                <span className="opacity-60">·</span>
+                                <span className="truncate">{v.sourceActor}</span>
+                              </>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
                   )}
                 </div>
               )}
             </div>
-            <button
-              onClick={handleProcess}
-              disabled={isProcessing || !subjectContent.trim() || !canProcess}
-              title={
-                !canProcess
-                  ? t('planner.process_no_model')
-                  : !subjectContent.trim()
-                  ? t('planner.process_empty_note')
-                  : t('planner.process')
-              }
-              className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {isProcessing ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Play size={12} fill="currentColor" />
-              )}
-            </button>
-            <PlanWithAiButton
-              project={selectedProject}
-              subjectName={selectedSubject}
-              noteMarkdown={subjectContent}
-              onStarted={(actionId) => {
-                // Pre-AI snapshot: PlanWithAiButton kicks off the v2 planning
-                // pipeline which produces tasks (no editor mutation). Still
-                // worth recording the note state at the moment the user
-                // pressed Plan-with-AI for traceability.
-                const row = usePlannerStore.getState().selectedSubjectRow();
-                if (subjectContent.trim()) {
-                  void useSubjectVersionsStore.getState().snapshotCurrent({
-                    contentMarkdown: subjectContent,
-                    source: 'user',
-                    label: t('plans.manual_edit_label'),
-                    parentVersionId: row?.currentVersionId ?? null,
-                  });
-                }
-                setSelectedAction(actionId);
-                setActiveTab('actions');
-              }}
-            />
           </>
         )}
       </div>
@@ -828,20 +676,14 @@ export function PlannerTab() {
     )
   );
 
-  // Right-side versions + comments panel content (used by large + medium
-  // layouts). Content auto-hides itself when no subject is selected — the
-  // SnapshotPanel / CommentsPanel both early-return on `!currentSubjectId`.
-  const renderVersionsCommentsPanel = () => (
-    /* @ts-expect-error shadcn type mismatch */
-    <ResizablePanelGroup direction="vertical" className="w-full h-full">
-      <ResizablePanel defaultSize="50%" minSize="20%" className="bg-background overflow-hidden">
-        <SnapshotPanel />
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel defaultSize="50%" minSize="20%" className="bg-background overflow-hidden">
-        <CommentsPanel />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+  // Right-side comments panel content (used by large + medium layouts).
+  // Versions are now reachable via the History dropdown in the editor header,
+  // so the side panel collapses to just comments. CommentsPanel early-returns
+  // on `!currentSubjectId`, so no-subject states render nothing here.
+  const renderCommentsPanel = () => (
+    <div className="w-full h-full bg-background overflow-hidden">
+      <CommentsPanel />
+    </div>
   );
 
   // ============================
@@ -970,7 +812,7 @@ export function PlannerTab() {
             onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
             className="bg-muted/10"
           >
-            {renderVersionsCommentsPanel()}
+            {renderCommentsPanel()}
           </ResizablePanel>
         </ResizablePanelGroup>
         {renderDialogs()}
@@ -1057,7 +899,7 @@ export function PlannerTab() {
           onResize={(size) => setIsVersionsPanelCollapsed(size.asPercentage === 0)}
           className="bg-muted/10"
         >
-          {renderVersionsCommentsPanel()}
+          {renderCommentsPanel()}
         </ResizablePanel>
       </ResizablePanelGroup>
       {renderDialogs()}
@@ -1207,32 +1049,6 @@ export function PlannerTab() {
           </DialogContent>
         </Dialog>
 
-        {/* Select Agent for Transform */}
-        <Dialog open={isTransformOpen} onOpenChange={setIsTransformOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>{t('board.select_agent')}</DialogTitle>
-              <DialogDescription>{t('board.select_agent_desc')}</DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-2 mt-2">
-              {profiles.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handleTransform(p)}
-                  className="w-full flex items-center gap-3 p-3 border border-border rounded-md hover:border-purple-500/50 hover:bg-purple-500/5 transition-all text-left group"
-                >
-                  <div className="p-2 rounded-md bg-purple-500/10 text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
-                    <Wand2 size={16} />
-                  </div>
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-sm font-semibold truncate group-hover:text-purple-500 transition-colors">{p.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{p.provider.toUpperCase()}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
       </>
     );
   }

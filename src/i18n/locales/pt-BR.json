@@ -224,16 +224,8 @@
     "error_rename_subject": "Erro ao renomear assunto: {{error}}",
     "error_delete_subject": "Erro ao deletar assunto: {{error}}",
     "project_path": "Pasta",
-    "process": "Processar",
-    "processing": "Processando...",
-    "process_no_model": "Defina um modelo de IA padrão primeiro (UserMenu → Gerenciar IA)",
-    "process_empty_note": "Nota vazia",
-    "process_success": "Ação criada com {{count}} tarefas",
-    "process_error": "Falha ao processar nota: {{error}}",
     "history": "Histórico",
-    "history_empty": "Sem versões anteriores",
-    "history_open_confirm": "Carregar esta versão? Alterações não salvas serão perdidas.",
-    "clear_after_process": "Nota limpa após processamento"
+    "history_empty_versions": "Nenhuma versão ainda"
   },
   "agents": {
     "profiles": "Perfis de Agentes",
