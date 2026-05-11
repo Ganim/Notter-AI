@@ -1,8 +1,16 @@
 // src/lib/mcp/__tests__/index.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+const { invokeMock, listenMock, refreshSessionMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  listenMock: vi.fn(),
+  refreshSessionMock: vi.fn(),
+}));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: listenMock }));
+vi.mock('@/lib/supabase', () => ({
+  supabase: { auth: { refreshSession: refreshSessionMock } },
+}));
 
 import {
   notifyMcpAccountTokenChanged,
@@ -11,13 +19,19 @@ import {
   pushMcpSupabaseConfig,
   notifyMcpAccountRegistered,
   readMcpConfigForAccount,
+  setupMcpAuthListener,
+  teardownMcpAuthListener,
 } from '@/lib/mcp';
 
 beforeEach(() => {
   invokeMock.mockReset();
-  // Silence the console.warn calls from the swallow-error paths so vitest 4's
-  // stderr capture doesn't mark those tests as failed.
+  listenMock.mockReset();
+  refreshSessionMock.mockReset();
+  teardownMcpAuthListener();
+  // Silence the console.warn / console.info calls from the swallow-error paths
+  // so vitest 4's stderr capture doesn't mark those tests as failed.
   vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'info').mockImplementation(() => {});
 });
 
 describe('mcp glue', () => {
@@ -81,5 +95,61 @@ describe('mcp glue', () => {
       args: { accountId: 'acc1' },
     });
     expect(cfg?.bearer_token).toBe('tok');
+  });
+});
+
+describe('mcp:auth-needed listener', () => {
+  it('subscribes to mcp:auth-needed once + calls refreshSession on event', async () => {
+    // Capture the handler the listener registers.
+    let registered: ((e: { payload: { accountId: string } }) => void) | null = null;
+    listenMock.mockImplementation(async (_evt: string, handler: any) => {
+      registered = handler;
+      return () => {};
+    });
+    refreshSessionMock.mockResolvedValue({ data: { session: {} }, error: null });
+
+    await setupMcpAuthListener();
+    expect(listenMock).toHaveBeenCalledTimes(1);
+    expect(listenMock).toHaveBeenCalledWith('mcp:auth-needed', expect.any(Function));
+    expect(registered).toBeTruthy();
+
+    // Simulate an emit from Rust.
+    await registered!({ payload: { accountId: 'acc1' } });
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('debounces concurrent events — only one refreshSession in flight', async () => {
+    let registered: ((e: { payload: { accountId: string } }) => void) | null = null;
+    listenMock.mockImplementation(async (_evt: string, handler: any) => {
+      registered = handler;
+      return () => {};
+    });
+    // Make refresh resolve only after we say so.
+    let releaseRefresh: () => void = () => {};
+    refreshSessionMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRefresh = () => resolve({ data: { session: {} }, error: null });
+        }),
+    );
+
+    await setupMcpAuthListener();
+    // Two events arrive while the first refresh is still pending.
+    const p1 = registered!({ payload: { accountId: 'acc1' } });
+    const p2 = registered!({ payload: { accountId: 'acc1' } });
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1);
+
+    releaseRefresh();
+    await Promise.all([p1, p2]);
+    // After the first one resolves, the inFlight flag is reset but no second
+    // refresh was attempted (the second event was already dropped).
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('is idempotent — second setup call is a no-op', async () => {
+    listenMock.mockResolvedValue(() => {});
+    await setupMcpAuthListener();
+    await setupMcpAuthListener();
+    expect(listenMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,7 +15,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
@@ -120,10 +120,15 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
     // 6. Build the axum router. /mcp is bearer-auth-guarded and routes the
     //    JSON-RPC envelope to the tool dispatcher. /health stays
     //    unauthenticated — it has its own nonce check.
+    //
+    // The AppHandle is attached as an axum `Extension` (not stashed inside
+    // McpStateInner) so unit tests in this crate don't pull AppHandle's
+    // WebView2 runtime deps into the test binary's link graph.
     let app_router = Router::new()
         .route("/mcp", post(mcp_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), bearer_auth))
         .route("/health", get(health))
+        .layer(Extension(app.clone()))
         .with_state(state.clone());
 
     // 7. Spawn the server in the background.
@@ -180,6 +185,7 @@ async fn health(
 async fn mcp_handler(
     AxumState(state): AxumState<McpState>,
     Extension(auth): Extension<AuthContext>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<JsonRpcResponse> {
     // Decode envelope.
@@ -201,8 +207,21 @@ async fn mcp_handler(
     }
 
     let id = req.id.clone();
-    match dispatch(&req.method, &req.params, &auth, &state).await {
-        Ok(result) => Json(JsonRpcResponse::ok(id, result)),
+    let result = dispatch(&req.method, &req.params, &auth, &state).await;
+
+    // Reactive auth recovery: if the tool layer signals AuthPending, fire a
+    // Tauri event so the front-end can supabase.auth.refreshSession() and the
+    // CLI's retry will succeed. Best-effort — failures are non-fatal (the CLI
+    // still gets the auth_pending JSON-RPC error and can back off / retry).
+    if matches!(&result, Err(McpError::AuthPending)) {
+        let _ = app.emit(
+            "mcp:auth-needed",
+            serde_json::json!({ "accountId": auth.account_id }),
+        );
+    }
+
+    match result {
+        Ok(r) => Json(JsonRpcResponse::ok(id, r)),
         Err(e) => Json(JsonRpcResponse::err(id, e.code(), e.message())),
     }
 }

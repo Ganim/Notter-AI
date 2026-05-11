@@ -1,5 +1,6 @@
 // src/lib/mcp/index.ts
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 /**
  * Notify the Rust MCP server that an account's Supabase access token has
@@ -108,4 +109,49 @@ export async function readMcpConfigForAccount(
     console.warn('[mcp] readMcpConfigForAccount failed:', e);
     return null;
   }
+}
+
+// ─── Reactive auth recovery ───────────────────────────────────────────────
+//
+// Rust emits `mcp:auth-needed` whenever a tool call hits AuthPending (the
+// access_token slice is empty or expired). The listener below calls
+// supabase.auth.refreshSession() to force a TOKEN_REFRESHED event, which the
+// auth-store listener catches and re-pushes the access token to Rust. The
+// CLI's retry then succeeds.
+//
+// Debounced via the inFlight flag so a burst of failing tool calls doesn't
+// stack N concurrent refresh attempts.
+
+let mcpAuthInFlight = false;
+let mcpAuthUnlisten: UnlistenFn | null = null;
+
+/**
+ * Setup the `mcp:auth-needed` listener. Idempotent — safe to call multiple
+ * times; only the first call attaches. Returns immediately.
+ */
+export async function setupMcpAuthListener(): Promise<void> {
+  if (mcpAuthUnlisten) return;
+  const { supabase } = await import('@/lib/supabase');
+  mcpAuthUnlisten = await listen<{ accountId: string }>('mcp:auth-needed', async (event) => {
+    if (mcpAuthInFlight) return;
+    mcpAuthInFlight = true;
+    try {
+      console.info('[mcp] auth-needed for', event.payload.accountId, '— refreshing session');
+      await supabase.auth.refreshSession();
+      // The TOKEN_REFRESHED handler in auth-store re-pushes the access token.
+    } catch (e) {
+      console.error('[mcp] refreshSession failed:', e);
+    } finally {
+      mcpAuthInFlight = false;
+    }
+  });
+}
+
+/** Teardown — currently used only in tests (the listener lives for the app's lifetime). */
+export function teardownMcpAuthListener(): void {
+  if (mcpAuthUnlisten) {
+    mcpAuthUnlisten();
+    mcpAuthUnlisten = null;
+  }
+  mcpAuthInFlight = false;
 }
