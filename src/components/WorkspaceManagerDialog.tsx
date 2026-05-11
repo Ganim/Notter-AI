@@ -1,6 +1,6 @@
 // src/components/WorkspaceManagerDialog.tsx
 //
-// Phase K — three-section workspace management dialog.
+// Two-section workspace management dialog.
 //
 // Section 1: list of workspaces with inline rename (click name to edit, Enter
 // to commit, Esc to cancel), "Set as default" inline link on non-default
@@ -12,14 +12,14 @@
 // button). Validates non-empty and not-duplicate; surfaces inline error toast
 // on failure.
 //
-// Section 3: collapsible per-workspace MCP config copy section. Lazily reads
-// the per-workspace config file from disk on first click and caches it.
+// MCP config copy is no longer per-workspace — the bearer is per-account.
+// Use UserMenu → "MCP config" for the active account's config.
 //
 // Delete is delegated to WorkspaceDeleteDialog (move-or-purge sub-modal).
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Trash2, Plus, Copy, Loader2 } from 'lucide-react';
+import { Trash2, Plus, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,8 +27,6 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
-import { getAccountManager } from '@/lib/accounts/account-manager';
-import { readMcpConfigForWorkspace } from '@/lib/mcp';
 import { WorkspaceDeleteDialog } from '@/components/WorkspaceDeleteDialog';
 
 interface Props {
@@ -48,8 +46,6 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [mcpExpanded, setMcpExpanded] = useState(false);
-  const [mcpConfigs, setMcpConfigs] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     if (open && initialMode === 'create') {
@@ -111,23 +107,6 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
       toast.error(t('workspaces.set_default_failed'));
     } finally {
       setBusyId(null);
-    }
-  };
-
-  const handleCopyConfig = async (workspaceId: string) => {
-    const accountId = getAccountManager().activeAccountId;
-    if (!accountId) return;
-    let cached = mcpConfigs[workspaceId];
-    if (!cached) {
-      const cfg = await readMcpConfigForWorkspace(accountId, workspaceId);
-      cached = cfg ? JSON.stringify(cfg, null, 2) : null;
-      setMcpConfigs((prev) => ({ ...prev, [workspaceId]: cached }));
-    }
-    if (cached) {
-      await navigator.clipboard.writeText(cached);
-      toast.success(t('workspaces.copied'));
-    } else {
-      toast.error(t('workspaces.mcp_unavailable'));
     }
   };
 
@@ -219,31 +198,6 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
                 {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
               </Button>
             </div>
-          </div>
-
-          {/* Section 3: MCP configs */}
-          <div className="border-t pt-3 mt-3">
-            <button
-              onClick={() => setMcpExpanded(!mcpExpanded)}
-              className="text-xs uppercase tracking-wide text-muted-foreground hover:text-foreground"
-            >
-              {mcpExpanded
-                ? t('workspaces.mcp_hide')
-                : t('workspaces.mcp_show')}
-            </button>
-            {mcpExpanded && (
-              <div className="mt-2 space-y-1">
-                {workspaces.map((ws) => (
-                  <div key={ws.id} className="flex items-center justify-between px-2 py-1.5 rounded border text-xs">
-                    <span className="truncate">{ws.name}</span>
-                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1" onClick={() => handleCopyConfig(ws.id)}>
-                      <Copy size={11} />
-                      {t('workspaces.copy_config')}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </DialogContent>
       </Dialog>

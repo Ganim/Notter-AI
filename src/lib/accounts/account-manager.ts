@@ -1,4 +1,3 @@
-// src/lib/accounts/account-manager.ts
 import { readAccountIndex, writeAccountIndex, readActiveAccount, writeActiveAccount } from './account-storage';
 import { secureSet, secureGet, secureDelete, secureRegisterKnownKeys, accountKeys } from './secure-store';
 import { supabase, isSupabaseConfigured, _bindAccountManager } from '@/lib/supabase';
@@ -7,6 +6,7 @@ import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import {
   pushMcpSupabaseConfig,
   notifyMcpAccountRemoved,
+  notifyMcpAccountRegistered,
 } from '@/lib/mcp';
 import type { AccountSummary } from './types';
 
@@ -17,10 +17,14 @@ export interface AddAccountInput {
   refreshToken: string;
 }
 
-// Phase H (Workspaces): the per-account bearer surface was removed. Bearer
-// tokens now belong to (account, workspace) pairs and are minted +
-// registered by WorkspaceManager. The legacy `notter_acc_*` mcp_token is no
-// longer the bearer surface — see src/lib/workspaces/mcp-token.ts.
+/** 32 random bytes → base64url, prefixed `notter_acc_`. One bearer per account. */
+function generateMcpToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const b64 = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `notter_acc_${b64}`;
+}
 
 export class AccountManager {
   private accounts: AccountSummary[] = [];
@@ -61,10 +65,6 @@ export class AccountManager {
     this.accounts = idx.accounts;
     this.active = active.accountId;
 
-    // Repopulate the Rust-side known-key index so secure_register_known_keys
-    // returns sane results during this run. The legacy per-account mcp_token
-    // key is still registered so secureDelete() during `remove()` finds it
-    // (cleanup path for accounts that pre-date the workspaces pivot).
     const keys: string[] = [];
     for (const a of this.accounts) {
       keys.push(accountKeys.refreshToken(a.id), accountKeys.mcpToken(a.id));
@@ -76,17 +76,24 @@ export class AccountManager {
     // why bootstrap() is awaited in App.tsx before initialize() runs.
     _bindAccountManager(() => this.active);
 
-    // Phase I (M3) — push Supabase config to Rust BEFORE any MCP request can
-    // arrive. Vite bundles VITE_SUPABASE_* into the front-end JS; Rust does
-    // not see them, so the front-end must hand them over explicitly.
+    // Push Supabase config to Rust BEFORE any MCP request can arrive.
     const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? '';
     const supabaseAnon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
     if (supabaseUrl && supabaseAnon) {
       await pushMcpSupabaseConfig(supabaseUrl, supabaseAnon);
     }
-    // Phase H (Workspaces): per-account bearer registration was removed.
-    // WorkspaceManager.bootstrap() (called from syncOnLogin) now owns the
-    // bearer surface, registering one bearer per `(account, workspace)` pair.
+
+    // Register each known account's bearer with Rust. Mint if missing —
+    // accounts that pre-date this refactor have no `notter_acc_*` stored, or
+    // had it deleted during the M3.W phase.
+    for (const a of this.accounts) {
+      let bearer = await secureGet(accountKeys.mcpToken(a.id));
+      if (!bearer || !bearer.startsWith('notter_acc_')) {
+        bearer = generateMcpToken();
+        await secureSet(accountKeys.mcpToken(a.id), bearer);
+      }
+      await notifyMcpAccountRegistered(a.id, bearer);
+    }
 
     this.booted = true;
   }
@@ -97,9 +104,10 @@ export class AccountManager {
     }
     await secureSet(accountKeys.refreshToken(input.id), input.refreshToken);
 
-    // Phase H (Workspaces): no per-account MCP bearer is minted here. The
-    // first workspace for the new account is created by WorkspaceManager
-    // during syncOnLogin, which mints + registers a per-workspace bearer.
+    // Mint + register the account's MCP bearer.
+    const bearer = generateMcpToken();
+    await secureSet(accountKeys.mcpToken(input.id), bearer);
+    await notifyMcpAccountRegistered(input.id, bearer);
 
     const summary: AccountSummary = {
       id: input.id,
@@ -123,8 +131,8 @@ export class AccountManager {
     await secureDelete(accountKeys.refreshToken(id));
     await secureDelete(accountKeys.mcpToken(id));
     await writeAccountIndex({ accounts: this.accounts });
-    // Phase I (M3) — drop the (bearer -> accountId) mapping in Rust so the
-    // removed account is unreachable immediately.
+    // Drop the (bearer -> accountId) mapping in Rust + per-account access
+    // token slice so the removed account is unreachable immediately.
     await notifyMcpAccountRemoved(id);
     this.notify();
   }

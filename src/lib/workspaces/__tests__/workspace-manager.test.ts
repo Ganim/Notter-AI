@@ -8,12 +8,6 @@ vi.mock('@/lib/workspaces/workspace-storage', () => ({
   writeActiveWorkspace: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/lib/accounts/secure-store', () => ({
-  secureSet: vi.fn(),
-  secureGet: vi.fn().mockResolvedValue(null),
-  secureDelete: vi.fn(),
-}));
-
 vi.mock('@/lib/accounts/account-manager', () => ({
   getAccountManager: () => ({ activeAccountId: 'acc-1' }),
 }));
@@ -25,11 +19,6 @@ vi.mock('@/lib/sync', () => ({
   setWorkspaceDefault: vi.fn().mockResolvedValue(undefined),
   deleteWorkspace: vi.fn().mockResolvedValue({ ok: true }),
   moveProjectsBetweenWorkspaces: vi.fn().mockResolvedValue({ ok: true, movedCount: 0 }),
-}));
-
-vi.mock('@/lib/mcp', () => ({
-  notifyMcpWorkspaceAdded: vi.fn(),
-  notifyMcpWorkspaceRemoved: vi.fn(),
 }));
 
 vi.mock('@/stores/auth-store', () => ({
@@ -103,7 +92,7 @@ describe('workspace-manager', () => {
     expect(sub).toHaveBeenCalled();
   });
 
-  it('add creates the row + token, registers the bearer with Rust', async () => {
+  it('add creates the row and persists the index', async () => {
     (sync.fetchWorkspaces as any).mockResolvedValueOnce([]);
     const mgr = getWorkspaceManager();
     await mgr.bootstrap();
@@ -111,8 +100,6 @@ describe('workspace-manager', () => {
     await mgr.add({ name: 'Work' });
     expect(sync.pushWorkspace).toHaveBeenCalled();
     expect(mgr.list().length).toBe(before + 1);
-    const { notifyMcpWorkspaceAdded } = await import('@/lib/mcp');
-    expect(notifyMcpWorkspaceAdded).toHaveBeenCalled();
   });
 
   it('remove with purge:true deletes the workspace row and notifies Rust', async () => {

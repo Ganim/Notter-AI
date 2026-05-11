@@ -1,15 +1,18 @@
 // src-tauri/src/mcp/tools.rs
-// 6 MCP tools backed by Supabase REST. Filled in Phase G + H.
+// 6 MCP tools backed by Supabase REST.
 //
-// Workspace scoping (Phase H): every tool restricts its reads/writes to the
-// projects belonging to the request's workspace. Two helpers:
-//   * `workspace_project_names` returns the project names for the current
-//     `(account, workspace)` — used by tools that filter the `subjects`
-//     table.
-//   * `assert_subject_in_workspace` is the guard called at the top of every
-//     subject-keyed tool. Without it, a workspace A bearer could read a
-//     subject in workspace B by guessing the UUID (RLS only enforces user_id,
-//     not workspace_id — subjects don't carry workspace_id directly).
+// Token scope is per-account (M3.W2 refactor): tools read everything the user
+// can see (RLS by user_id). `list_subjects` accepts an OPTIONAL `workspace_id`
+// param for server-side filtering, and always enriches each subject row with
+// its `workspace_id` so the CLI can group/filter client-side without an extra
+// round-trip per subject.
+//
+// `subjects` has no direct `workspace_id` column (the schema scopes via
+// `projects(name, workspace_id)` and `subjects.project_name` — text, no FK).
+// PostgREST embed isn't available, so we fetch the user's `projects` once per
+// call and join in Rust.
+
+use std::collections::HashMap;
 
 use serde_json::Value;
 
@@ -42,27 +45,68 @@ pub async fn dispatch(
 
 // ── tools ────────────────────────────────────────────────────────────────
 
+#[derive(serde::Deserialize, Default)]
+struct ListSubjectsParams {
+    #[serde(default)]
+    workspace_id: Option<String>,
+}
+
 async fn list_subjects(
-    _params: &Value,
+    params: &Value,
     auth: &AuthContext,
     state: &McpState,
 ) -> Result<Value, McpError> {
-    let names = workspace_project_names(auth, state).await?;
-    if names.is_empty() {
-        return Ok(serde_json::json!([]));
-    }
+    // Params are optional — accept missing/null/empty object.
+    let p: ListSubjectsParams = if params.is_null() {
+        ListSubjectsParams::default()
+    } else {
+        serde_json::from_value(params.clone())
+            .map_err(|e| McpError::InvalidParams(format!("list_subjects: {e}")))?
+    };
+
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
-    let body = sb
-        .get(
-            "subjects",
-            &format!(
-                "select=id,project_name,file_name,current_version_id,updated_at&project_name={}&order=updated_at.desc",
-                build_in_clause(&names),
-            ),
-            &token,
-        )
-        .await?;
-    Ok(body)
+
+    // Fetch the user's project → workspace map. Used for both the optional
+    // workspace_id filter and the row-by-row enrichment.
+    let name_to_workspace = fetch_project_workspace_map(&sb, &token).await?;
+
+    let mut query = String::from(
+        "select=id,project_name,file_name,current_version_id,updated_at&order=updated_at.desc",
+    );
+    if let Some(ref ws) = p.workspace_id {
+        let names_in_ws: Vec<String> = name_to_workspace
+            .iter()
+            .filter_map(|(name, w)| if w == ws { Some(name.clone()) } else { None })
+            .collect();
+        if names_in_ws.is_empty() {
+            return Ok(serde_json::json!([]));
+        }
+        query.push_str(&format!("&project_name={}", build_in_clause(&names_in_ws)));
+    }
+
+    let body = sb.get("subjects", &query, &token).await?;
+    let mut rows = match body {
+        Value::Array(a) => a,
+        _ => return Ok(serde_json::json!([])),
+    };
+
+    // Enrich each row with workspace_id derived from its project_name.
+    for row in rows.iter_mut() {
+        if let Some(obj) = row.as_object_mut() {
+            let project_name = obj
+                .get("project_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let ws = name_to_workspace
+                .get(project_name)
+                .cloned()
+                .map(Value::String)
+                .unwrap_or(Value::Null);
+            obj.insert("workspace_id".to_string(), ws);
+        }
+    }
+
+    Ok(Value::Array(rows))
 }
 
 #[derive(serde::Deserialize)]
@@ -77,7 +121,6 @@ async fn get_subject(
 ) -> Result<Value, McpError> {
     let p: GetSubjectParams = serde_json::from_value(params.clone())
         .map_err(|e| McpError::InvalidParams(format!("get_subject: {e}")))?;
-    assert_subject_in_workspace(auth, state, &p.subject_id).await?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
     let body = sb
         .get(
@@ -93,6 +136,22 @@ async fn get_subject(
         .as_array()
         .and_then(|a| a.first().cloned())
         .ok_or_else(|| McpError::NotFound(format!("subject {} not found", p.subject_id)))?;
+
+    // Enrich with workspace_id via the projects map.
+    let name_to_workspace = fetch_project_workspace_map(&sb, &token).await?;
+    let mut row = row;
+    if let Some(obj) = row.as_object_mut() {
+        let project_name = obj
+            .get("project_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let ws = name_to_workspace
+            .get(project_name)
+            .cloned()
+            .map(Value::String)
+            .unwrap_or(Value::Null);
+        obj.insert("workspace_id".to_string(), ws);
+    }
     Ok(row)
 }
 
@@ -108,7 +167,6 @@ async fn list_versions(
 ) -> Result<Value, McpError> {
     let p: ListVersionsParams = serde_json::from_value(params.clone())
         .map_err(|e| McpError::InvalidParams(format!("list_versions: {e}")))?;
-    assert_subject_in_workspace(auth, state, &p.subject_id).await?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
     let body = sb
         .get(
@@ -150,14 +208,6 @@ async fn get_version(
         .as_array()
         .and_then(|a| a.first().cloned())
         .ok_or_else(|| McpError::NotFound(format!("version {} not found", p.version_id)))?;
-    // Workspace guard — the subject_id is included in the row above; assert
-    // it belongs to the request's workspace before returning.
-    let subject_id = row
-        .get("subject_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| McpError::SupabaseError("get_version: missing subject_id".into()))?
-        .to_string();
-    assert_subject_in_workspace(auth, state, &subject_id).await?;
     Ok(row)
 }
 
@@ -175,7 +225,6 @@ async fn list_comments(
 ) -> Result<Value, McpError> {
     let p: ListCommentsParams = serde_json::from_value(params.clone())
         .map_err(|e| McpError::InvalidParams(format!("list_comments: {e}")))?;
-    assert_subject_in_workspace(auth, state, &p.subject_id).await?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
     let mut q = format!(
         "select=id,version_id,body,resolved,author_user_id,created_at&subject_id=eq.{}&order=created_at.asc",
@@ -207,7 +256,6 @@ async fn post_subject_revision(
 ) -> Result<Value, McpError> {
     let p: PostRevisionParams = serde_json::from_value(params.clone())
         .map_err(|e| McpError::InvalidParams(format!("post_subject_revision: {e}")))?;
-    assert_subject_in_workspace(auth, state, &p.subject_id).await?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
 
     let payload = serde_json::json!({
@@ -243,36 +291,29 @@ async fn post_subject_revision(
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-/// Resolve the project names belonging to the current `(account, workspace)`.
-/// Subject-table tools then filter `project_name in (...)` against this list.
-/// One Supabase round-trip per call — acceptable in Phase 1; tighten later if
-/// it shows up in profiling.
-async fn workspace_project_names(
-    auth: &AuthContext,
-    state: &McpState,
-) -> Result<Vec<String>, McpError> {
-    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+/// Fetch every project the user can see and build a `project_name -> workspace_id`
+/// map. One Supabase round-trip per call; acceptable for Phase 1 traffic.
+async fn fetch_project_workspace_map(
+    sb: &crate::mcp::supabase::SupabaseClient,
+    token: &str,
+) -> Result<HashMap<String, String>, McpError> {
     let body = sb
-        .get(
-            "projects",
-            &format!(
-                "select=name&workspace_id=eq.{}",
-                url_encode(&auth.workspace_id),
-            ),
-            &token,
-        )
+        .get("projects", "select=name,workspace_id", token)
         .await?;
-    let names: Vec<String> = body
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|row| {
-                    row.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(names)
+    let mut map = HashMap::new();
+    if let Some(rows) = body.as_array() {
+        for row in rows {
+            let name = row.get("name").and_then(|v| v.as_str()).map(String::from);
+            let ws = row
+                .get("workspace_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            if let (Some(n), Some(w)) = (name, ws) {
+                map.insert(n, w);
+            }
+        }
+    }
+    Ok(map)
 }
 
 /// PostgREST `in.(...)` syntax. Names are user-provided; url-encode each.
@@ -283,41 +324,6 @@ fn build_in_clause(names: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!("in.({inner})")
-}
-
-/// Workspace guard for every subject-keyed tool. Fetches the subject's
-/// `project_name`, then verifies that name appears in the workspace's project
-/// list. Returns `NotFound` (not `Forbidden`) on miss to avoid leaking the
-/// fact that the subject exists in another workspace.
-async fn assert_subject_in_workspace(
-    auth: &AuthContext,
-    state: &McpState,
-    subject_id: &str,
-) -> Result<(), McpError> {
-    let names = workspace_project_names(auth, state).await?;
-    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
-    let body = sb
-        .get(
-            "subjects",
-            &format!(
-                "select=project_name&id=eq.{}&limit=1",
-                url_encode(subject_id)
-            ),
-            &token,
-        )
-        .await?;
-    let pname = body
-        .as_array()
-        .and_then(|a| a.first())
-        .and_then(|r| r.get("project_name"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| McpError::NotFound(format!("subject {subject_id} not found")))?;
-    if !names.iter().any(|n| n == pname) {
-        return Err(McpError::NotFound(format!(
-            "subject {subject_id} not found"
-        )));
-    }
-    Ok(())
 }
 
 fn url_encode(s: &str) -> String {

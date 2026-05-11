@@ -1,30 +1,21 @@
 // src-tauri/src/mcp/auth.rs
 //
-// In-memory token maps + the Tauri commands that the front-end calls on every
-// auth-state change to keep the access-token slice fresh.
+// In-memory token maps + Tauri commands the front-end calls on every auth
+// event to keep state fresh.
 //
-// Workspace-aware (M3.W / Phase H): bearer tokens are now mapped to
-// `AuthOwner { account_id, workspace_id }` so a single account can have
-// multiple workspaces, each with its own bearer. Access tokens are still
-// per-account because Supabase sessions are per-user, not per-workspace.
+// Token scope is per-account (M3.W2 refactor): 1 bearer per Supabase account.
+// Workspaces are no longer part of the bearer surface — the CLI gets the same
+// view as the signed-in user (RLS by user_id) and optionally narrows by
+// workspace_id at tool-call time.
 
 use crate::mcp::server::{McpState, McpStateInner};
 use serde::{Deserialize, Serialize};
-
-/// In-memory owner record for a bearer token. One per `(account, workspace)`
-/// pair — the bearer is the key; this is the value.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AuthOwner {
-    pub account_id: String,
-    pub workspace_id: String,
-}
 
 /// Per-request authentication context inserted into axum's request extensions
 /// by the Bearer-auth middleware.
 #[derive(Debug, Clone)]
 pub struct AuthContext {
     pub account_id: String,
-    pub workspace_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,7 +40,7 @@ pub async fn mcp_update_account_token(
 
 /// Tauri command — front-end calls when an account is removed from
 /// AccountManager (also on signOut). Drops the per-account access token AND
-/// every bearer (across all workspaces) that belongs to this account.
+/// any bearer mapped to this account.
 #[tauri::command]
 pub async fn mcp_remove_account_token(
     account_id: String,
@@ -57,29 +48,22 @@ pub async fn mcp_remove_account_token(
 ) -> Result<(), String> {
     let mut s = state.write().await;
     s.access_tokens.remove(&account_id);
-    // Drop every bearer mapped to this account, regardless of workspace.
-    s.token_to_owner
-        .retain(|_, owner| owner.account_id != account_id);
+    s.token_to_account
+        .retain(|_, owner| owner != &account_id);
     Ok(())
 }
 
-/// Resolve a Bearer token to its `AuthOwner` by reading the in-memory map.
+/// Resolve a Bearer token to its account_id by reading the in-memory map.
 /// Returns None on miss (the middleware turns that into 401).
-pub async fn lookup_owner_for_token(
-    state: &McpState,
-    bearer: &str,
-) -> Option<AuthOwner> {
+pub async fn lookup_account_for_token(state: &McpState, bearer: &str) -> Option<String> {
     let s = state.read().await;
-    s.token_to_owner.get(bearer).cloned()
+    s.token_to_account.get(bearer).cloned()
 }
 
 /// Return the current access-token for an account, plus its expiry.
 /// Returns None if absent OR expired (caller maps to `auth_pending` JSON-RPC error).
-#[allow(dead_code)] // Consumed in Phase G (Supabase REST client).
-pub async fn current_access_token(
-    state: &McpState,
-    account_id: &str,
-) -> Option<String> {
+#[allow(dead_code)] // consumed by Supabase REST client
+pub async fn current_access_token(state: &McpState, account_id: &str) -> Option<String> {
     let s = state.read().await;
     let (tok, expires_at) = s.access_tokens.get(account_id)?;
     let now = std::time::SystemTime::now()
@@ -101,9 +85,7 @@ pub struct SetSupabaseConfigArgs {
     pub anon_key: String,
 }
 
-/// Tauri command — front-end calls at boot to push the Supabase URL + anon key
-/// (which Vite bundles into the front-end JS via `import.meta.env.VITE_*` and
-/// are NOT exposed to Rust). Replaces the planned `std::env::var` stopgap.
+/// Tauri command — front-end calls at boot to push the Supabase URL + anon key.
 #[tauri::command]
 pub async fn mcp_set_supabase_config(
     args: SetSupabaseConfigArgs,
@@ -119,16 +101,14 @@ pub async fn mcp_set_supabase_config(
 #[serde(rename_all = "camelCase")]
 pub struct RegisterBearerArgs {
     pub account_id: String,
-    pub workspace_id: String,
     pub bearer_token: String,
 }
 
-/// Tauri command — front-end calls at boot (for every known
-/// (account, workspace) pair) and on WorkspaceManager.add() to register the
-/// `(bearer -> AuthOwner)` mapping. Replaces any existing bearer pointing at
-/// the same `(account_id, workspace_id)` pair so we don't accumulate stale
-/// tokens if the bearer rotates. After updating the map, the per-workspace
-/// config file is (re)written so external CLIs see the new bearer.
+/// Tauri command — front-end calls at boot (per known account) and on
+/// AccountManager.add() to register the `(bearer -> account_id)` mapping.
+/// Replaces any existing bearer for the same account so rotation doesn't leave
+/// stale tokens behind. After updating the map, the per-account stable config
+/// file is (re)written so external CLIs see the new bearer.
 #[tauri::command]
 pub async fn mcp_register_bearer(
     args: RegisterBearerArgs,
@@ -137,40 +117,15 @@ pub async fn mcp_register_bearer(
 ) -> Result<(), String> {
     {
         let mut s = state.write().await;
-        // Drop any prior bearer mapped to the same (account, workspace) pair.
-        s.token_to_owner.retain(|_, owner| {
-            !(owner.account_id == args.account_id && owner.workspace_id == args.workspace_id)
-        });
-        s.token_to_owner.insert(
-            args.bearer_token,
-            AuthOwner {
-                account_id: args.account_id.clone(),
-                workspace_id: args.workspace_id.clone(),
-            },
-        );
+        // Drop any prior bearer mapped to the same account.
+        s.token_to_account
+            .retain(|_, owner| owner != &args.account_id);
+        s.token_to_account
+            .insert(args.bearer_token, args.account_id.clone());
     }
-    // Drop the write lock above before calling write_per_workspace_configs —
+    // Drop the write lock above before calling write_per_account_configs —
     // it takes a read lock internally and tokio's RwLock is not reentrant.
-    let _ = crate::mcp::server::write_per_workspace_configs(&app, state.inner()).await;
-    Ok(())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevokeBearerArgs {
-    pub bearer_token: String,
-}
-
-/// Tauri command — drop a single bearer from the in-memory map.
-/// Called by WorkspaceManager.remove() so a deleted workspace's CLI
-/// immediately 401s without waiting for an app restart.
-#[tauri::command]
-pub async fn mcp_revoke_bearer(
-    args: RevokeBearerArgs,
-    state: tauri::State<'_, McpState>,
-) -> Result<(), String> {
-    let mut s = state.write().await;
-    s.token_to_owner.remove(&args.bearer_token);
+    let _ = crate::mcp::server::write_per_account_configs(&app, state.inner()).await;
     Ok(())
 }
 
@@ -200,15 +155,12 @@ pub async fn bearer_auth(
         return unauthorized_response("missing or malformed Authorization header");
     };
 
-    let owner = match lookup_owner_for_token(&state, token).await {
-        Some(o) => o,
+    let account_id = match lookup_account_for_token(&state, token).await {
+        Some(a) => a,
         None => return unauthorized_response("unknown token"),
     };
 
-    req.extensions_mut().insert(AuthContext {
-        account_id: owner.account_id,
-        workspace_id: owner.workspace_id,
-    });
+    req.extensions_mut().insert(AuthContext { account_id });
     next.run(req).await
 }
 
@@ -238,7 +190,7 @@ mod tests {
 
     fn make_state() -> McpState {
         Arc::new(RwLock::new(McpStateInner {
-            token_to_owner: HashMap::new(),
+            token_to_account: HashMap::new(),
             access_tokens: HashMap::new(),
             url: None,
             nonce: "test-nonce".to_string(),
@@ -248,85 +200,62 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lookup_owner_for_token_returns_full_owner() {
+    async fn lookup_account_for_token_returns_account_id() {
         let state = make_state();
         {
             let mut s = state.write().await;
-            s.token_to_owner.insert(
-                "tok-a".into(),
-                AuthOwner {
-                    account_id: "acc-1".into(),
-                    workspace_id: "ws-1".into(),
-                },
-            );
+            s.token_to_account.insert("tok-a".into(), "acc-1".into());
         }
-        let owner = lookup_owner_for_token(&state, "tok-a").await;
-        assert_eq!(
-            owner,
-            Some(AuthOwner {
-                account_id: "acc-1".into(),
-                workspace_id: "ws-1".into(),
-            })
-        );
+        let owner = lookup_account_for_token(&state, "tok-a").await;
+        assert_eq!(owner, Some("acc-1".to_string()));
     }
 
     #[tokio::test]
-    async fn lookup_owner_for_token_misses_unknown_bearer() {
+    async fn lookup_account_for_token_misses_unknown_bearer() {
         let state = make_state();
-        assert_eq!(lookup_owner_for_token(&state, "nope").await, None);
+        assert_eq!(lookup_account_for_token(&state, "nope").await, None);
     }
 
     #[tokio::test]
-    async fn remove_account_drops_every_workspace_bearer() {
+    async fn remove_account_drops_account_bearer_and_access_token() {
         let state = make_state();
         {
             let mut s = state.write().await;
             s.access_tokens
                 .insert("acc-1".into(), ("at".into(), i64::MAX));
-            s.token_to_owner.insert(
-                "tok-a".into(),
-                AuthOwner {
-                    account_id: "acc-1".into(),
-                    workspace_id: "ws-1".into(),
-                },
-            );
-            s.token_to_owner.insert(
-                "tok-b".into(),
-                AuthOwner {
-                    account_id: "acc-1".into(),
-                    workspace_id: "ws-2".into(),
-                },
-            );
-            s.token_to_owner.insert(
-                "tok-c".into(),
-                AuthOwner {
-                    account_id: "acc-2".into(),
-                    workspace_id: "ws-3".into(),
-                },
-            );
+            s.token_to_account.insert("tok-a".into(), "acc-1".into());
+            s.token_to_account.insert("tok-c".into(), "acc-2".into());
         }
         // Simulate mcp_remove_account_token by exercising the same retain.
         {
             let mut s = state.write().await;
             s.access_tokens.remove("acc-1");
-            s.token_to_owner
-                .retain(|_, owner| owner.account_id != "acc-1");
+            s.token_to_account.retain(|_, owner| owner != "acc-1");
         }
         let s = state.read().await;
         assert!(s.access_tokens.get("acc-1").is_none());
-        assert_eq!(s.token_to_owner.len(), 1);
-        assert!(s.token_to_owner.contains_key("tok-c"));
+        assert_eq!(s.token_to_account.len(), 1);
+        assert!(s.token_to_account.contains_key("tok-c"));
     }
 
     #[tokio::test]
-    async fn auth_context_carries_workspace_id() {
-        // The middleware constructs AuthContext from AuthOwner; this asserts
-        // the shape is stable so handlers can read both fields.
-        let ctx = AuthContext {
-            account_id: "acc-1".into(),
-            workspace_id: "ws-1".into(),
-        };
-        assert_eq!(ctx.account_id, "acc-1");
-        assert_eq!(ctx.workspace_id, "ws-1");
+    async fn register_bearer_replaces_existing_for_same_account() {
+        // Verifies the rotation contract: a second register with a new bearer
+        // for the same account drops the old bearer.
+        let state = make_state();
+        {
+            let mut s = state.write().await;
+            s.token_to_account.insert("tok-old".into(), "acc-1".into());
+        }
+        // Apply the same retain + insert mcp_register_bearer uses.
+        {
+            let mut s = state.write().await;
+            s.token_to_account.retain(|_, owner| owner != "acc-1");
+            s.token_to_account.insert("tok-new".into(), "acc-1".into());
+        }
+        let s = state.read().await;
+        assert_eq!(s.token_to_account.len(), 1);
+        assert!(s.token_to_account.contains_key("tok-new"));
+        assert!(!s.token_to_account.contains_key("tok-old"));
     }
 }

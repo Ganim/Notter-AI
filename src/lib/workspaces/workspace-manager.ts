@@ -12,7 +12,11 @@
 //      a workspace lazily here).
 //   3. Read active.json under the account's dir; if present + still valid,
 //      restore currentWorkspaceId. Otherwise seed from is_default=true.
-//   4. Push every workspace's bearer to Rust via notifyMcpWorkspaceAdded.
+//
+// Note: workspaces no longer carry MCP bearer tokens. The bearer surface is
+// per-account (M3.W2 refactor) — AccountManager owns it. Workspace-aware
+// CLIs filter via `list_subjects { workspace_id }` server-side or by reading
+// `subjects[*].workspace_id` from the enriched payload.
 
 import {
   readWorkspaceIndex as _readWorkspaceIndex,
@@ -20,15 +24,12 @@ import {
   readActiveWorkspace,
   writeActiveWorkspace,
 } from './workspace-storage';
-import { secureSet, secureGet, secureDelete } from '@/lib/accounts/secure-store';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { useAuthStore } from '@/stores/auth-store';
 import {
   fetchWorkspaces, pushWorkspace, renameWorkspace, setWorkspaceDefault,
   deleteWorkspace, moveProjectsBetweenWorkspaces,
 } from '@/lib/sync';
-import { notifyMcpWorkspaceAdded, notifyMcpWorkspaceRemoved } from '@/lib/mcp';
-import { generateWorkspaceMcpToken } from './mcp-token';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { usePlannerStore } from '@/stores/planner-store';
 
@@ -40,10 +41,6 @@ export interface WorkspaceSummary {
   id: string;
   name: string;
   isDefault: boolean;
-}
-
-function workspaceMcpKey(accountId: string, workspaceId: string): string {
-  return `notter:account:${accountId}:workspace:${workspaceId}:mcp_token`;
 }
 
 export class WorkspaceManager {
@@ -138,17 +135,6 @@ export class WorkspaceManager {
       if (this.current) await writeActiveWorkspace(accountId, { workspaceId: this.current });
     }
 
-    // 5. Push every bearer to Rust. Auto-mint missing ones.
-    for (const ws of this.workspaces) {
-      const key = workspaceMcpKey(accountId, ws.id);
-      let bearer = await secureGet(key);
-      if (!bearer) {
-        bearer = generateWorkspaceMcpToken();
-        await secureSet(key, bearer);
-      }
-      await notifyMcpWorkspaceAdded(accountId, ws.id, bearer);
-    }
-
     this.booted = true;
     this.notify();
   }
@@ -191,11 +177,6 @@ export class WorkspaceManager {
     this.workspaces.push(summary);
     await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
 
-    // Mint + register bearer.
-    const bearer = generateWorkspaceMcpToken();
-    await secureSet(workspaceMcpKey(accountId, id), bearer);
-    await notifyMcpWorkspaceAdded(accountId, id, bearer);
-
     this.notify();
     await this.syncStoreFromRemote(userId);
     return summary;
@@ -225,12 +206,6 @@ export class WorkspaceManager {
     await writeWorkspaceIndex(accountId, { workspaces: this.workspaces });
     this.notify();
     await this.syncStoreFromRemote(userId);
-  }
-
-  async getMcpToken(workspaceId: string): Promise<string | null> {
-    const accountId = getAccountManager().activeAccountId;
-    if (!accountId) return null;
-    return secureGet(workspaceMcpKey(accountId, workspaceId));
   }
 
   async remove(
@@ -276,14 +251,6 @@ export class WorkspaceManager {
       // 'has_projects' means UPDATE didn't cover every row OR purge wasn't
       // performed by the caller. Surface to UI.
       throw new Error(delResult.code);
-    }
-
-    // Drop the bearer.
-    const key = workspaceMcpKey(accountId, id);
-    const bearer = await secureGet(key);
-    if (bearer) {
-      await secureDelete(key);
-      await notifyMcpWorkspaceRemoved(bearer);
     }
 
     this.workspaces = this.workspaces.filter((w) => w.id !== id);

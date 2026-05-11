@@ -8,9 +8,8 @@ import {
   notifyMcpAccountTokenChanged,
   notifyMcpAccountRemoved,
   pushMcpSupabaseConfig,
-  notifyMcpWorkspaceAdded,
-  notifyMcpWorkspaceRemoved,
-  readMcpConfigForWorkspace,
+  notifyMcpAccountRegistered,
+  readMcpConfigForAccount,
 } from '@/lib/mcp';
 
 beforeEach(() => {
@@ -42,19 +41,11 @@ describe('mcp glue', () => {
     expect(invokeMock).toHaveBeenCalledWith('mcp_remove_account_token', { accountId: 'acc1' });
   });
 
-  it('notifyMcpWorkspaceAdded forwards to mcp_register_bearer with the camelCase args envelope', async () => {
+  it('notifyMcpAccountRegistered forwards to mcp_register_bearer with the camelCase args envelope', async () => {
     invokeMock.mockResolvedValue(undefined);
-    await notifyMcpWorkspaceAdded('acc1', 'ws1', 'tok-bearer');
+    await notifyMcpAccountRegistered('acc1', 'tok-bearer');
     expect(invokeMock).toHaveBeenCalledWith('mcp_register_bearer', {
-      args: { accountId: 'acc1', workspaceId: 'ws1', bearerToken: 'tok-bearer' },
-    });
-  });
-
-  it('notifyMcpWorkspaceRemoved forwards to mcp_revoke_bearer', async () => {
-    invokeMock.mockResolvedValue(undefined);
-    await notifyMcpWorkspaceRemoved('tok-bearer');
-    expect(invokeMock).toHaveBeenCalledWith('mcp_revoke_bearer', {
-      args: { bearerToken: 'tok-bearer' },
+      args: { accountId: 'acc1', bearerToken: 'tok-bearer' },
     });
   });
 
@@ -66,22 +57,21 @@ describe('mcp glue', () => {
     });
   });
 
-  it('readMcpConfigForWorkspace returns null on error', async () => {
+  it('readMcpConfigForAccount returns null on error', async () => {
     invokeMock.mockRejectedValue(new Error('not found'));
-    expect(await readMcpConfigForWorkspace('acc1', 'ws1')).toBeNull();
+    expect(await readMcpConfigForAccount('acc1')).toBeNull();
   });
 
-  it('readMcpConfigForWorkspace forwards args + returns config on success', async () => {
+  it('readMcpConfigForAccount forwards args + returns config on success', async () => {
     invokeMock.mockResolvedValue({
       url: 'http://127.0.0.1:1234/mcp',
       bearer_token: 'tok',
       account_id: 'acc1',
-      workspace_id: 'ws1',
       generated_at: '2026-05-10T00:00:00Z',
     });
-    const cfg = await readMcpConfigForWorkspace('acc1', 'ws1');
-    expect(invokeMock).toHaveBeenCalledWith('mcp_read_workspace_config', {
-      args: { accountId: 'acc1', workspaceId: 'ws1' },
+    const cfg = await readMcpConfigForAccount('acc1');
+    expect(invokeMock).toHaveBeenCalledWith('mcp_read_account_config', {
+      args: { accountId: 'acc1' },
     });
     expect(cfg?.bearer_token).toBe('tok');
   });

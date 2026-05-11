@@ -1,7 +1,7 @@
 // src/lib/accounts/__tests__/account-manager.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { storageMock, secureMock, supabaseMock, registryMock, realtimeMock } = vi.hoisted(() => {
+const { storageMock, secureMock, supabaseMock, registryMock, realtimeMock, mcpMock } = vi.hoisted(() => {
   const storageMock = {
     readAccountIndex: vi.fn(),
     writeAccountIndex: vi.fn().mockResolvedValue(undefined),
@@ -34,7 +34,12 @@ const { storageMock, secureMock, supabaseMock, registryMock, realtimeMock } = vi
     startRealtimeSync: vi.fn(),
     stopRealtimeSync: vi.fn(),
   };
-  return { storageMock, secureMock, supabaseMock, registryMock, realtimeMock };
+  const mcpMock = {
+    pushMcpSupabaseConfig: vi.fn().mockResolvedValue(undefined),
+    notifyMcpAccountRemoved: vi.fn().mockResolvedValue(undefined),
+    notifyMcpAccountRegistered: vi.fn().mockResolvedValue(undefined),
+  };
+  return { storageMock, secureMock, supabaseMock, registryMock, realtimeMock, mcpMock };
 });
 
 vi.mock('@/lib/accounts/account-storage', () => storageMock);
@@ -42,6 +47,7 @@ vi.mock('@/lib/accounts/secure-store', () => secureMock);
 vi.mock('@/lib/supabase', () => supabaseMock);
 vi.mock('@/lib/accounts/store-registry', () => registryMock);
 vi.mock('@/lib/realtime', () => realtimeMock);
+vi.mock('@/lib/mcp', () => mcpMock);
 
 import { AccountManager } from '@/lib/accounts/account-manager';
 
@@ -81,10 +87,7 @@ describe('AccountManager.bootstrap', () => {
 });
 
 describe('AccountManager.add', () => {
-  it('persists the refresh token to secure store and writes the index', async () => {
-    // Phase H (Workspaces): the per-account mcp_token is no longer minted at
-    // add-time. WorkspaceManager owns the per-workspace bearer surface, so
-    // only the refresh token is persisted here.
+  it('persists the refresh token, mints a notter_acc_ bearer, and registers it with Rust', async () => {
     const mgr = new AccountManager();
     await mgr.bootstrap();
     await mgr.add({
@@ -96,11 +99,15 @@ describe('AccountManager.add', () => {
     expect(secureMock.secureSet).toHaveBeenCalledWith(
       'notter:account:u1:refresh_token', 'rt-xyz',
     );
-    // Assert no mcp_token write happened.
-    expect(secureMock.secureSet).not.toHaveBeenCalledWith(
-      'notter:account:u1:mcp_token',
-      expect.anything(),
+    // mcp_token was minted + saved with the new `notter_acc_` prefix.
+    const mcpTokenCall = secureMock.secureSet.mock.calls.find(
+      (c) => c[0] === 'notter:account:u1:mcp_token',
     );
+    expect(mcpTokenCall).toBeDefined();
+    expect(mcpTokenCall![1]).toMatch(/^notter_acc_/);
+    // And the matching bearer was registered with Rust.
+    expect(mcpMock.notifyMcpAccountRegistered).toHaveBeenCalledWith('u1', mcpTokenCall![1]);
+
     expect(storageMock.writeAccountIndex).toHaveBeenCalled();
     expect(mgr.list()).toHaveLength(1);
   });
@@ -114,6 +121,36 @@ describe('AccountManager.add', () => {
     await expect(mgr.add({
       id: 'u1', email: 'a@b.c', displayName: null, refreshToken: 'rt',
     })).rejects.toThrow(/already added/);
+  });
+});
+
+describe('AccountManager.bootstrap (bearer minting)', () => {
+  it('mints + registers a bearer for an account that has none stored', async () => {
+    storageMock.readAccountIndex.mockResolvedValueOnce({
+      accounts: [{ id: 'u1', email: 'a@b.c', displayName: null, addedAt: '2026-05-09T00:00:00Z' }],
+    });
+    storageMock.readActiveAccount.mockResolvedValueOnce({ accountId: 'u1' });
+    secureMock.secureGet.mockResolvedValueOnce(null); // mcpToken read miss
+    const mgr = new AccountManager();
+    await mgr.bootstrap();
+    expect(mcpMock.notifyMcpAccountRegistered).toHaveBeenCalledWith(
+      'u1', expect.stringMatching(/^notter_acc_/),
+    );
+  });
+
+  it('re-registers an existing notter_acc_ bearer without re-minting', async () => {
+    storageMock.readAccountIndex.mockResolvedValueOnce({
+      accounts: [{ id: 'u1', email: 'a@b.c', displayName: null, addedAt: '2026-05-09T00:00:00Z' }],
+    });
+    storageMock.readActiveAccount.mockResolvedValueOnce({ accountId: 'u1' });
+    secureMock.secureGet.mockResolvedValueOnce('notter_acc_existing');
+    const mgr = new AccountManager();
+    await mgr.bootstrap();
+    // Should NOT mint over an existing notter_acc_ token.
+    expect(secureMock.secureSet).not.toHaveBeenCalledWith(
+      'notter:account:u1:mcp_token', expect.anything(),
+    );
+    expect(mcpMock.notifyMcpAccountRegistered).toHaveBeenCalledWith('u1', 'notter_acc_existing');
   });
 });
 
