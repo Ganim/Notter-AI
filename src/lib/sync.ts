@@ -1,7 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { upsertUserRows } from '@/lib/synced-store';
 import type { Project } from '@/types';
-import type { Action } from '@/types/actions';
 
 export interface SubjectVersionRecord {
   id: string;
@@ -224,31 +223,6 @@ export async function renameRemoteSubjectsProject(
   } catch (e) {
     console.error('Failed to rename remote subjects project:', e);
   }
-}
-
-// ── Actions ───────────────────────────────────────────────────────────
-
-export async function fetchActions(userId: string): Promise<Action[] | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data, error } = await supabase
-      .from('actions')
-      .select('*')
-      .eq('user_id', userId);
-    if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => row.data as Action);
-  } catch {
-    return null;
-  }
-}
-
-export async function pushActions(userId: string, actions: Action[]): Promise<void> {
-  await upsertUserRows('actions', userId, actions, (a) => ({
-    id: a.id,
-    user_id: userId,
-    data: a,
-    updated_at: new Date().toISOString(),
-  }));
 }
 
 // ── Workspaces ────────────────────────────────────────────────────────

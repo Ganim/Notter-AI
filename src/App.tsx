@@ -2,10 +2,8 @@ import { useEffect } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
-import { ActionsTab } from '@/components/ActionsTab';
 import { useAuthStore } from '@/stores/auth-store';
 import { useAiStore } from '@/stores/ai-store';
-import { useActionsStore, flushActionsStore } from '@/stores/actions-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useAppStore } from '@/stores/app-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
@@ -43,7 +41,6 @@ function App() {
 
       initialize();
       useAiStore.getState().initialize().catch(console.error);
-      useActionsStore.getState().load().catch(console.error);
       initDeepLinkHandler().catch(console.error);
       // Listen for Rust's `mcp:auth-needed` event and refresh the Supabase
       // session reactively so CLIs recover from a stale access_token slice.
@@ -65,7 +62,6 @@ function App() {
           try {
             await Promise.race([
               Promise.all([
-                flushActionsStore().catch((e) => console.error('[App] actions flush', e)),
                 usePlannerStore.getState().flush().catch((e) => console.error('[App] planner flush', e)),
                 useAppStore.getState().flush().catch((e) => console.error('[App] app flush', e)),
               ]),
@@ -96,7 +92,6 @@ function App() {
       <Layout>
         {{
           planner: <PlannerTab />,
-          actions: <ActionsTab />,
         }}
       </Layout>
     </>

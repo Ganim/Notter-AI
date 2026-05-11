@@ -3,18 +3,11 @@ import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
-type Tab = 'planner' | 'actions';
+type Tab = 'planner';
 
-const isDev = import.meta.env.DEV;
-
-const TABS: { key: Tab; labelKey: string }[] = isDev
-  ? [
-      { key: 'planner', labelKey: 'nav.planner' },
-      { key: 'actions', labelKey: 'nav.actions' },
-    ]
-  : [
-      { key: 'planner', labelKey: 'nav.planner' },
-    ];
+const TABS: { key: Tab; labelKey: string }[] = [
+  { key: 'planner', labelKey: 'nav.planner' },
+];
 
 interface LayoutProps {
   children: Record<Tab, React.ReactNode>;
@@ -42,11 +35,6 @@ export function Layout({ children }: LayoutProps) {
               {t(tab.labelKey)}
             </button>
           ))}
-          {isDev && (
-            <span className="ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40">
-              DEV-MODE
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           <WorkspaceSwitcher />

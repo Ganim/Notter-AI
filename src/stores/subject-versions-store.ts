@@ -6,8 +6,7 @@
 // schema pivot in `2026-05-10-subject-versioning.sql` made subjects the
 // canonical plan entity, so this store now coordinates with planner-store.
 //
-// UUID generation: uses crypto.randomUUID() to match the rest of the codebase
-// (board-store, action-processor). Do NOT add the `uuid` npm package.
+// UUID generation: uses crypto.randomUUID() — do NOT add the `uuid` npm package.
 //
 // No fs cache is needed here — subjects themselves are already cached on disk
 // by planner-store, and version/comment history is cheap to refetch on

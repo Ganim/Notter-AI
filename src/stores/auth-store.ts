@@ -8,12 +8,10 @@ import {
   fetchPreferences, pushPreferences,
   fetchProjects, pushProjects,
   fetchSubjects,
-  fetchActions, pushActions,
   fetchWorkspaces,
 } from '@/lib/sync';
 import { useAppStore } from '@/stores/app-store';
 import { usePlannerStore } from '@/stores/planner-store';
-import { useActionsStore } from '@/stores/actions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
@@ -97,14 +95,6 @@ async function syncOnLogin(userId: string) {
       await usePlannerStore.getState().pushAllSubjects(userId);
     }
 
-    // Actions
-    const remoteActions = await fetchActions(userId);
-    if (remoteActions) {
-      useActionsStore.getState().applyRemoteActions(remoteActions);
-    } else {
-      const localActions = useActionsStore.getState().actions;
-      if (localActions.length > 0) await pushActions(userId, localActions);
-    }
   } catch (e) {
     console.error('Sync on login failed:', e);
   }
