@@ -30,7 +30,7 @@ import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceM
 import { formatRelativeTime } from '@/lib/plans/format';
 import { Wand2, Loader2, Play, History, RefreshCw, PanelRightClose, PanelRightOpen, Upload, Download } from 'lucide-react';
 import {
-  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen, Folder,
+  Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
@@ -47,12 +47,15 @@ export function PlannerTab() {
     initFilesystem, saveSubjectContent, createProject, renameProject, deleteProject,
     createSubject, renameSubject, deleteSubject, refreshEditorTheme,
   } = usePlannerStore();
+  // Subject counts in the project list use the canonical subjectRows slice
+  // (cross-project, cross-workspace). Subscribed via a selector so the count
+  // updates reactively when subjects are added/removed/synced.
+  const subjectRows = usePlannerStore((s) => s.subjectRows);
 
   // Dialog states
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
   const [isSubjectDialogOpen, setIsSubjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectPath, setNewProjectPath] = useState('');
   const [newSubjectName, setNewSubjectName] = useState('');
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<string | null>(null);
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
@@ -354,18 +357,12 @@ export function PlannerTab() {
   };
 
   // --- CRUD handlers ---
-  const handleBrowseFolder = async () => {
-    const selected = await openDialogPick({ directory: true, multiple: false, title: t('planner.project_path_label') });
-    if (selected) setNewProjectPath(selected as string);
-  };
-
   const handleCreateProjectSubmit = async () => {
-    if (!newProjectName.trim() || !newProjectPath.trim()) return;
+    if (!newProjectName.trim()) return;
     try {
-      await createProject(newProjectName, newProjectPath);
+      await createProject(newProjectName, '');
       setIsProjectDialogOpen(false);
       setNewProjectName('');
-      setNewProjectPath('');
       toast.success(t('planner.project_created'));
     } catch (e: any) { toast.error(t('planner.error_create_project', { error: e })); }
   };
@@ -400,7 +397,7 @@ export function PlannerTab() {
     catch (e: any) { toast.error(t('planner.error_rename_subject', { error: e })); }
   };
 
-  const triggerProjectDialog = () => { setNewProjectName(''); setNewProjectPath(''); setIsProjectDialogOpen(true); };
+  const triggerProjectDialog = () => { setNewProjectName(''); setIsProjectDialogOpen(true); };
   const triggerSubjectDialog = () => { setNewSubjectName(''); setIsSubjectDialogOpen(true); };
 
   const handleTransform = async (profile: import('@/types').AgentProfile) => {
@@ -537,11 +534,15 @@ export function PlannerTab() {
   const renderProjectsList = (onSelect: (p: Project) => void) => (
     <ScrollArea className="flex-1">
       <div className="p-2 space-y-1">
-        {projects.map((p) => (
+        {projects.map((p) => {
+          const subjectCount = subjectRows.filter((s) => s.projectName === p.name).length;
+          return (
           <div key={p.name} onClick={() => onSelect(p)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
             <div className="flex flex-col gap-0.5 truncate">
               <span className="truncate">{p.name}</span>
-              <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">{p.path}</span>
+              <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">
+                {t('planner.subject_count', { count: subjectCount })}
+              </span>
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
@@ -549,7 +550,8 @@ export function PlannerTab() {
               <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
             </div>
           </div>
-        ))}
+          );
+        })}
         {projects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
       </div>
     </ScrollArea>
@@ -1074,19 +1076,10 @@ export function PlannerTab() {
               <DialogDescription>{t('planner.new_project_desc')}</DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3">
-              <input autoFocus type="text" placeholder={t('planner.project_name_placeholder')} value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newProjectPath && handleCreateProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t('planner.project_path_label')}</label>
-                <div className="flex gap-2">
-                  <input type="text" readOnly value={newProjectPath} placeholder={t('planner.project_path_placeholder')} className="flex-1 bg-muted/50 border border-input rounded-md p-2 text-sm text-foreground outline-none cursor-pointer truncate" onClick={handleBrowseFolder} />
-                  <button onClick={handleBrowseFolder} className="bg-muted hover:bg-muted/80 border border-border px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5">
-                    <Folder size={14} />{t('planner.browse')}
-                  </button>
-                </div>
-              </div>
+              <input autoFocus type="text" placeholder={t('planner.project_name_placeholder')} value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newProjectName.trim() && handleCreateProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
             </div>
             <DialogFooter>
-              <button onClick={handleCreateProjectSubmit} disabled={!newProjectName.trim() || !newProjectPath.trim()} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50">{t('planner.create')}</button>
+              <button onClick={handleCreateProjectSubmit} disabled={!newProjectName.trim()} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50">{t('planner.create')}</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
