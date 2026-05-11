@@ -30,10 +30,6 @@ export interface SubjectCommentRecord {
 export interface UserPreferences {
   darkMode: boolean;
   language: string;
-  terminalTheme: string;
-  terminalFont: string;
-  terminalFontSize: number;
-  terminalLigatures: boolean;
 }
 
 export async function fetchPreferences(userId: string): Promise<UserPreferences | null> {
@@ -48,10 +44,6 @@ export async function fetchPreferences(userId: string): Promise<UserPreferences 
     return {
       darkMode: data.dark_mode,
       language: data.language,
-      terminalTheme: data.terminal_theme,
-      terminalFont: data.terminal_font,
-      terminalFontSize: data.terminal_font_size,
-      terminalLigatures: data.terminal_ligatures,
     };
   } catch {
     return null;
@@ -61,14 +53,13 @@ export async function fetchPreferences(userId: string): Promise<UserPreferences 
 export async function pushPreferences(userId: string, prefs: UserPreferences): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
+    // terminal_* columns still exist in the table (per the "leave Supabase
+    // schema intact" decision) but we don't write them anymore; they'll keep
+    // their previous values.
     await supabase.from('user_preferences').upsert({
       user_id: userId,
       dark_mode: prefs.darkMode,
       language: prefs.language,
-      terminal_theme: prefs.terminalTheme,
-      terminal_font: prefs.terminalFont,
-      terminal_font_size: prefs.terminalFontSize,
-      terminal_ligatures: prefs.terminalLigatures,
       updated_at: new Date().toISOString(),
     });
   } catch (e) {

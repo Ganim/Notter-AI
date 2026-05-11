@@ -2,8 +2,7 @@
   "nav": {
     "planner": "Planner",
     "agents": "Agents",
-    "actions": "Actions",
-    "terminals": "Terminals"
+    "actions": "Actions"
   },
   "plans": {
     "comment_placeholder": "Add a comment...",
@@ -263,30 +262,10 @@
     "status_error": "Error",
     "status_loading": "Loading..."
   },
-  "terminals": {
-    "console_map": "Console Map",
-    "new_console": "New Console",
-    "max_consoles": "Maximum limit of 4 consoles reached.",
-    "no_consoles": "No console running.",
-    "open_terminal": "Open new interactive terminal",
-    "cmd_placeholder": "Execute commands natively...",
-    "ready": "Ready",
-    "where_to_open": "Where do you want to open the terminal?",
-    "open_in_root": "Open in system root",
-    "open_in_project": "Open in project folder",
-    "rename_terminal": "Rename Terminal",
-    "rename_terminal_desc": "Enter the new name for this terminal."
-  },
   "settings": {
     "title": "Settings",
-    "terminal": "Terminal",
-    "theme": "Color Theme",
-    "font": "Font Family",
-    "font_size": "Font Size",
-    "ligatures": "Ligatures",
     "close": "Close",
     "nav_account": "Account",
-    "nav_terminal": "Terminal",
     "account_coming_soon": "Coming soon"
   },
   "accounts": {

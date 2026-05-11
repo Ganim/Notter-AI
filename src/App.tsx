@@ -4,7 +4,6 @@ import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
 import { AgentsTab } from '@/components/AgentsTab';
 import { ActionsTab } from '@/components/ActionsTab';
-import { TerminalsTab } from '@/components/TerminalsTab';
 import { useAuthStore } from '@/stores/auth-store';
 import { useAiStore } from '@/stores/ai-store';
 import { useActionsStore, flushActionsStore } from '@/stores/actions-store';
@@ -102,7 +101,6 @@ function App() {
           planner: <PlannerTab />,
           agents: <AgentsTab />,
           actions: <ActionsTab />,
-          terminals: <TerminalsTab />,
         }}
       </Layout>
     </>

@@ -76,10 +76,6 @@ export function startRealtimeSync(userId: string): void {
       useAppStore.getState().applyRemotePreferences({
         darkMode: row.dark_mode,
         language: row.language,
-        terminalTheme: row.terminal_theme,
-        terminalFont: row.terminal_font,
-        terminalFontSize: row.terminal_font_size,
-        terminalLigatures: row.terminal_ligatures,
       });
     },
   );

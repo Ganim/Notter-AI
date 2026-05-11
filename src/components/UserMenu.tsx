@@ -2,9 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Brain, Network } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { useAppStore, TERMINAL_THEMES } from '@/stores/app-store';
+import { useAppStore } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
 import { AccountForm } from '@/components/AccountForm';
@@ -18,7 +16,6 @@ export function UserMenu() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'account' | 'terminal'>('account');
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -26,7 +23,7 @@ export function UserMenu() {
   const [manageAiOpen, setManageAiOpen] = useState(false);
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { darkMode, setDarkMode, language, setLanguage, terminalSettings, setTerminalSettings } = useAppStore();
+  const { darkMode, setDarkMode, language, setLanguage } = useAppStore();
   const { user, signOut } = useAuthStore();
 
   useEffect(() => {
@@ -49,7 +46,6 @@ export function UserMenu() {
 
   const openSettings = () => {
     setOpen(false);
-    setSettingsTab('account');
     setSettingsOpen(true);
   };
 
@@ -255,124 +251,8 @@ export function UserMenu() {
             <DialogTitle>{t('settings.title')}</DialogTitle>
           </DialogHeader>
 
-          <div className="flex gap-6 min-h-[420px]">
-            {/* Left column: navigation sidebar */}
-            <nav className="w-44 shrink-0 flex flex-col gap-1 border-r border-border pr-3">
-              <button
-                onClick={() => setSettingsTab('account')}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  settingsTab === 'account'
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-foreground hover:bg-muted'
-                }`}
-              >
-                {t('settings.nav_account')}
-              </button>
-              <button
-                onClick={() => setSettingsTab('terminal')}
-                className={`w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  settingsTab === 'terminal'
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-foreground hover:bg-muted'
-                }`}
-              >
-                {t('settings.nav_terminal')}
-              </button>
-            </nav>
-
-            {/* Right column: form content area */}
-            <div className="flex-1 min-w-0">
-              {settingsTab === 'account' && <AccountForm />}
-
-              {settingsTab === 'terminal' && (
-                <div className="space-y-6">
-                  <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">{t('settings.terminal')}</h3>
-
-            {/* Theme */}
-            <div className="space-y-2">
-              <Label className="text-xs">{t('settings.theme')}</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {TERMINAL_THEMES.map((theme) => (
-                  <button
-                    key={theme.name}
-                    onClick={() => setTerminalSettings({ themeName: theme.name })}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-md border transition-colors ${terminalSettings.themeName === theme.name ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/50'}`}
-                  >
-                    <div className="w-full h-6 rounded-sm" style={{ backgroundColor: theme.background }} />
-                    <span className="text-[10px] text-muted-foreground">{theme.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Font Family */}
-            <div className="space-y-2">
-              <Label className="text-xs">{t('settings.font')}</Label>
-              <select
-                value={terminalSettings.fontFamily}
-                onChange={(e) => setTerminalSettings({ fontFamily: e.target.value })}
-                className="w-full bg-background text-foreground border border-border rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="'Cascadia Code', 'Fira Code', 'Consolas', monospace">Cascadia Code</option>
-                <option value="'Fira Code', 'Cascadia Code', 'Consolas', monospace">Fira Code</option>
-                <option value="'JetBrains Mono', 'Fira Code', 'Consolas', monospace">JetBrains Mono</option>
-                <option value="'Consolas', monospace">Consolas</option>
-                <option value="'Courier New', monospace">Courier New</option>
-                <option value="monospace">System Mono</option>
-              </select>
-            </div>
-
-            {/* Font Size */}
-            <div className="space-y-2">
-              <Label className="text-xs">{t('settings.font_size')} — {terminalSettings.fontSize}px</Label>
-              <input
-                type="range"
-                min={10}
-                max={20}
-                value={terminalSettings.fontSize}
-                onChange={(e) => setTerminalSettings({ fontSize: parseInt(e.target.value) })}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            {/* Ligatures */}
-            <div className="flex items-center justify-between p-3 rounded-md border border-border bg-background">
-              <div className="flex flex-col gap-0.5">
-                <Label className="text-sm font-medium text-foreground">{t('settings.ligatures')}</Label>
-                <span className="text-[11px] text-muted-foreground font-mono">{'=> -> != <='}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${terminalSettings.ligatures ? 'bg-green-500/20 text-green-500' : 'bg-muted text-muted-foreground'}`}>
-                  {terminalSettings.ligatures ? 'ON' : 'OFF'}
-                </span>
-                <Switch
-                  checked={terminalSettings.ligatures}
-                  onCheckedChange={(val: boolean) => setTerminalSettings({ ligatures: val })}
-                />
-              </div>
-            </div>
-
-            {/* Preview */}
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Preview</Label>
-              <div
-                className="rounded-md p-3 border border-border"
-                style={{
-                  backgroundColor: (TERMINAL_THEMES.find((t) => t.name === terminalSettings.themeName) || TERMINAL_THEMES[0]).background,
-                  color: (TERMINAL_THEMES.find((t) => t.name === terminalSettings.themeName) || TERMINAL_THEMES[0]).foreground,
-                  fontFamily: terminalSettings.fontFamily,
-                  fontSize: terminalSettings.fontSize,
-                  fontVariantLigatures: terminalSettings.ligatures ? 'normal' : 'none',
-                }}
-              >
-                <div>$ npm run dev</div>
-                <div style={{ opacity: 0.6 }}>{'=> =>'} !== {'!=='} {'<='} {'>='}</div>
-                <div>Server running on :3000</div>
-              </div>
-            </div>
-                </div>
-              )}
-            </div>
+          <div className="min-h-[420px]">
+            <AccountForm />
           </div>
         </DialogContent>
       </Dialog>

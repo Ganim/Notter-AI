@@ -2,8 +2,7 @@
   "nav": {
     "planner": "Planner",
     "agents": "Agentes",
-    "actions": "Ações",
-    "terminals": "Terminais"
+    "actions": "Ações"
   },
   "plans": {
     "comment_placeholder": "Adicionar comentário...",
@@ -263,30 +262,10 @@
     "status_error": "Erro",
     "status_loading": "Carregando..."
   },
-  "terminals": {
-    "console_map": "Console Map",
-    "new_console": "Novo Console",
-    "max_consoles": "Limite máximo de 4 consoles atingido.",
-    "no_consoles": "Nenhum console em execução.",
-    "open_terminal": "Abrir novo terminal interativo",
-    "cmd_placeholder": "Execute comandos nativamente...",
-    "ready": "Pronto",
-    "where_to_open": "Onde deseja abrir o terminal?",
-    "open_in_root": "Abrir na raiz do sistema",
-    "open_in_project": "Abrir na pasta do projeto",
-    "rename_terminal": "Renomear Terminal",
-    "rename_terminal_desc": "Digite o novo nome para este terminal."
-  },
   "settings": {
     "title": "Configurações",
-    "terminal": "Terminal",
-    "theme": "Tema de Cores",
-    "font": "Fonte",
-    "font_size": "Tamanho da Fonte",
-    "ligatures": "Ligaduras",
     "close": "Fechar",
     "nav_account": "Conta",
-    "nav_terminal": "Terminal",
     "account_coming_soon": "Em breve"
   },
   "accounts": {
