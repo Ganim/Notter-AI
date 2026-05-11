@@ -4,7 +4,7 @@ import { pushPreferences, type UserPreferences } from '@/lib/sync';
 import { makeDebouncedSync } from '@/lib/synced-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 
-type Tab = 'planner' | 'agents' | 'actions';
+type Tab = 'planner' | 'actions';
 
 const prefsSync = makeDebouncedSync<UserPreferences>(pushPreferences, 1000);
 

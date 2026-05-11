@@ -1,7 +1,6 @@
 {
   "nav": {
     "planner": "Planner",
-    "agents": "Agents",
     "actions": "Actions"
   },
   "plans": {
@@ -231,37 +230,6 @@
     "subject_imported": "Imported as \"{{name}}\"",
     "subject_import_failed": "Import failed: {{message}}"
   },
-  "agents": {
-    "profiles": "Agent Profiles",
-    "config_title": "Agent Configuration",
-    "config_desc": "Set base instructions, LLM provider connectivity (Ollama on localhost, or external), and execution autonomy tolerance.",
-    "agent_name": "Agent Name",
-    "provider": "AI Provider",
-    "select_provider": "Select a Provider",
-    "provider_ollama": "Ollama Native (localhost:11434)",
-    "provider_openai": "OpenAI (ChatGPT)",
-    "provider_anthropic": "Anthropic (Claude)",
-    "provider_gemini": "Google (Gemini)",
-    "api_key": "API Key ({{provider}}) / Bearer Token",
-    "api_key_placeholder": "Your {{provider}} API key...",
-    "autonomous_mode": "Autonomous Execution Mode",
-    "autonomous_desc": "If enabled, this Agent won't request manual permission prompts when injecting interactive Bash commands in the Console Map. Use with mature AI models for uninterrupted work cycles (Overdrive).",
-    "system_prompt": "System Prompt (System Instructions)",
-    "system_prompt_placeholder": "You are specialist agent X responsible for Y...",
-    "no_profile": "No Agent profile in focus.",
-    "select_or_create": "Select or Create New Profile",
-    "model": "Model",
-    "select_model": "Select a model",
-    "fetch_models_error": "Could not fetch Ollama models. Is Ollama running?",
-    "test_chat": "Test Chat",
-    "chat_placeholder": "Send a message to test this agent's configuration...",
-    "chat_clear": "Clear",
-    "chat_send": "Send",
-    "chat_empty": "Send a message to start testing.",
-    "status_connected": "Connected",
-    "status_error": "Error",
-    "status_loading": "Loading..."
-  },
   "settings": {
     "title": "Settings",
     "close": "Close",
@@ -309,12 +277,6 @@
     "error_not_configured": "Supabase is not configured",
     "error_not_authenticated": "You must be signed in",
     "not_signed_in": "Sign in to manage your account"
-  },
-  "delegate": {
-    "title": "Delegate Mission",
-    "desc": "Select which Agent will take over the active task. It will inject this Markdown context into its autonomous flow.",
-    "no_profiles": "No profile configured. Create an Agent Profile in the Agents tab first.",
-    "dispatched": "Agent {{name}} dispatched to the task!"
   },
   "auth": {
     "login": "Login",

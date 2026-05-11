@@ -1,13 +1,12 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAppStore } from '@/stores/app-store';
-import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
-  fetchAgentProfiles, fetchProjects, fetchSubjects, fetchActions,
+  fetchProjects, fetchSubjects, fetchActions,
   fetchSubjectVersions, fetchSubjectComments, fetchWorkspaces,
 } from '@/lib/sync';
 import { subscribeUserTable } from '@/lib/synced-store';
@@ -26,10 +25,6 @@ export function startRealtimeSync(userId: string): void {
     }
   }
 
-  const refetchProfiles = async () => {
-    const profiles = await fetchAgentProfiles(userId);
-    if (profiles.length > 0) useAgentsStore.getState().applyRemoteProfiles(profiles);
-  };
   const refetchProjects = async () => {
     const projects = await fetchProjects(userId);
     if (projects) usePlannerStore.getState().applyRemoteProjects(projects);
@@ -80,7 +75,6 @@ export function startRealtimeSync(userId: string): void {
     },
   );
 
-  ch = subscribeUserTable(ch, 'agent_profiles',    userId, refetchProfiles);
   ch = subscribeUserTable(ch, 'workspaces',        userId, refetchWorkspaces);
   ch = subscribeUserTable(ch, 'projects',          userId, refetchProjects);
   ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);

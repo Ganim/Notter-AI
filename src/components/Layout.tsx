@@ -3,14 +3,13 @@ import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
-type Tab = 'planner' | 'agents' | 'actions';
+type Tab = 'planner' | 'actions';
 
 const isDev = import.meta.env.DEV;
 
 const TABS: { key: Tab; labelKey: string }[] = isDev
   ? [
       { key: 'planner', labelKey: 'nav.planner' },
-      { key: 'agents', labelKey: 'nav.agents' },
       { key: 'actions', labelKey: 'nav.actions' },
     ]
   : [

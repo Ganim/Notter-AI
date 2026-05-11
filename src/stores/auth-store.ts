@@ -6,14 +6,12 @@ import { secureGet, accountKeys } from '@/lib/accounts/secure-store';
 import { clearPendingStorage } from '@/lib/accounts/supabase-storage-adapter';
 import {
   fetchPreferences, pushPreferences,
-  fetchAgentProfiles, pushAgentProfiles,
   fetchProjects, pushProjects,
   fetchSubjects,
   fetchActions, pushActions,
   fetchWorkspaces,
 } from '@/lib/sync';
 import { useAppStore } from '@/stores/app-store';
-import { useAgentsStore } from '@/stores/agents-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useActionsStore } from '@/stores/actions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
@@ -80,15 +78,6 @@ async function syncOnLogin(userId: string) {
     } else {
       const localPrefs = useAppStore.getState().getPreferences();
       await pushPreferences(userId, localPrefs);
-    }
-
-    // Agent profiles
-    const remoteProfiles = await fetchAgentProfiles(userId);
-    if (remoteProfiles.length > 0) {
-      useAgentsStore.getState().applyRemoteProfiles(remoteProfiles);
-    } else {
-      const localProfiles = useAgentsStore.getState().profiles;
-      await pushAgentProfiles(userId, localProfiles);
     }
 
     // Projects

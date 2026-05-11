@@ -1,21 +1,11 @@
-export type AIProvider = 'ollama' | 'openai' | 'anthropic' | 'gemini';
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  provider: AIProvider;
-  model: string;
-  apiKey: string;
-  systemPrompt: string;
-  autonomous: boolean;
-}
-
 export interface Project {
   name: string;
   path: string;
   workspaceId: string;
 }
 
+// ShellType + ConsoleInstance still consumed by terminals-store and the
+// Actions code paths. Both will leave with the Actions extraction.
 export type ShellType = 'powershell' | 'bash' | 'cmd';
 
 export interface ConsoleInstance {

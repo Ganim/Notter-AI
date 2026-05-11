@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { upsertUserRows } from '@/lib/synced-store';
-import type { AgentProfile, Project } from '@/types';
+import type { Project } from '@/types';
 import type { Action } from '@/types/actions';
 
 export interface SubjectVersionRecord {
@@ -65,42 +65,6 @@ export async function pushPreferences(userId: string, prefs: UserPreferences): P
   } catch (e) {
     console.error('Failed to push preferences:', e);
   }
-}
-
-export async function fetchAgentProfiles(userId: string): Promise<AgentProfile[]> {
-  if (!isSupabaseConfigured) return [];
-  try {
-    const { data, error } = await supabase
-      .from('agent_profiles')
-      .select('*')
-      .eq('user_id', userId);
-    if (error || !data || data.length === 0) return [];
-    return data.map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      provider: row.provider,
-      model: row.model || '',
-      apiKey: row.api_key || '',
-      systemPrompt: row.system_prompt || '',
-      autonomous: row.autonomous || false,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-export async function pushAgentProfiles(userId: string, profiles: AgentProfile[]): Promise<void> {
-  await upsertUserRows('agent_profiles', userId, profiles, (p) => ({
-    id: p.id,
-    user_id: userId,
-    name: p.name,
-    provider: p.provider,
-    model: p.model,
-    api_key: p.apiKey,
-    system_prompt: p.systemPrompt,
-    autonomous: p.autonomous,
-    updated_at: new Date().toISOString(),
-  }));
 }
 
 // ── Projects ──────────────────────────────────────────────────────────

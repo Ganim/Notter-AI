@@ -1,7 +1,6 @@
 {
   "nav": {
     "planner": "Planner",
-    "agents": "Agentes",
     "actions": "Ações"
   },
   "plans": {
@@ -231,37 +230,6 @@
     "subject_imported": "Importado como \"{{name}}\"",
     "subject_import_failed": "Importação falhou: {{message}}"
   },
-  "agents": {
-    "profiles": "Perfis de Agentes",
-    "config_title": "Configuração do Agente",
-    "config_desc": "Estruture as instruções base, conectividade a provedores LLM externos ou o Ollama em localhost (Llama3, Mistral, entre outros) e ajuste a tolerância de autonomia de execução no FileSystem.",
-    "agent_name": "Nome do Agente",
-    "provider": "Provedor de I.A.",
-    "select_provider": "Selecione um Provedor",
-    "provider_ollama": "Ollama Nativo (localhost:11434)",
-    "provider_openai": "OpenAI (ChatGPT)",
-    "provider_anthropic": "Anthropic (Claude)",
-    "provider_gemini": "Google (Gemini)",
-    "api_key": "Chave de API ({{provider}}) / Bearer Token",
-    "api_key_placeholder": "Sua API Key do serviço {{provider}}...",
-    "autonomous_mode": "Modo de Execução Autônoma",
-    "autonomous_desc": "Se ativado, este Agente não solicitará prompts visuais com permissão manual sempre que injetar comandos Bash interativos no Console Map. Use com os Modelos de I.A que você considera maduros e eficientes, para rodar ciclos completos de trabalho ininterruptamente (Overdrive).",
-    "system_prompt": "Prompt de Sistema (System Instructions)",
-    "system_prompt_placeholder": "Você é o agente especialista X responsável por Y...",
-    "no_profile": "Nenhum perfil de Agente em evidência.",
-    "select_or_create": "Selecionar ou Criar Novo Perfil",
-    "model": "Modelo",
-    "select_model": "Selecione um modelo",
-    "fetch_models_error": "Não foi possível buscar modelos do Ollama. O Ollama está rodando?",
-    "test_chat": "Chat de Teste",
-    "chat_placeholder": "Envie uma mensagem para testar a configuração deste agente...",
-    "chat_clear": "Limpar",
-    "chat_send": "Enviar",
-    "chat_empty": "Envie uma mensagem para começar a testar.",
-    "status_connected": "Conectado",
-    "status_error": "Erro",
-    "status_loading": "Carregando..."
-  },
   "settings": {
     "title": "Configurações",
     "close": "Fechar",
@@ -309,12 +277,6 @@
     "error_not_configured": "Supabase não está configurado",
     "error_not_authenticated": "Você precisa estar autenticado",
     "not_signed_in": "Faça login para gerenciar sua conta"
-  },
-  "delegate": {
-    "title": "Delegar Missão",
-    "desc": "Selecione qual Agente assumirá a tarefa ativa. Ele injetará o contexto deste Markdown em seu fluxo autônomo.",
-    "no_profiles": "Nenhum perfil configurado. Crie um Agent Profile na aba Agentes primeiro.",
-    "dispatched": "Agente {{name}} despachado para a tarefa!"
   },
   "auth": {
     "login": "Entrar",
