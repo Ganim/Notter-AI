@@ -338,7 +338,50 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     );
     set((state) => ({ subjects: [...state.subjects, fileName], selectedSubject: fileName }));
     const userId = useAuthStore.getState().user?.id;
-    if (userId) pushSubject(userId, projectName, fileName, content);
+    if (!userId) return;
+
+    // Generate ids client-side so the subject + its initial version can be
+    // written in one flow without an intermediate fetch to recover server-
+    // generated ids. Every subject MUST have at least one version row from
+    // the moment of creation — no orphan subjects.
+    const subjectId = crypto.randomUUID();
+    const versionId = crypto.randomUUID();
+    try {
+      await pushSubject(userId, projectName, fileName, content, subjectId);
+      const { pushSubjectVersion, updateSubjectCurrentVersion } = await import('@/lib/sync');
+      await pushSubjectVersion({
+        id: versionId,
+        subjectId,
+        contentMarkdown: content,
+        parentVersionId: null,
+        source: 'user',
+        sourceActor: null,
+        label: 'Versão inicial',
+      });
+      await updateSubjectCurrentVersion(userId, subjectId, versionId);
+
+      // Optimistically reflect both rows so the SnapshotPanel shows the
+      // initial version without waiting for realtime — same RLS-lag mitigation
+      // we apply elsewhere (commits f248994, 697ac90).
+      const nowIso = new Date().toISOString();
+      set((s) => ({
+        subjectRows: [
+          ...s.subjectRows,
+          {
+            id: subjectId,
+            userId,
+            projectName,
+            fileName,
+            content,
+            currentVersionId: versionId,
+            updatedAt: nowIso,
+          },
+        ],
+      }));
+      useSubjectVersionsStore.getState().loadForSubject(subjectId);
+    } catch (e) {
+      console.error('[planner] createSubject (initial version) failed:', e);
+    }
   },
 
   renameSubject: async (projectName, oldName, newName) => {

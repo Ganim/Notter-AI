@@ -199,16 +199,22 @@ export async function pushSubject(
   projectName: string,
   fileName: string,
   content: string,
+  id?: string,
 ): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    await supabase.from('subjects').upsert({
+    const row: Record<string, unknown> = {
       user_id: userId,
       project_name: projectName,
       file_name: fileName,
       content,
       updated_at: new Date().toISOString(),
-    });
+    };
+    // Pass an explicit id when the caller needs to reference it (e.g. to
+    // create an initial subject_versions row in the same flow). Otherwise
+    // let the DB generate one via the gen_random_uuid() default.
+    if (id) row.id = id;
+    await supabase.from('subjects').upsert(row);
   } catch (e) {
     console.error('Failed to push subject:', e);
   }
