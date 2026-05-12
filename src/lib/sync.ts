@@ -20,8 +20,16 @@ export interface SubjectCommentRecord {
   versionId: string;
   userId: string;
   authorUserId: string;
+  authorDisplayName: string | null;
   body: string;
   resolved: boolean;
+  archived: boolean;
+  /** Selected snippet of subject markdown the comment points at; null = legacy "general" comment. */
+  anchorQuote: string | null;
+  /** Up to 32 chars before the quote — disambiguator. */
+  anchorPrefix: string | null;
+  /** Up to 32 chars after the quote — disambiguator. */
+  anchorSuffix: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -528,8 +536,13 @@ export async function fetchSubjectComments(
       versionId: row.version_id,
       userId: row.user_id,
       authorUserId: row.author_user_id,
+      authorDisplayName: row.author_display_name ?? null,
       body: row.body,
       resolved: row.resolved,
+      archived: row.archived ?? false,
+      anchorQuote: row.anchor_quote ?? null,
+      anchorPrefix: row.anchor_prefix ?? null,
+      anchorSuffix: row.anchor_suffix ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -555,8 +568,13 @@ export async function pushSubjectComment(
       subject_id: comment.subjectId,
       version_id: comment.versionId,
       author_user_id: comment.authorUserId,
+      author_display_name: comment.authorDisplayName,
       body: comment.body,
       resolved: comment.resolved,
+      archived: comment.archived,
+      anchor_quote: comment.anchorQuote,
+      anchor_prefix: comment.anchorPrefix,
+      anchor_suffix: comment.anchorSuffix,
       updated_at: comment.updatedAt ?? new Date().toISOString(),
     });
     if (error) console.error('[sync] pushSubjectComment failed:', error);

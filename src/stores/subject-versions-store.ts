@@ -32,6 +32,8 @@ import {
   type SubjectVersionRecord,
   type SubjectCommentRecord,
 } from '@/lib/sync';
+import type { CommentAnchor } from '@/lib/plans/anchor';
+import type { User } from '@supabase/supabase-js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,15 @@ export interface SnapshotArgs {
    * is the source of truth for this pointer.
    */
   parentVersionId?: string | null;
+}
+
+export interface AddCommentArgs {
+  body: string;
+  anchor: CommentAnchor;
+  /** Current `subjects.current_version_id`. If null, the store auto-snapshots `contentForSnapshot` first. */
+  versionId: string | null;
+  /** Used only when `versionId` is null — content of the working draft to snapshot as v0. */
+  contentForSnapshot: string;
 }
 
 interface SubjectVersionsState {
@@ -93,7 +104,18 @@ interface SubjectVersionsState {
   adoptVersion: (versionId: string) => Promise<SubjectVersionRecord | null>;
 
   // Comments
-  addComment: (versionId: string, body: string) => Promise<void>;
+  /**
+   * Create a new anchored comment. If `versionId` is null, the store first
+   * snapshots `contentForSnapshot` as a synthetic v0 (source 'user',
+   * auto-adopted) and uses that id. This makes the "no version exists yet"
+   * gate invisible to the user.
+   *
+   * Returns the inserted comment on success, `null` on failure (no auth,
+   * no subject, snapshot failure, or empty body).
+   */
+  addComment: (args: AddCommentArgs) => Promise<SubjectCommentRecord | null>;
+  editComment: (commentId: string, body: string) => Promise<void>;
+  setCommentArchived: (commentId: string, archived: boolean) => Promise<void>;
   deleteComment: (commentId: string) => Promise<void>;
   toggleResolveComment: (commentId: string) => Promise<void>;
 
@@ -113,6 +135,22 @@ const INITIAL_STATE = {
   comments: [] as SubjectCommentRecord[],
   previewVersionId: null as string | null,
 };
+
+/**
+ * Best-effort human-readable name for the current auth user. Used to
+ * denormalize author identity on each new comment so the MCP `list_comments`
+ * payload — and the side panel — render a real name instead of a UUID.
+ */
+function resolveDisplayName(user: User): string | null {
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const name =
+    (typeof meta.display_name === 'string' && meta.display_name) ||
+    (typeof meta.full_name === 'string' && meta.full_name) ||
+    (typeof meta.name === 'string' && meta.name) ||
+    user.email ||
+    null;
+  return name || null;
+}
 
 export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) => {
   const store: SubjectVersionsState = {
@@ -233,20 +271,41 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
 
     // ── Comments ─────────────────────────────────────────────────────────────
 
-    async addComment(versionId: string, body: string) {
+    async addComment(args: AddCommentArgs) {
       const { currentSubjectId } = get();
-      const userId = useAuthStore.getState().user?.id;
-      if (!currentSubjectId || !userId || !body.trim()) return;
+      const user = useAuthStore.getState().user;
+      const body = args.body.trim();
+      if (!currentSubjectId || !user || !body) return null;
+
+      // Auto-snapshot the working draft if the subject has no current version
+      // yet. This hides the "no version exists" gate from the comment UX —
+      // the user shouldn't have to know about snapshots to leave feedback.
+      let versionId = args.versionId;
+      if (!versionId) {
+        const snap = await get().snapshotAndAdopt({
+          contentMarkdown: args.contentForSnapshot,
+          source: 'user',
+          label: 'auto: first comment',
+        });
+        if (!snap) return null;
+        versionId = snap.id;
+      }
+
       const commentId = crypto.randomUUID();
       const now = new Date().toISOString();
       const newComment: SubjectCommentRecord = {
         id: commentId,
         subjectId: currentSubjectId,
         versionId,
-        userId,
-        authorUserId: userId,
-        body: body.trim(),
+        userId: user.id,
+        authorUserId: user.id,
+        authorDisplayName: resolveDisplayName(user),
+        body,
         resolved: false,
+        archived: false,
+        anchorQuote: args.anchor.quote,
+        anchorPrefix: args.anchor.prefix,
+        anchorSuffix: args.anchor.suffix,
         createdAt: now,
         updatedAt: now,
       };
@@ -255,10 +314,75 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         id: commentId,
         subjectId: currentSubjectId,
         versionId,
-        authorUserId: userId,
-        body: body.trim(),
+        authorUserId: user.id,
+        authorDisplayName: newComment.authorDisplayName,
+        body,
         resolved: false,
+        archived: false,
+        anchorQuote: newComment.anchorQuote,
+        anchorPrefix: newComment.anchorPrefix,
+        anchorSuffix: newComment.anchorSuffix,
         updatedAt: now,
+      });
+      return newComment;
+    },
+
+    async editComment(commentId: string, body: string) {
+      const trimmed = body.trim();
+      if (!trimmed) return;
+      const comment = get().comments.find((c) => c.id === commentId);
+      if (!comment) return;
+      const userId = useAuthStore.getState().user?.id;
+      // Only the author may edit.
+      if (!userId || userId !== comment.authorUserId) return;
+      const updated: SubjectCommentRecord = {
+        ...comment,
+        body: trimmed,
+        updatedAt: new Date().toISOString(),
+      };
+      set((s) => ({
+        comments: s.comments.map((c) => (c.id === commentId ? updated : c)),
+      }));
+      await pushSubjectComment({
+        id: updated.id,
+        subjectId: updated.subjectId,
+        versionId: updated.versionId,
+        authorUserId: updated.authorUserId,
+        authorDisplayName: updated.authorDisplayName,
+        body: updated.body,
+        resolved: updated.resolved,
+        archived: updated.archived,
+        anchorQuote: updated.anchorQuote,
+        anchorPrefix: updated.anchorPrefix,
+        anchorSuffix: updated.anchorSuffix,
+        updatedAt: updated.updatedAt,
+      });
+    },
+
+    async setCommentArchived(commentId: string, archived: boolean) {
+      const comment = get().comments.find((c) => c.id === commentId);
+      if (!comment || comment.archived === archived) return;
+      const updated: SubjectCommentRecord = {
+        ...comment,
+        archived,
+        updatedAt: new Date().toISOString(),
+      };
+      set((s) => ({
+        comments: s.comments.map((c) => (c.id === commentId ? updated : c)),
+      }));
+      await pushSubjectComment({
+        id: updated.id,
+        subjectId: updated.subjectId,
+        versionId: updated.versionId,
+        authorUserId: updated.authorUserId,
+        authorDisplayName: updated.authorDisplayName,
+        body: updated.body,
+        resolved: updated.resolved,
+        archived: updated.archived,
+        anchorQuote: updated.anchorQuote,
+        anchorPrefix: updated.anchorPrefix,
+        anchorSuffix: updated.anchorSuffix,
+        updatedAt: updated.updatedAt,
       });
     },
 
@@ -285,8 +409,13 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         subjectId: updated.subjectId,
         versionId: updated.versionId,
         authorUserId: updated.authorUserId,
+        authorDisplayName: updated.authorDisplayName,
         body: updated.body,
         resolved: updated.resolved,
+        archived: updated.archived,
+        anchorQuote: updated.anchorQuote,
+        anchorPrefix: updated.anchorPrefix,
+        anchorSuffix: updated.anchorSuffix,
         updatedAt: updated.updatedAt,
       });
     },

@@ -31,7 +31,11 @@ vi.mock('@/lib/sync', () => ({
 }));
 
 vi.mock('@/stores/auth-store', () => ({
-  useAuthStore: { getState: () => ({ user: { id: 'u1' } }) },
+  useAuthStore: {
+    getState: () => ({
+      user: { id: 'u1', email: 'u1@test.example', user_metadata: { display_name: 'Test User' } },
+    }),
+  },
 }));
 
 vi.mock('@/lib/accounts/store-registry', () => ({
@@ -61,7 +65,7 @@ describe('SubjectVersionsStore', () => {
       { id: 'v1', subjectId: 's1', userId: 'u1', contentMarkdown: '# v1', parentVersionId: null, source: 'user' as const, sourceActor: null, label: null, createdAt: '' },
     ];
     const remoteComments = [
-      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', body: 'Nice', resolved: false, createdAt: '', updatedAt: '' },
+      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', authorDisplayName: null, body: 'Nice', resolved: false, archived: false, anchorQuote: null, anchorPrefix: null, anchorSuffix: null, createdAt: '', updatedAt: '' },
     ];
     (fetchSubjectVersions as any).mockResolvedValueOnce(remoteVersions);
     (fetchSubjectComments as any).mockResolvedValueOnce(remoteComments);
@@ -220,10 +224,15 @@ describe('SubjectVersionsStore', () => {
     warn.mockRestore();
   });
 
-  it('addComment optimistically appends and pushes via sync', async () => {
+  it('addComment optimistically appends with anchor and pushes via sync', async () => {
     const { pushSubjectComment } = await import('@/lib/sync');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
-    await useSubjectVersionsStore.getState().addComment('v1', '  hello  ');
+    await useSubjectVersionsStore.getState().addComment({
+      body: '  hello  ',
+      anchor: { quote: 'foo', prefix: 'pre ', suffix: ' suf' },
+      versionId: 'v1',
+      contentForSnapshot: 'pre foo suf',
+    });
 
     const comments = useSubjectVersionsStore.getState().comments;
     expect(comments).toHaveLength(1);
@@ -231,15 +240,73 @@ describe('SubjectVersionsStore', () => {
     expect(comments[0].versionId).toBe('v1');
     expect(comments[0].subjectId).toBe('s1');
     expect(comments[0].resolved).toBe(false);
+    expect(comments[0].archived).toBe(false);
+    expect(comments[0].anchorQuote).toBe('foo');
+    expect(comments[0].authorDisplayName).toBe('Test User');
     expect(pushSubjectComment).toHaveBeenCalledOnce();
   });
 
   it('addComment ignores empty bodies', async () => {
     const { pushSubjectComment } = await import('@/lib/sync');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
-    await useSubjectVersionsStore.getState().addComment('v1', '   ');
+    const r = await useSubjectVersionsStore.getState().addComment({
+      body: '   ',
+      anchor: { quote: 'foo', prefix: null, suffix: null },
+      versionId: 'v1',
+      contentForSnapshot: 'foo',
+    });
+    expect(r).toBeNull();
     expect(useSubjectVersionsStore.getState().comments).toEqual([]);
     expect(pushSubjectComment).not.toHaveBeenCalled();
+  });
+
+  it('addComment auto-snapshots when no current version exists', async () => {
+    const { pushSubjectVersion, pushSubjectComment } = await import('@/lib/sync');
+    await useSubjectVersionsStore.getState().loadForSubject('s1');
+    const r = await useSubjectVersionsStore.getState().addComment({
+      body: 'first comment',
+      anchor: { quote: 'foo', prefix: null, suffix: null },
+      versionId: null,
+      contentForSnapshot: '# draft\n\nfoo bar',
+    });
+    expect(r).not.toBeNull();
+    expect(pushSubjectVersion).toHaveBeenCalledOnce();
+    expect(pushSubjectComment).toHaveBeenCalledOnce();
+  });
+
+  it('editComment updates body and bumps updatedAt for the author', async () => {
+    const { pushSubjectComment } = await import('@/lib/sync');
+    await useSubjectVersionsStore.getState().loadForSubject('s1');
+    useSubjectVersionsStore.getState().applyRemoteComments([
+      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', authorDisplayName: 'Test User', body: 'old', resolved: false, archived: false, anchorQuote: 'foo', anchorPrefix: null, anchorSuffix: null, createdAt: '', updatedAt: '' },
+    ]);
+    await useSubjectVersionsStore.getState().editComment('c1', '  new body  ');
+    const c = useSubjectVersionsStore.getState().comments[0];
+    expect(c.body).toBe('new body');
+    expect(pushSubjectComment).toHaveBeenCalledOnce();
+  });
+
+  it('editComment refuses to edit if user is not the author', async () => {
+    const { pushSubjectComment } = await import('@/lib/sync');
+    await useSubjectVersionsStore.getState().loadForSubject('s1');
+    useSubjectVersionsStore.getState().applyRemoteComments([
+      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'OTHER', authorDisplayName: 'Other', body: 'old', resolved: false, archived: false, anchorQuote: 'foo', anchorPrefix: null, anchorSuffix: null, createdAt: '', updatedAt: '' },
+    ]);
+    await useSubjectVersionsStore.getState().editComment('c1', 'hacked');
+    const c = useSubjectVersionsStore.getState().comments[0];
+    expect(c.body).toBe('old');
+    expect(pushSubjectComment).not.toHaveBeenCalled();
+  });
+
+  it('setCommentArchived flips archived flag and pushes', async () => {
+    const { pushSubjectComment } = await import('@/lib/sync');
+    await useSubjectVersionsStore.getState().loadForSubject('s1');
+    useSubjectVersionsStore.getState().applyRemoteComments([
+      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', authorDisplayName: 'Test User', body: 'x', resolved: false, archived: false, anchorQuote: 'foo', anchorPrefix: null, anchorSuffix: null, createdAt: '', updatedAt: '' },
+    ]);
+    await useSubjectVersionsStore.getState().setCommentArchived('c1', true);
+    expect(useSubjectVersionsStore.getState().comments[0].archived).toBe(true);
+    expect(pushSubjectComment).toHaveBeenCalledOnce();
   });
 
   it('applyRemoteVersions and applyRemoteComments replace their slices', () => {
@@ -247,7 +314,7 @@ describe('SubjectVersionsStore', () => {
       { id: 'v1', subjectId: 's1', userId: 'u1', contentMarkdown: '# v1', parentVersionId: null, source: 'user' as const, sourceActor: null, label: null, createdAt: '' },
     ];
     const comments = [
-      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', body: 'Nice', resolved: false, createdAt: '', updatedAt: '' },
+      { id: 'c1', subjectId: 's1', versionId: 'v1', userId: 'u1', authorUserId: 'u1', authorDisplayName: null, body: 'Nice', resolved: false, archived: false, anchorQuote: null, anchorPrefix: null, anchorSuffix: null, createdAt: '', updatedAt: '' },
     ];
     useSubjectVersionsStore.getState().applyRemoteVersions(versions);
     useSubjectVersionsStore.getState().applyRemoteComments(comments);

@@ -16,6 +16,11 @@ import type { PanelImperativeHandle } from 'react-resizable-panels';
 import type { Project } from '@/types';
 import { useWindowWidth } from '@/hooks/useWindowWidth';
 import { CommentsPanel } from '@/components/plans/CommentsPanel';
+import { InlineCommentTrigger } from '@/components/plans/InlineCommentTrigger';
+import {
+  useMonacoAnchorHighlights,
+  useViewModeAnchorHighlights,
+} from '@/components/plans/useAnchorHighlights';
 import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
 import { Loader2, History, RefreshCw, MessageSquare, Upload, Download } from 'lucide-react';
@@ -161,6 +166,10 @@ export function PlannerTab() {
 
   // Editor & layout refs
   const editorRef = useRef<any>(null);
+  // Mirror as state so hooks (highlight decorations, selection trigger)
+  // can react to mount. We can't subscribe to a ref's mutation directly.
+  const [monacoEditor, setMonacoEditor] = useState<any>(null);
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('projects');
@@ -219,9 +228,48 @@ export function PlannerTab() {
     return () => observer.disconnect();
   }, [refreshEditorTheme]);
 
+  // Hooks for anchored-comment highlights — subscribe to the mounted Monaco
+  // editor and the preview-container ref. Both no-op until their target is
+  // ready, so it's safe to wire them unconditionally.
+  useMonacoAnchorHighlights(monacoEditor);
+  useViewModeAnchorHighlights(previewContainerRef, subjectContent);
+
+  // Bridge from the comments panel ("scroll to anchor" click) to the editor.
+  // CommentsPanel dispatches a window event with the resolved offsets; here
+  // we move the cursor + reveal the range. Works only in edit mode (Monaco);
+  // view mode users can already see the highlight inline.
+  useEffect(() => {
+    const monacoNs: any = (window as any).monaco;
+    const handler = (ev: Event) => {
+      const e = ev as CustomEvent<{ commentId: string; start: number; end: number }>;
+      const editor = editorRef.current;
+      if (!editor || !monacoNs) return;
+      const model = editor.getModel();
+      if (!model) return;
+      const startPos = model.getPositionAt(e.detail.start);
+      const endPos = model.getPositionAt(e.detail.end);
+      const range = new monacoNs.Range(
+        startPos.lineNumber,
+        startPos.column,
+        endPos.lineNumber,
+        endPos.column,
+      );
+      editor.revealRangeInCenter(range);
+      editor.setSelection(range);
+      editor.focus();
+    };
+    window.addEventListener('notter:reveal-comment-anchor', handler);
+    return () => window.removeEventListener('notter:reveal-comment-anchor', handler);
+  }, []);
+
   // --- Editor helpers ---
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
+    setMonacoEditor(editor);
+    // Park monaco on window so `useAnchorHighlights` can build Range objects
+    // without re-importing the heavy module. monaco-editor/react already
+    // singletons internally, so this is safe.
+    (window as any).monaco = monaco;
     editor.addAction({
       id: 'markdown-list-continue',
       label: 'Continue markdown list',
@@ -674,11 +722,23 @@ export function PlannerTab() {
             className="absolute inset-0"
           />
         ) : (
-          <div className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert">
+          <div
+            ref={previewContainerRef}
+            className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert"
+          >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorValue}</ReactMarkdown>
           </div>
         )}
       </div>
+      {/* Floating "💬 Comentar" trigger. Disabled while previewing a
+          historical version (read-only) — comments must anchor to the live
+          working draft, not snapshots. */}
+      <InlineCommentTrigger
+        monacoEditor={monacoEditor}
+        previewContainerRef={previewContainerRef}
+        mode={isViewing ? 'view' : 'edit'}
+        disabled={!selectedSubject || editorReadOnly}
+      />
     </>
   );
 

@@ -216,6 +216,12 @@ struct ListCommentsParams {
     subject_id: String,
     #[serde(default)]
     version_id: Option<String>,
+    /// When true, the response also includes archived comments (anchors that
+    /// no longer resolve in the current draft). Defaults to false; archived
+    /// comments are still meaningful AI context, but most CLI flows want
+    /// only the live ones.
+    #[serde(default)]
+    include_archived: bool,
 }
 
 async fn list_comments(
@@ -227,11 +233,14 @@ async fn list_comments(
         .map_err(|e| McpError::InvalidParams(format!("list_comments: {e}")))?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
     let mut q = format!(
-        "select=id,version_id,body,resolved,author_user_id,created_at&subject_id=eq.{}&order=created_at.asc",
+        "select=id,version_id,body,anchor_quote,anchor_prefix,anchor_suffix,resolved,archived,author_user_id,author_display_name,created_at,updated_at&subject_id=eq.{}&order=created_at.asc",
         url_encode(&p.subject_id)
     );
     if let Some(vid) = p.version_id {
         q.push_str(&format!("&version_id=eq.{}", url_encode(&vid)));
+    }
+    if !p.include_archived {
+        q.push_str("&archived=eq.false");
     }
     let body = sb.get("subject_comments", &q, &token).await?;
     Ok(body)

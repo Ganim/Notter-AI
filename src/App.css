@@ -86,4 +86,22 @@
   html {
     @apply font-sans;
   }
+
+  /* Anchored-comment highlight, applied by both Monaco decorations
+     (.notter-anchor-highlight as a className) and the markdown preview
+     wrapper (<mark class="notter-anchor-highlight">). The amber tone is
+     consistent with shadcn warning conventions and stays readable in light
+     and dark themes; the underline keeps overlapping anchors distinguishable. */
+  .notter-anchor-highlight {
+    background-color: rgb(254 243 199 / 0.55);
+    border-bottom: 1px solid rgb(217 119 6 / 0.45);
+    color: inherit;
+    border-radius: 1px;
+    padding: 0 1px;
+    cursor: pointer;
+  }
+  .dark .notter-anchor-highlight {
+    background-color: rgb(180 83 9 / 0.22);
+    border-bottom-color: rgb(245 158 11 / 0.55);
+  }
 }
