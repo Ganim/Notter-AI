@@ -233,7 +233,7 @@ export function PlannerTab() {
   // editor and the preview-container ref. Both no-op until their target is
   // ready, so it's safe to wire them unconditionally.
   useMonacoAnchorHighlights(monacoEditor);
-  useViewModeAnchorHighlights(previewContainerRef, subjectContent);
+  useViewModeAnchorHighlights(previewContainerRef, subjectContent, isViewing);
 
   // Bridge from the comments panel ("scroll to anchor" click) to the editor.
   // CommentsPanel dispatches a window event with the resolved offsets; here

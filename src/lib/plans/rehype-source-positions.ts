@@ -32,8 +32,11 @@ function visit(node: Element | Root): void {
         tagName: 'span',
         properties: {
           className: ['notter-src'],
-          'data-src-start': String(start),
-          'data-src-end': String(end),
+          // Use canonical hast camelCase form; hast-util-to-jsx-runtime
+          // serializes these back to `data-src-start` / `data-src-end` in the
+          // DOM. The kebab form here can be dropped silently by property-info.
+          dataSrcStart: String(start),
+          dataSrcEnd: String(end),
         },
         children: [child],
       };

@@ -12,7 +12,7 @@
 // Also auto-archives any comment whose anchor can't be located in the
 // current draft anymore, so orphaned highlights silently disappear from
 // both surfaces (the comment row stays in Supabase for AI context).
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { findAnchor } from '@/lib/plans/anchor';
@@ -170,15 +170,47 @@ export function useViewModeAnchorHighlights(
   containerRef: React.RefObject<HTMLDivElement | null>,
   /** Render-cycle key — pass `subjectContent` so re-renders re-apply marks. */
   contentKey: string,
+  /** Flips when the preview container is mounted (typically `isViewing`).
+      Forces the wrap pass to re-run after the container is re-mounted, since
+      useRef.current changes don't trigger effect deps on their own. */
+  enabled: boolean = true,
 ) {
   const subjectContent = usePlannerStore((s) => s.subjectContent);
   const comments = useSubjectVersionsStore((s) => s.comments);
   const activeCommentId = useSubjectVersionsStore((s) => s.activeCommentId);
   const setActiveCommentId = useSubjectVersionsStore((s) => s.setActiveCommentId);
+  // Nonce bumped by external repaint requests (e.g., the user clicking the
+  // quote button on an already-active comment). Lets the wrap pass re-run
+  // without requiring activeCommentId to change.
+  const [repaintNonce, setRepaintNonce] = useState(0);
+
+  // Listen for the same "scroll-to-anchor" event the comments panel
+  // dispatches; in view mode we use it to (a) force a repaint and (b) scroll
+  // the matching <mark> into view.
+  useEffect(() => {
+    if (!enabled) return;
+    const handler = (ev: Event) => {
+      const e = ev as CustomEvent<{ commentId: string }>;
+      setRepaintNonce((n) => n + 1);
+      const root = containerRef.current;
+      if (!root) return;
+      requestAnimationFrame(() => {
+        const target = root.querySelector(
+          `mark.notter-anchor-highlight[data-comment-id="${e.detail.commentId}"]`,
+        );
+        if (target) {
+          (target as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      });
+    };
+    window.addEventListener('notter:reveal-comment-anchor', handler);
+    return () => window.removeEventListener('notter:reveal-comment-anchor', handler);
+  }, [containerRef, enabled]);
 
   // Apply <mark> wrapping. Re-runs whenever content / comments / active id
   // change so the active variant repaints without needing a full rerender.
   useEffect(() => {
+    if (!enabled) return;
     const root = containerRef.current;
     if (!root) return;
 
@@ -263,11 +295,12 @@ export function useViewModeAnchorHighlights(
       }
       span.replaceChild(frag, textNode);
     }
-  }, [containerRef, contentKey, subjectContent, comments, activeCommentId]);
+  }, [containerRef, contentKey, subjectContent, comments, activeCommentId, enabled, repaintNonce]);
 
   // Delegated click handler — set active when the user clicks anywhere on
   // a highlighted span. Registers once per container.
   useEffect(() => {
+    if (!enabled) return;
     const root = containerRef.current;
     if (!root) return;
     const handler = (e: MouseEvent) => {
@@ -283,5 +316,5 @@ export function useViewModeAnchorHighlights(
     };
     root.addEventListener('click', handler);
     return () => root.removeEventListener('click', handler);
-  }, [containerRef, setActiveCommentId]);
+  }, [containerRef, enabled, setActiveCommentId]);
 }
