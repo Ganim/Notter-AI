@@ -237,9 +237,9 @@ function CommentCard({
       className={cn(
         // Card has solid bg + comfortable padding; active state uses the
         // `accent` palette (same as selected sidebar rows).
-        'group rounded-md border bg-card cursor-default transition-colors',
+        'group rounded-md border bg-card cursor-default transition-[border-color,box-shadow] duration-200',
         isActive
-          ? 'border-accent ring-1 ring-accent'
+          ? 'comment-card-active'
           : 'border-border hover:border-border/80',
         dimmed && 'opacity-65',
       )}

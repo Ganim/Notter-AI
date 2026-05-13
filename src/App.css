@@ -116,4 +116,15 @@
     background-color: rgb(255 255 255 / 0.22);
     border-bottom-color: rgb(255 255 255 / 0.55);
   }
+
+  /* Selected comment card: subtle halo using the `--ring` token (already
+     part of the grayscale palette — see App.css theme block). The 1px
+     inner ring renders a crisp outline; the larger blurred shadow is the
+     "brilho" the user asked for. */
+  .comment-card-active {
+    border-color: var(--ring);
+    box-shadow:
+      0 0 0 1px var(--ring),
+      0 0 14px color-mix(in oklch, var(--ring) 28%, transparent);
+  }
 }
