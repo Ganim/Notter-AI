@@ -322,6 +322,17 @@ describe('SubjectVersionsStore', () => {
     expect(useSubjectVersionsStore.getState().comments).toEqual(comments);
   });
 
+  it('setActiveCommentId toggles the focused-card pointer (idempotent)', () => {
+    const s = useSubjectVersionsStore.getState();
+    expect(s.activeCommentId).toBeNull();
+    s.setActiveCommentId('c1');
+    expect(useSubjectVersionsStore.getState().activeCommentId).toBe('c1');
+    s.setActiveCommentId('c1'); // no-op, same id
+    expect(useSubjectVersionsStore.getState().activeCommentId).toBe('c1');
+    s.setActiveCommentId(null);
+    expect(useSubjectVersionsStore.getState().activeCommentId).toBeNull();
+  });
+
   it('reset clears all slices including preview', async () => {
     await useSubjectVersionsStore.getState().loadForSubject('s1');
     useSubjectVersionsStore.getState().applyRemoteVersions([

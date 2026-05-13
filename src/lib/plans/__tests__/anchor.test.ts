@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   findAnchor,
   buildAnchorFromSelection,
+  offsetToLine,
   ANCHOR_CONTEXT_LEN,
   MAX_QUOTE_LEN,
 } from '@/lib/plans/anchor';
@@ -73,5 +74,28 @@ describe('buildAnchorFromSelection', () => {
     expect(buildAnchorFromSelection('abc', -1, 2)).toBeNull();
     expect(buildAnchorFromSelection('abc', 1, 99)).toBeNull();
     expect(buildAnchorFromSelection('abc', 2, 1)).toBeNull();
+  });
+});
+
+describe('offsetToLine', () => {
+  it('returns 1 for offset 0', () => {
+    expect(offsetToLine('hello\nworld', 0)).toBe(1);
+  });
+
+  it('returns 1 for offsets inside the first line', () => {
+    expect(offsetToLine('hello\nworld', 3)).toBe(1);
+  });
+
+  it('returns 2 immediately after the first newline', () => {
+    expect(offsetToLine('hello\nworld', 6)).toBe(2);
+  });
+
+  it('counts every newline', () => {
+    expect(offsetToLine('a\nb\nc\nd', 6)).toBe(4);
+  });
+
+  it('clamps out-of-range offsets', () => {
+    expect(offsetToLine('a\nb', -5)).toBe(1);
+    expect(offsetToLine('a\nb', 999)).toBe(2);
   });
 });

@@ -100,6 +100,21 @@ export function buildAnchorFromSelection(
   return { quote, prefix, suffix };
 }
 
+/**
+ * 1-based line number for a character offset in `content`. Out-of-range
+ * offsets clamp to the closest end (a missing snippet shouldn't crash the
+ * UI badge — it just shows as line 1 or last-line).
+ */
+export function offsetToLine(content: string, offset: number): number {
+  if (offset <= 0) return 1;
+  const cap = Math.min(offset, content.length);
+  let line = 1;
+  for (let i = 0; i < cap; i++) {
+    if (content.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function findAllOccurrences(haystack: string, needle: string): number[] {

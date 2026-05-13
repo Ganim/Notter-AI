@@ -62,6 +62,7 @@ export function InlineCommentTrigger({
   });
 
   const addComment = useSubjectVersionsStore((s) => s.addComment);
+  const setActiveCommentId = useSubjectVersionsStore((s) => s.setActiveCommentId);
 
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -196,6 +197,9 @@ export function InlineCommentTrigger({
         toast.error(t('plans.comment_save_failed'));
         return;
       }
+      // Focus the newly-created comment so the user sees it pop into the
+      // side panel with the active ring + matching bright highlight.
+      setActiveCommentId(r.id);
       setComposerOpen(false);
       setBody('');
       setPending(null);

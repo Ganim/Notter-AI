@@ -70,6 +70,13 @@ interface SubjectVersionsState {
    * the user adopts the previewed version.
    */
   previewVersionId: string | null;
+  /**
+   * UI-only: the comment currently in "focus" — set when the user clicks an
+   * anchored highlight in the editor or a comment card's quote in the side
+   * panel. Drives the ring on the comment card AND the brighter variant of
+   * the editor highlight. Resets to null on subject change.
+   */
+  activeCommentId: string | null;
 
   // Boot
   loadForSubject: (subjectId: string) => Promise<void>;
@@ -119,6 +126,9 @@ interface SubjectVersionsState {
   deleteComment: (commentId: string) => Promise<void>;
   toggleResolveComment: (commentId: string) => Promise<void>;
 
+  // UI state
+  setActiveCommentId: (id: string | null) => void;
+
   // Sync
   applyRemoteVersions: (versions: SubjectVersionRecord[]) => void;
   applyRemoteComments: (comments: SubjectCommentRecord[]) => void;
@@ -134,6 +144,7 @@ const INITIAL_STATE = {
   versions: [] as SubjectVersionRecord[],
   comments: [] as SubjectCommentRecord[],
   previewVersionId: null as string | null,
+  activeCommentId: null as string | null,
 };
 
 /**
@@ -164,6 +175,7 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         versions: [],
         comments: [],
         previewVersionId: null,
+        activeCommentId: null,
       });
       const [versions, comments] = await Promise.all([
         fetchSubjectVersions(subjectId),
@@ -183,6 +195,7 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         versions: [],
         comments: [],
         previewVersionId: null,
+        activeCommentId: null,
       });
     },
 
@@ -418,6 +431,13 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         anchorSuffix: updated.anchorSuffix,
         updatedAt: updated.updatedAt,
       });
+    },
+
+    // ── UI state ──────────────────────────────────────────────────────────────
+
+    setActiveCommentId(id: string | null) {
+      if (get().activeCommentId === id) return;
+      set({ activeCommentId: id });
     },
 
     // ── Sync ──────────────────────────────────────────────────────────────────
