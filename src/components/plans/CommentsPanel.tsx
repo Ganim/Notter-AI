@@ -251,7 +251,13 @@ function CommentCard({
           {lineLabel}
         </span>
 
-        {/* Quoted snippet — tinted gray callout with a muted left rule. */}
+        {/* Quoted snippet — tinted gray callout with a muted left rule.
+            Both themes use the zinc palette directly (instead of the
+            design tokens) because `--muted` lands too close to `--card`
+            on either side: it disappears on the white card in light, and
+            barely shifts off the dark card in dark. zinc-100/zinc-800
+            give a perceptible "subtle highlight" that's symmetric across
+            themes. */}
         {comment.anchorQuote && (
           <button
             type="button"
@@ -260,7 +266,7 @@ function CommentCard({
               handleScrollToAnchor();
             }}
             title={comment.anchorQuote}
-            className="text-left rounded-sm bg-muted/50 dark:bg-muted/30 border-l-2 border-muted-foreground/40 px-3 py-2 italic text-xs text-muted-foreground line-clamp-2 hover:text-foreground hover:bg-muted/70 dark:hover:bg-muted/45 transition-colors"
+            className="text-left rounded-sm bg-zinc-100 dark:bg-zinc-800/70 border-l-2 border-zinc-300 dark:border-zinc-600 px-3 py-2 italic text-xs text-muted-foreground line-clamp-2 hover:text-foreground hover:bg-zinc-200/70 dark:hover:bg-zinc-800 transition-colors"
           >
             "{comment.anchorQuote}"
           </button>
