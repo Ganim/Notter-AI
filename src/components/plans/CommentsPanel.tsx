@@ -2,12 +2,16 @@
 //
 // Side panel listing all anchored comments for the current subject.
 //
-// Card layout (left → right column):
-//   Left  : line range badge (outline) → quoted snippet → comment body
-//   Right : kebab menu (Edit / Resolve / Delete) → date + time
+// Card layout:
+//   ┌─────────────────────────────────────────┐
+//   │ [linhas 5–9]  ●resolvido           ⋮   │
+//   │ ▎ "trecho citado..."                    │
+//   │   comentário do usuário                 │
+//   │   guilherme · editado · 12/05 21:25     │
+//   └─────────────────────────────────────────┘
 //
 // The active card (set by clicking an anchored highlight in the editor or
-// the quote inside another card) gets a colored ring; clicking the kebab
+// the quote inside another card) gets a subtle ring; clicking the kebab
 // opens the actions popover. Dimmed appearance covers resolved + archived.
 import { useEffect, useRef, useState } from 'react';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
@@ -17,7 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import {
-  CheckCircle, Circle, MoreVertical, Pencil, Trash2,
+  CheckCircle2, Circle, MoreVertical, Pencil, Trash2,
   Archive, ArchiveRestore,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
@@ -49,39 +53,40 @@ export function CommentsPanel() {
   if (!currentSubjectId) return null;
 
   return (
-    <div className="flex flex-col h-full gap-2 p-3">
+    <div className="flex flex-col h-full p-3 gap-3">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          {t('plans.comments_title')} ({visible.length})
+      <div className="flex items-center justify-between gap-2 shrink-0">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+          {t('plans.comments_title')}
+          <span className="ml-1.5 text-muted-foreground/70 normal-case font-normal">
+            {visible.length}
+          </span>
         </p>
         <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            className={cn('h-6 px-2 text-[10px] uppercase tracking-wide', showResolved && 'bg-muted')}
+          <ToggleChip
+            active={showResolved}
             onClick={() => setShowResolved((v) => !v)}
-          >
-            {showResolved ? t('plans.hide_resolved') : t('plans.show_resolved')}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className={cn('h-6 px-2 text-[10px] uppercase tracking-wide', showArchived && 'bg-muted')}
+            icon={<CheckCircle2 size={11} />}
+            label={t('plans.resolved_marker')}
+            title={showResolved ? t('plans.hide_resolved') : t('plans.show_resolved')}
+          />
+          <ToggleChip
+            active={showArchived}
             onClick={() => setShowArchived((v) => !v)}
-          >
-            {showArchived ? t('plans.hide_archived') : t('plans.show_archived')}
-          </Button>
+            icon={<Archive size={11} />}
+            label={t('plans.archived_marker')}
+            title={showArchived ? t('plans.hide_archived') : t('plans.show_archived')}
+          />
         </div>
       </div>
 
       {visible.length === 0 && (
-        <p className="text-xs text-muted-foreground italic mt-2">
+        <p className="text-[11px] text-muted-foreground italic px-1">
           {t('plans.no_comments_hint')}
         </p>
       )}
 
-      <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+      <div className="flex-1 overflow-y-auto -mx-1 px-1 flex flex-col gap-2">
         {visible.map((c) => (
           <CommentCard
             key={c.id}
@@ -98,6 +103,38 @@ export function CommentsPanel() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ── ToggleChip ───────────────────────────────────────────────────────────
+
+function ToggleChip({
+  active,
+  onClick,
+  icon,
+  label,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'inline-flex items-center gap-1 h-6 px-2 rounded-full border text-[10px] capitalize transition-colors',
+        active
+          ? 'border-primary/40 bg-primary/10 text-foreground'
+          : 'border-border/60 text-muted-foreground/80 hover:text-foreground hover:bg-muted/60',
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -156,7 +193,7 @@ function CommentCard({
       })()
     : t('plans.line_orphan');
 
-  // Scroll into view + flash when this card becomes active.
+  // Scroll into view when this card becomes active.
   useEffect(() => {
     if (isActive && cardRef.current) {
       cardRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -191,7 +228,7 @@ function CommentCard({
   };
 
   const dimmed = comment.resolved || comment.archived;
-  const author = comment.authorDisplayName ?? t('plans.unknown_author');
+  const author = formatAuthor(comment.authorDisplayName, t);
   const created = new Date(comment.createdAt);
   const dateLabel = created.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' });
   const timeLabel = created.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -202,37 +239,33 @@ function CommentCard({
       ref={cardRef}
       onClick={onActivate}
       className={cn(
-        'group rounded border text-xs bg-background/60 transition-all',
+        'group rounded-md border text-xs bg-card/40 cursor-default transition-all',
         isActive
-          ? 'border-primary ring-2 ring-primary/40 shadow-sm'
-          : 'border-border hover:border-border/80',
-        dimmed && 'opacity-60',
+          ? 'border-primary/50 ring-1 ring-primary/40 bg-card/70'
+          : 'border-border/50 hover:border-border',
+        dimmed && 'opacity-65',
       )}
     >
-      <div className="flex gap-2 p-2.5">
-        {/* ── Left column ─────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-          {/* Line range badge + state badges */}
-          <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex gap-1.5 p-2.5 pr-1.5">
+        {/* ── Main column ─────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+          {/* Top row: line badge + status dots */}
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
             <span
               className={cn(
-                'inline-flex items-center px-1.5 py-px rounded border text-[10px] uppercase tracking-wider font-medium',
+                'inline-flex items-center px-1.5 h-[18px] rounded-full border font-medium tabular-nums',
                 resolved
-                  ? 'border-border text-muted-foreground'
-                  : 'border-amber-300/60 text-amber-700 dark:text-amber-400 dark:border-amber-500/40',
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                  : 'border-border/60 bg-muted/40 text-muted-foreground italic',
               )}
             >
               {lineLabel}
             </span>
             {comment.resolved && (
-              <span className="text-[9px] uppercase tracking-wide text-green-600 dark:text-green-400">
-                · {t('plans.resolved_marker')}
-              </span>
+              <StatusDot tone="green" label={t('plans.resolved_marker')} />
             )}
-            {comment.archived && !comment.resolved && (
-              <span className="text-[9px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                · {t('plans.archived_marker')}
-              </span>
+            {comment.archived && (
+              <StatusDot tone="amber" label={t('plans.archived_marker')} />
             )}
           </div>
 
@@ -253,7 +286,9 @@ function CommentCard({
 
           {/* Body */}
           {!editing ? (
-            <p className="whitespace-pre-wrap text-foreground">{comment.body}</p>
+            <p className="whitespace-pre-wrap text-foreground leading-snug">
+              {comment.body}
+            </p>
           ) : (
             <div className="flex flex-col gap-1">
               <Textarea
@@ -301,98 +336,137 @@ function CommentCard({
             </div>
           )}
 
-          {/* Author + edited marker */}
-          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
-            <span className="truncate">— {author}</span>
-            {edited && (
-              <span className="opacity-70">· {t('plans.edited_marker')}</span>
-            )}
+          {/* Footer: author · edited · date */}
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 mt-0.5">
+            <span className="truncate" title={comment.authorDisplayName ?? ''}>{author}</span>
+            {edited && <span className="opacity-70">· {t('plans.edited_marker')}</span>}
+            <span className="opacity-70">·</span>
+            <span className="tabular-nums" title={created.toLocaleString()}>
+              {dateLabel} {timeLabel}
+            </span>
           </div>
         </div>
 
-        {/* ── Right column ────────────────────────────────────────────── */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          {/* Kebab menu */}
-          <div ref={menuRef} className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-              title={t('plans.more_options')}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        {/* ── Right column: kebab only ──────────────────────────────── */}
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
+            title={t('plans.more_options')}
+            className="p-1 rounded text-muted-foreground/70 opacity-0 group-hover:opacity-100 hover:bg-muted hover:text-foreground transition-all data-[open=true]:opacity-100"
+            data-open={menuOpen}
+          >
+            <MoreVertical size={14} />
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 w-40 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30"
+              onClick={(e) => e.stopPropagation()}
             >
-              <MoreVertical size={14} />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute right-0 top-full mt-1 w-40 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {isAuthor && (
-                  <button
+              {isAuthor && (
+                <MenuItem
+                  icon={<Pencil size={12} />}
+                  label={t('plans.edit_comment')}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setEditing(true);
+                  }}
+                />
+              )}
+              <MenuItem
+                icon={comment.resolved
+                  ? <CheckCircle2 size={12} className="text-green-500" />
+                  : <Circle size={12} />}
+                label={comment.resolved ? t('plans.unresolve') : t('plans.resolve')}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onResolve();
+                }}
+              />
+              <MenuItem
+                icon={comment.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                label={comment.archived ? t('plans.unarchive') : t('plans.archive')}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onArchiveToggle();
+                }}
+              />
+              {isAuthor && (
+                <>
+                  <div className="border-t border-border" />
+                  <MenuItem
+                    icon={<Trash2 size={12} />}
+                    label={t('plans.delete_comment')}
                     onClick={() => {
                       setMenuOpen(false);
-                      setEditing(true);
+                      onDelete();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted text-left"
-                  >
-                    <Pencil size={12} />
-                    <span>{t('plans.edit_comment')}</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onResolve();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted text-left"
-                >
-                  {comment.resolved
-                    ? <CheckCircle size={12} className="text-green-500" />
-                    : <Circle size={12} />}
-                  <span>{comment.resolved ? t('plans.unresolve') : t('plans.resolve')}</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onArchiveToggle();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted text-left"
-                >
-                  {comment.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
-                  <span>{comment.archived ? t('plans.unarchive') : t('plans.archive')}</span>
-                </button>
-                {isAuthor && (
-                  <>
-                    <div className="border-t border-border" />
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onDelete();
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-destructive/10 text-destructive text-left"
-                    >
-                      <Trash2 size={12} />
-                      <span>{t('plans.delete_comment')}</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Date / time stack */}
-          <div
-            className="flex flex-col items-end text-[10px] leading-tight text-muted-foreground tabular-nums"
-            title={created.toLocaleString()}
-          >
-            <span>{dateLabel}</span>
-            <span>{timeLabel}</span>
-          </div>
+                    destructive
+                  />
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
-
     </div>
   );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  destructive,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
+        destructive
+          ? 'text-destructive hover:bg-destructive/10'
+          : 'hover:bg-muted',
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function StatusDot({ tone, label }: { tone: 'green' | 'amber'; label: string }) {
+  const dot =
+    tone === 'green'
+      ? 'bg-green-500'
+      : 'bg-amber-500';
+  const text =
+    tone === 'green'
+      ? 'text-green-600 dark:text-green-400'
+      : 'text-amber-600 dark:text-amber-400';
+  return (
+    <span className={cn('inline-flex items-center gap-1', text)}>
+      <span className={cn('inline-block w-1.5 h-1.5 rounded-full', dot)} />
+      <span className="capitalize">{label}</span>
+    </span>
+  );
+}
+
+/**
+ * Display name for a comment author. If the stored value looks like an
+ * email, we strip the domain to keep the footer line tight; full email is
+ * still available via the row's `title` attribute.
+ */
+function formatAuthor(raw: string | null, t: (k: string) => string): string {
+  if (!raw) return t('plans.unknown_author');
+  const at = raw.indexOf('@');
+  if (at > 0) return raw.slice(0, at);
+  return raw;
 }
