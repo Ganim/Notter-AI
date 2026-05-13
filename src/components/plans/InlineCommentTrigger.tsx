@@ -17,8 +17,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { usePlannerStore } from '@/stores/planner-store';
-import { buildAnchorFromSelection, findAnchor } from '@/lib/plans/anchor';
+import { buildAnchorFromSelection } from '@/lib/plans/anchor';
 import type { CommentAnchor } from '@/lib/plans/anchor';
+import { rangeToSourceOffsets } from '@/lib/plans/dom-source-range';
 
 interface PendingSelection {
   /** Anchor we'll persist if the user confirms. */
@@ -119,6 +120,9 @@ export function InlineCommentTrigger({
   }, [disabled, mode, monacoEditor, subjectContent, composerOpen]);
 
   // View mode → DOM `selectionchange` scoped to the preview container.
+  // Resolution goes via `.notter-src` data attributes (see
+  // rehype-source-positions), so the anchor's source range is exact even
+  // when the selection crosses inline formatting like **bold** or links.
   useEffect(() => {
     if (disabled || mode !== 'view') return;
     const handle = () => {
@@ -128,8 +132,7 @@ export function InlineCommentTrigger({
         setPending(null);
         return;
       }
-      const text = sel.toString();
-      if (!text.trim()) {
+      if (!sel.toString().trim()) {
         setPending(null);
         return;
       }
@@ -139,20 +142,12 @@ export function InlineCommentTrigger({
         setPending(null);
         return;
       }
-      // Resolve the rendered selection back to a position in the markdown
-      // source. Best-effort: find the substring in subjectContent. If we
-      // can't, give up silently — view-mode commenting only works on text
-      // that survives markdown rendering verbatim.
-      const located = findAnchor(subjectContent, {
-        quote: text,
-        prefix: null,
-        suffix: null,
-      });
-      if (!located) {
+      const sourceRange = rangeToSourceOffsets(range, container);
+      if (!sourceRange) {
         setPending(null);
         return;
       }
-      const anchor = buildAnchorFromSelection(subjectContent, located.start, located.end);
+      const anchor = buildAnchorFromSelection(subjectContent, sourceRange.start, sourceRange.end);
       if (!anchor) {
         setPending(null);
         return;

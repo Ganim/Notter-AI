@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { rehypeSourcePositions } from '@/lib/plans/rehype-source-positions';
 import { open as openDialogPick } from '@tauri-apps/plugin-dialog';
 import { exportCurrentVersion } from '@/lib/plans/export';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
@@ -727,7 +728,12 @@ export function PlannerTab() {
             ref={previewContainerRef}
             className="p-4 sm:p-8 max-w-3xl mx-auto prose prose-sm dark:prose-invert"
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{editorValue}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeSourcePositions]}
+            >
+              {editorValue}
+            </ReactMarkdown>
           </div>
         )}
       </div>

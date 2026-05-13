@@ -160,14 +160,18 @@ export function useMonacoAnchorHighlights(monacoEditor: any | null) {
  * mark gets `data-comment-id`; clicks bubble to a delegated listener on the
  * container that focuses the corresponding comment card.
  *
- * Skips anchors whose quote doesn't survive within a single text node — the
- * comment card still renders in the side panel, just without an overlay.
+ * Resolution: every eligible comment's anchor is located in the current
+ * subjectContent via findAnchor (returning source byte offsets), then mapped
+ * to DOM via the `.notter-src` spans injected by rehype-source-positions.
+ * Anchors that span multiple text nodes (e.g., crossing **bold**) get one
+ * <mark> per overlapping span, all sharing the same data-comment-id.
  */
 export function useViewModeAnchorHighlights(
   containerRef: React.RefObject<HTMLDivElement | null>,
   /** Render-cycle key — pass `subjectContent` so re-renders re-apply marks. */
   contentKey: string,
 ) {
+  const subjectContent = usePlannerStore((s) => s.subjectContent);
   const comments = useSubjectVersionsStore((s) => s.comments);
   const activeCommentId = useSubjectVersionsStore((s) => s.activeCommentId);
   const setActiveCommentId = useSubjectVersionsStore((s) => s.setActiveCommentId);
@@ -178,50 +182,88 @@ export function useViewModeAnchorHighlights(
     const root = containerRef.current;
     if (!root) return;
 
-    // Step 1: unwrap any previous marks so we always start from a clean DOM.
+    // Step 1: unwrap any previous marks. The `.notter-src` spans wrapping
+    // each text node are owned by rehype-source-positions and stay put —
+    // we only undo the <mark> layer we added on top.
     root.querySelectorAll('mark.notter-anchor-highlight').forEach((m) => {
       const txt = document.createTextNode(m.textContent ?? '');
       m.replaceWith(txt);
     });
     root.normalize();
 
-    const eligible = comments.filter(
-      (c) => !c.resolved && !c.archived && c.anchorQuote,
-    );
-    if (eligible.length === 0) return;
-
-    // Walk text nodes and wrap the first occurrence of each quote that
-    // lives entirely inside a single text node.
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const targets: Text[] = [];
-    let node: Node | null = walker.nextNode();
-    while (node) {
-      targets.push(node as Text);
-      node = walker.nextNode();
+    // Step 2: resolve eligible comments to source byte ranges.
+    type Resolved = { id: string; start: number; end: number; isActive: boolean };
+    const ranges: Resolved[] = [];
+    for (const c of comments) {
+      if (c.resolved || c.archived || !c.anchorQuote) continue;
+      const r = findAnchor(subjectContent, {
+        quote: c.anchorQuote,
+        prefix: c.anchorPrefix,
+        suffix: c.anchorSuffix,
+      });
+      if (!r) continue;
+      ranges.push({
+        id: c.id,
+        start: r.start,
+        end: r.end,
+        isActive: c.id === activeCommentId,
+      });
     }
+    if (ranges.length === 0) return;
 
-    for (const tn of targets) {
-      const text = tn.nodeValue ?? '';
-      if (!text) continue;
-      const hit = eligible.find((c) => text.includes(c.anchorQuote!));
-      if (!hit) continue;
-      const idx = text.indexOf(hit.anchorQuote!);
-      const before = text.slice(0, idx);
-      const after = text.slice(idx + hit.anchorQuote!.length);
-      const mark = document.createElement('mark');
-      const isActive = hit.id === activeCommentId;
-      mark.className = isActive
-        ? 'notter-anchor-highlight notter-anchor-highlight-active'
-        : 'notter-anchor-highlight';
-      mark.setAttribute('data-comment-id', hit.id);
-      mark.textContent = hit.anchorQuote!;
+    // Step 3: for each .notter-src span, find overlapping ranges and split
+    // the text node into fragments, wrapping the overlapping slices in
+    // <mark>.
+    const spans = Array.from(root.querySelectorAll<HTMLElement>('.notter-src'));
+    for (const span of spans) {
+      const spanStart = Number(span.getAttribute('data-src-start'));
+      const spanEnd = Number(span.getAttribute('data-src-end'));
+      if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) continue;
+      const textNode = span.firstChild;
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue;
+      const nodeText = textNode.nodeValue ?? '';
+      const nodeLen = nodeText.length;
+      if (nodeLen === 0) continue;
+
+      const overlaps = ranges
+        .map((r) => {
+          const oStart = Math.max(r.start, spanStart);
+          const oEnd = Math.min(r.end, spanEnd);
+          if (oEnd <= oStart) return null;
+          return {
+            id: r.id,
+            isActive: r.isActive,
+            localStart: Math.max(0, oStart - spanStart),
+            localEnd: Math.min(nodeLen, oEnd - spanStart),
+          };
+        })
+        .filter((x): x is { id: string; isActive: boolean; localStart: number; localEnd: number } => x !== null)
+        .sort((a, b) => a.localStart - b.localStart);
+
+      if (overlaps.length === 0) continue;
+
+      // Rebuild span content as alternating text fragments and <mark>s.
       const frag = document.createDocumentFragment();
-      if (before) frag.appendChild(document.createTextNode(before));
-      frag.appendChild(mark);
-      if (after) frag.appendChild(document.createTextNode(after));
-      tn.replaceWith(frag);
+      let cursor = 0;
+      for (const ov of overlaps) {
+        if (ov.localStart > cursor) {
+          frag.appendChild(document.createTextNode(nodeText.slice(cursor, ov.localStart)));
+        }
+        const mark = document.createElement('mark');
+        mark.className = ov.isActive
+          ? 'notter-anchor-highlight notter-anchor-highlight-active'
+          : 'notter-anchor-highlight';
+        mark.setAttribute('data-comment-id', ov.id);
+        mark.textContent = nodeText.slice(ov.localStart, ov.localEnd);
+        frag.appendChild(mark);
+        cursor = ov.localEnd;
+      }
+      if (cursor < nodeLen) {
+        frag.appendChild(document.createTextNode(nodeText.slice(cursor)));
+      }
+      span.replaceChild(frag, textNode);
     }
-  }, [containerRef, contentKey, comments, activeCommentId]);
+  }, [containerRef, contentKey, subjectContent, comments, activeCommentId]);
 
   // Delegated click handler — set active when the user clicks anywhere on
   // a highlighted span. Registers once per container.
