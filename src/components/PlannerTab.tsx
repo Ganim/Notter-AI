@@ -352,6 +352,28 @@ export function PlannerTab() {
     editor.focus();
   };
 
+  // Code-block toolbar action. With a selection: wrap it in ``` fences on
+  // their own lines (matches the wrap semantics of bold/italic/inline code,
+  // and of the keystroke-level auto-surround we set up for parens/quotes).
+  // Without a selection: fall back to inserting an empty fenced block.
+  const insertCodeBlock = () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    const model = editor.getModel();
+    if (!selection || !model) return;
+    const selectedText = model.getValueInRange(selection);
+    if (!selectedText) {
+      insertLine('```\n\n```', 1);
+      return;
+    }
+    editor.executeEdits('toolbar', [{
+      range: selection,
+      text: `\`\`\`\n${selectedText}\n\`\`\``,
+    }]);
+    editor.focus();
+  };
+
   const insertLine = (prefix: string, cursorLineOffset?: number) => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -528,7 +550,7 @@ export function PlannerTab() {
         <button onClick={() => insertLine('1. ')} className={tbBtn} title="Ordered List"><ListOrdered size={15} /></button>
         <div className="w-px h-4 bg-border mx-1" />
         <button onClick={() => insertMarkdown('`', '`')} className={tbBtn} title="Inline Code"><Code size={15} /></button>
-        <button onClick={() => insertLine('```\n\n```', 1)} className={`${tbBtn} flex items-center justify-center w-[27px] h-[27px]`} title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
+        <button onClick={insertCodeBlock} className={`${tbBtn} flex items-center justify-center w-[27px] h-[27px]`} title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
         <button onClick={() => insertLine('> ')} className={tbBtn} title="Quote"><Quote size={15} /></button>
         <button onClick={() => insertLine('---')} className={tbBtn} title="Divider"><Minus size={15} /></button>
       </div>
