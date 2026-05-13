@@ -270,6 +270,30 @@ export function PlannerTab() {
     // without re-importing the heavy module. monaco-editor/react already
     // singletons internally, so this is safe.
     (window as any).monaco = monaco;
+    // Re-register markdown surrounding pairs AFTER the built-in contribution
+    // has loaded (it loads lazily when the model is created and would
+    // otherwise overwrite a beforeMount registration).
+    monaco.languages.setLanguageConfiguration('markdown', {
+      surroundingPairs: [
+        { open: '"', close: '"' },
+        { open: "'", close: "'" },
+        { open: '`', close: '`' },
+        { open: '(', close: ')' },
+        { open: '[', close: ']' },
+        { open: '{', close: '}' },
+        { open: '*', close: '*' },
+        { open: '_', close: '_' },
+        { open: '<', close: '>' },
+      ],
+      autoClosingPairs: [
+        { open: '(', close: ')' },
+        { open: '[', close: ']' },
+        { open: '{', close: '}' },
+        { open: '"', close: '"' },
+        { open: "'", close: "'" },
+        { open: '`', close: '`' },
+      ],
+    });
     editor.addAction({
       id: 'markdown-list-continue',
       label: 'Continue markdown list',
@@ -352,29 +376,6 @@ export function PlannerTab() {
     bgColors.forEach((c) => {
       monaco.editor.defineTheme(`theme-${c.name}-light`, { base: c.light.base as any, inherit: true, rules: [], colors: { 'editor.background': c.light.hex } });
       monaco.editor.defineTheme(`theme-${c.name}-dark`, { base: c.dark.base as any, inherit: true, rules: [], colors: { 'editor.background': c.dark.hex } });
-    });
-    // Define surrounding pairs for markdown so typing a quote/bracket while
-    // text is selected wraps it (VSCode-style) instead of replacing.
-    monaco.languages.setLanguageConfiguration('markdown', {
-      surroundingPairs: [
-        { open: '"', close: '"' },
-        { open: "'", close: "'" },
-        { open: '`', close: '`' },
-        { open: '(', close: ')' },
-        { open: '[', close: ']' },
-        { open: '{', close: '}' },
-        { open: '*', close: '*' },
-        { open: '_', close: '_' },
-        { open: '<', close: '>' },
-      ],
-      autoClosingPairs: [
-        { open: '(', close: ')' },
-        { open: '[', close: ']' },
-        { open: '{', close: '}' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" },
-        { open: '`', close: '`' },
-      ],
     });
   };
 
