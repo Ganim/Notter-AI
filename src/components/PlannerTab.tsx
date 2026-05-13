@@ -10,7 +10,9 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import { rehypeSourcePositions } from '@/lib/plans/rehype-source-positions';
+import 'highlight.js/styles/atom-one-dark.css';
 import { open as openDialogPick } from '@tauri-apps/plugin-dialog';
 import { exportCurrentVersion } from '@/lib/plans/export';
 import type { PanelImperativeHandle } from 'react-resizable-panels';
@@ -24,7 +26,7 @@ import {
 } from '@/components/plans/useAnchorHighlights';
 import { MoveProjectToWorkspaceMenu } from '@/components/MoveProjectToWorkspaceMenu';
 import { formatRelativeTime } from '@/lib/plans/format';
-import { Loader2, History, RefreshCw, MessageSquare, Upload, Download } from 'lucide-react';
+import { Loader2, History, RefreshCw, MessageSquare, Upload, Download, Copy, Check } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
@@ -33,6 +35,39 @@ import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
 
 type MobilePanel = 'projects' | 'subjects' | 'editor';
+
+// Renders a markdown <pre> with a hover-revealed copy button. Used as the
+// `pre` override in ReactMarkdown so fenced code blocks get a clipboard
+// affordance without disturbing the inner <code class="hljs ...">.
+function CodeBlockPre({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    const text = preRef.current?.textContent ?? '';
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard API can reject when document isn't focused or permissions
+      // weren't granted; degrade silently.
+    }
+  };
+  return (
+    <div className="relative group">
+      <pre ref={preRef} {...props}>{children}</pre>
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={copied ? 'Copiado' : 'Copiar'}
+        className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground bg-background/70 backdrop-blur hover:bg-background opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
+  );
+}
 
 export function PlannerTab() {
   const { t } = useTranslation();
@@ -785,7 +820,8 @@ export function PlannerTab() {
           >
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeSourcePositions]}
+              rehypePlugins={[rehypeHighlight, rehypeSourcePositions]}
+              components={{ pre: CodeBlockPre }}
             >
               {editorValue}
             </ReactMarkdown>

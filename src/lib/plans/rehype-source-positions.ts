@@ -19,21 +19,31 @@ export function rehypeSourcePositions() {
   };
 }
 
+/** Mutable cursor passed down through synthetic descendants of a positioned
+    ancestor (e.g., the hljs token spans inside a code block). Tracks how far
+    we've consumed within `[anchorStart, anchorEnd)` so repeated token values
+    map to their actual positions in the source. */
+interface SearchCursor {
+  anchorStart: number;
+  anchorEnd: number;
+  pos: number;
+}
+
 function visit(
   node: Element | Root,
   source: string,
-  /** Parent's source range — used as a fallback for text nodes whose
-      mdast→hast handler didn't carry positions (notably the inner text of
-      block/inline code, which mdast-util-to-hast generates fresh from the
-      `value` field). */
-  parentStart?: number,
-  parentEnd?: number,
+  cursor?: SearchCursor,
 ): void {
   if (!('children' in node) || !Array.isArray(node.children)) return;
+  // If this element has its own position, it defines a fresh search context
+  // for its descendants — fences and synthetic siblings outside this range
+  // shouldn't interfere with the cursor.
   const myStart = (node as any).position?.start?.offset;
   const myEnd = (node as any).position?.end?.offset;
-  const effectiveStart = typeof myStart === 'number' ? myStart : parentStart;
-  const effectiveEnd = typeof myEnd === 'number' ? myEnd : parentEnd;
+  const usesOwn = typeof myStart === 'number' && typeof myEnd === 'number';
+  const childCursor: SearchCursor | undefined = usesOwn
+    ? { anchorStart: myStart!, anchorEnd: myEnd!, pos: 0 }
+    : cursor;
   // Iterate a snapshot so in-place replacement doesn't break the loop.
   const children = node.children as Array<RootContent | ElementContent>;
   for (let i = 0; i < children.length; i++) {
@@ -43,20 +53,24 @@ function visit(
       let end: number | undefined = child.position?.end?.offset;
       if (
         (typeof start !== 'number' || typeof end !== 'number') &&
-        typeof effectiveStart === 'number' &&
-        typeof effectiveEnd === 'number' &&
+        childCursor &&
         typeof child.value === 'string' &&
         child.value.length > 0 &&
         source.length > 0
       ) {
-        // Fallback: locate the text value inside the parent's source slice.
-        // First occurrence wins. Works reliably for code blocks because
-        // their content is reproduced verbatim between the fences.
-        const slice = source.slice(effectiveStart, effectiveEnd);
-        const localIdx = slice.indexOf(child.value);
-        if (localIdx >= 0) {
-          start = effectiveStart + localIdx;
-          end = start + child.value.length;
+        // Fallback: locate the text value inside the cursor's anchor range,
+        // starting from the cursor's current position. Advances the cursor
+        // past the match so subsequent repeated values (e.g., two `const`
+        // tokens) land on their actual source positions.
+        const idx = source.indexOf(
+          child.value,
+          childCursor.anchorStart + childCursor.pos,
+        );
+        const matchEnd = idx + child.value.length;
+        if (idx >= 0 && matchEnd <= childCursor.anchorEnd) {
+          start = idx;
+          end = matchEnd;
+          childCursor.pos = matchEnd - childCursor.anchorStart;
         }
       }
       if (typeof start !== 'number' || typeof end !== 'number') continue;
@@ -75,7 +89,7 @@ function visit(
       };
       (node.children as any[])[i] = wrap;
     } else if (child.type === 'element') {
-      visit(child as Element, source, effectiveStart, effectiveEnd);
+      visit(child as Element, source, childCursor);
     }
   }
 }
