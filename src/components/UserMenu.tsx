@@ -1,13 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Brain, Network } from 'lucide-react';
+import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Download, Loader2, CheckCircle2, AlertCircle, Network } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAppStore } from '@/stores/app-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { AuthDialog } from '@/components/AuthDialog';
 import { AccountForm } from '@/components/AccountForm';
 import { AccountSwitcher } from '@/components/AccountSwitcher';
-import { ManageAiDialog } from '@/components/ai/ManageAiDialog';
 import { McpConfigDialog } from '@/components/McpConfigDialog';
 import { checkForUpdates, downloadAndInstall, type UpdateState } from '@/lib/updater';
 import { toast } from 'sonner';
@@ -20,7 +19,6 @@ export function UserMenu() {
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
-  const [manageAiOpen, setManageAiOpen] = useState(false);
   const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { darkMode, setDarkMode, language, setLanguage } = useAppStore();
@@ -47,11 +45,6 @@ export function UserMenu() {
   const openSettings = () => {
     setOpen(false);
     setSettingsOpen(true);
-  };
-
-  const openManageAi = () => {
-    setOpen(false);
-    setManageAiOpen(true);
   };
 
   const openMcpConfig = () => {
@@ -119,10 +112,6 @@ export function UserMenu() {
               <Settings size={14} />
               {t('user_menu.settings')}
             </button>
-            <button onClick={openManageAi} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
-              <Brain size={14} />
-              {t('user_menu.manage_ai')}
-            </button>
             <button onClick={handleCheckUpdates} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
               <Download size={14} />
               {t('user_menu.check_updates')}
@@ -176,9 +165,6 @@ export function UserMenu() {
 
       {/* Add Account Dialog */}
       <AuthDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} mode="add-account" />
-
-      {/* Manage AI Dialog */}
-      <ManageAiDialog open={manageAiOpen} onOpenChange={setManageAiOpen} />
 
       {/* MCP Config Dialog */}
       <McpConfigDialog open={mcpConfigOpen} onOpenChange={setMcpConfigOpen} />

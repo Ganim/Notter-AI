@@ -3,7 +3,6 @@ import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
 import { PlannerTab } from '@/components/PlannerTab';
 import { useAuthStore } from '@/stores/auth-store';
-import { useAiStore } from '@/stores/ai-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useAppStore } from '@/stores/app-store';
 import { initDeepLinkHandler } from '@/lib/deep-link';
@@ -40,7 +39,6 @@ function App() {
       }
 
       initialize();
-      useAiStore.getState().initialize().catch(console.error);
       initDeepLinkHandler().catch(console.error);
       // Listen for Rust's `mcp:auth-needed` event and refresh the Supabase
       // session reactively so CLIs recover from a stale access_token slice.
