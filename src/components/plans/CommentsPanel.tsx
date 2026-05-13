@@ -57,8 +57,18 @@ export function CommentsPanel() {
 
   if (!currentSubjectId) return null;
 
+  // Click anywhere on the panel that isn't a comment card → deselect.
+  // Cards opt-out via `data-comment-card`; the chips/header don't, so
+  // toggling filters also deselects (acceptable: it's an intentional click).
+  const handlePanelClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (!target || !target.closest('[data-comment-card]')) {
+      setActiveCommentId(null);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full p-3 gap-3">
+    <div className="flex flex-col h-full p-3 gap-3" onClick={handlePanelClick}>
       {/* Header */}
       <div className="flex items-center justify-between gap-2 shrink-0">
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -233,6 +243,7 @@ function CommentCard({
   return (
     <div
       ref={cardRef}
+      data-comment-card
       onClick={onActivate}
       className={cn(
         // Card has solid bg + comfortable padding; active state uses the
