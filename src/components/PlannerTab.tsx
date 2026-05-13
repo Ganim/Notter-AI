@@ -352,6 +352,39 @@ export function PlannerTab() {
     editor.focus();
   };
 
+  // Apply a per-line prefix to every line covered by the current selection
+  // (used by Quote, Ordered List, Unordered List). Without a selection,
+  // falls back to insertLine's "new line below" behavior so single-click
+  // bullet-creation still works on an empty cursor.
+  const applyLinePrefix = (getPrefix: (offsetInSelection: number) => string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const selection = editor.getSelection();
+    const model = editor.getModel();
+    if (!selection || !model) return;
+    if (selection.isEmpty()) {
+      insertLine(getPrefix(0));
+      return;
+    }
+    const startLine = selection.startLineNumber;
+    let endLine = selection.endLineNumber;
+    // A selection that ends at column 1 of the next line didn't actually
+    // touch any content on that line — exclude it.
+    if (selection.endColumn === 1 && endLine > startLine) endLine -= 1;
+    const edits = [] as Array<{
+      range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+      text: string;
+    }>;
+    for (let line = startLine; line <= endLine; line++) {
+      edits.push({
+        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+        text: getPrefix(line - startLine),
+      });
+    }
+    editor.executeEdits('toolbar', edits);
+    editor.focus();
+  };
+
   // Code-block toolbar action. With a selection: wrap it in ``` fences on
   // their own lines (matches the wrap semantics of bold/italic/inline code,
   // and of the keystroke-level auto-surround we set up for parens/quotes).
@@ -546,12 +579,12 @@ export function PlannerTab() {
         <button onClick={() => insertMarkdown('*', '*')} className={tbBtn} title="Italic"><Italic size={15} /></button>
         <button onClick={() => insertMarkdown('<u>', '</u>')} className={tbBtn} title="Underline"><Underline size={15} /></button>
         <div className="w-px h-4 bg-border mx-1" />
-        <button onClick={() => insertLine('- ')} className={tbBtn} title="List"><List size={15} /></button>
-        <button onClick={() => insertLine('1. ')} className={tbBtn} title="Ordered List"><ListOrdered size={15} /></button>
+        <button onClick={() => applyLinePrefix(() => '- ')} className={tbBtn} title="List"><List size={15} /></button>
+        <button onClick={() => applyLinePrefix((i) => `${i + 1}. `)} className={tbBtn} title="Ordered List"><ListOrdered size={15} /></button>
         <div className="w-px h-4 bg-border mx-1" />
         <button onClick={() => insertMarkdown('`', '`')} className={tbBtn} title="Inline Code"><Code size={15} /></button>
         <button onClick={insertCodeBlock} className={`${tbBtn} flex items-center justify-center w-[27px] h-[27px]`} title="Code Block"><span className="text-[11px] font-mono font-bold leading-none">{'{}'}</span></button>
-        <button onClick={() => insertLine('> ')} className={tbBtn} title="Quote"><Quote size={15} /></button>
+        <button onClick={() => applyLinePrefix(() => '> ')} className={tbBtn} title="Quote"><Quote size={15} /></button>
         <button onClick={() => insertLine('---')} className={tbBtn} title="Divider"><Minus size={15} /></button>
       </div>
     </div>
