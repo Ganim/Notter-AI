@@ -330,6 +330,32 @@ export function PlannerTab() {
         { open: '`', close: '`' },
       ],
     });
+    // Trim trailing whitespace on every line touched by a paste. Pasted
+    // snippets (especially from terminals or formatted code) often carry
+    // stray spaces at line ends that throw off Monaco's soft-wrap and
+    // produce weird visual breaks. We only normalize the just-pasted range
+    // so typing trailing whitespace by hand isn't fought.
+    editor.onDidPaste((e: any) => {
+      const m = editor.getModel();
+      if (!m) return;
+      const startLine = e.range.startLineNumber;
+      const endLine = e.range.endLineNumber;
+      const edits: Array<{
+        range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+        text: string;
+      }> = [];
+      for (let line = startLine; line <= endLine; line++) {
+        const text: string = m.getLineContent(line);
+        const trimmed = text.replace(/[ \t]+$/, '');
+        if (trimmed !== text) {
+          edits.push({
+            range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: text.length + 1 },
+            text: trimmed,
+          });
+        }
+      }
+      if (edits.length > 0) editor.executeEdits('paste-sanitize', edits);
+    });
     editor.addAction({
       id: 'markdown-list-continue',
       label: 'Continue markdown list',
