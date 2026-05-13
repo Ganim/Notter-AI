@@ -127,4 +127,15 @@
       0 0 0 1px var(--ring),
       0 0 14px color-mix(in oklch, var(--ring) 28%, transparent);
   }
+
+  /* View-mode rendered code blocks: wrap long lines instead of overflowing
+     horizontally. `pre-wrap` preserves the line breaks but lets words break
+     when they hit the container edge — kills the horizontal scrollbar that
+     prose's default `overflow-x: auto` would otherwise produce. */
+  .prose pre,
+  .prose-invert pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
 }

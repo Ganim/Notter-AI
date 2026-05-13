@@ -61,7 +61,7 @@ function CodeBlockPre({ children, ...props }: React.HTMLAttributes<HTMLPreElemen
         type="button"
         onClick={handleCopy}
         title={copied ? 'Copiado' : 'Copiar'}
-        className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground bg-background/70 backdrop-blur hover:bg-background opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+        className="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground bg-background/60 backdrop-blur hover:bg-background hover:text-foreground opacity-70 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
@@ -820,7 +820,7 @@ export function PlannerTab() {
           >
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight, rehypeSourcePositions]}
+              rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeSourcePositions]}
               components={{ pre: CodeBlockPre }}
             >
               {editorValue}
