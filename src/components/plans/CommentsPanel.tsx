@@ -225,10 +225,10 @@ function CommentCard({
 
   const dimmed = comment.resolved || comment.archived;
   const author = formatAuthor(comment.authorDisplayName, t);
+  const initial = (author || '?').trim().charAt(0).toUpperCase() || '?';
   const created = new Date(comment.createdAt);
   const dateLabel = created.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' });
   const timeLabel = created.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  const edited = comment.updatedAt && comment.updatedAt !== comment.createdAt;
 
   return (
     <div
@@ -245,12 +245,13 @@ function CommentCard({
       )}
     >
       <div className="flex flex-col gap-3 p-4">
-        {/* Line label — plain text, no badge. */}
-        <span className="text-xs text-blue-600 dark:text-blue-400 tabular-nums">
+        {/* Line label — plain text, no badge. Neutral gray keeps the card
+            in a single palette family (no color mixing with the quote). */}
+        <span className="text-xs text-muted-foreground tabular-nums">
           {lineLabel}
         </span>
 
-        {/* Quoted snippet — tinted callout with a colored left rule. */}
+        {/* Quoted snippet — tinted gray callout with a muted left rule. */}
         {comment.anchorQuote && (
           <button
             type="button"
@@ -259,7 +260,7 @@ function CommentCard({
               handleScrollToAnchor();
             }}
             title={comment.anchorQuote}
-            className="text-left rounded-sm bg-blue-50 dark:bg-blue-500/10 border-l-2 border-blue-500/70 px-3 py-2 italic text-xs text-muted-foreground line-clamp-2 hover:text-foreground hover:bg-blue-100 dark:hover:bg-blue-500/15 transition-colors"
+            className="text-left rounded-sm bg-muted/50 dark:bg-muted/30 border-l-2 border-muted-foreground/40 px-3 py-2 italic text-xs text-muted-foreground line-clamp-2 hover:text-foreground hover:bg-muted/70 dark:hover:bg-muted/45 transition-colors"
           >
             "{comment.anchorQuote}"
           </button>
@@ -317,14 +318,14 @@ function CommentCard({
           </div>
         )}
 
-        {/* Footer — author + edited on the left, date + kebab on the right. */}
+        {/* Footer — avatar + author on the left, date + kebab on the right. */}
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span className="truncate min-w-0" title={comment.authorDisplayName ?? ''}>
-            {author}
-            {edited && (
-              <span className="text-muted-foreground/70"> · {t('plans.edited_marker')}</span>
-            )}
-          </span>
+          <div className="flex items-center gap-2 min-w-0">
+            <AvatarFallback letter={initial} />
+            <span className="truncate" title={comment.authorDisplayName ?? ''}>
+              {author}
+            </span>
+          </div>
           <div className="flex items-center gap-2 shrink-0">
             <span className="tabular-nums" title={created.toLocaleString()}>
               {dateLabel} {timeLabel}
@@ -511,6 +512,26 @@ function MenuItem({
       {icon}
       <span>{label}</span>
     </button>
+  );
+}
+
+// ── AvatarFallback ──────────────────────────────────────────────────────────
+
+/**
+ * Tiny initial-only avatar — a 24px circle with the user's first letter.
+ * No image fetching: comments don't carry avatar URLs and pulling
+ * `auth.users.user_metadata.avatar_url` would require a separate JOIN that
+ * isn't worth it for the side panel. Single letter is enough to attach the
+ * comment to a face at a glance.
+ */
+function AvatarFallback({ letter }: { letter: string }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-muted-foreground text-[10px] font-semibold border border-border/60 shrink-0"
+    >
+      {letter}
+    </span>
   );
 }
 

@@ -89,12 +89,13 @@
 
   /* Anchored-comment highlight, applied by both Monaco decorations
      (.notter-anchor-highlight as a className) and the markdown preview
-     wrapper (<mark class="notter-anchor-highlight">). The amber tone is
-     consistent with shadcn warning conventions and stays readable in light
-     and dark themes; the underline keeps overlapping anchors distinguishable. */
+     wrapper (<mark class="notter-anchor-highlight">). Neutral gray tone
+     keeps the editor visually quiet — the comment metadata in the side
+     panel is what carries the semantic load. The active variant just
+     darkens the fill to mark the focused pairing. */
   .notter-anchor-highlight {
-    background-color: rgb(254 243 199 / 0.55);
-    border-bottom: 1px solid rgb(217 119 6 / 0.45);
+    background-color: rgb(0 0 0 / 0.08);
+    border-bottom: 1px solid rgb(0 0 0 / 0.18);
     color: inherit;
     border-radius: 1px;
     padding: 0 1px;
@@ -102,20 +103,17 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
   }
   .dark .notter-anchor-highlight {
-    background-color: rgb(180 83 9 / 0.22);
-    border-bottom-color: rgb(245 158 11 / 0.55);
+    background-color: rgb(255 255 255 / 0.10);
+    border-bottom-color: rgb(255 255 255 / 0.22);
   }
-  /* Active variant — fired when the user clicked this highlight (or its
-     comment card). Stronger fill + thicker underline so the user can tell
-     at a glance which highlight pairs with the focused card on the right. */
   .notter-anchor-highlight-active,
   .notter-anchor-highlight.notter-anchor-highlight-active {
-    background-color: rgb(253 224 71 / 0.85);
-    border-bottom: 2px solid rgb(202 138 4 / 0.9);
+    background-color: rgb(0 0 0 / 0.18);
+    border-bottom: 2px solid rgb(0 0 0 / 0.45);
   }
   .dark .notter-anchor-highlight-active,
   .dark .notter-anchor-highlight.notter-anchor-highlight-active {
-    background-color: rgb(202 138 4 / 0.55);
-    border-bottom-color: rgb(250 204 21 / 0.95);
+    background-color: rgb(255 255 255 / 0.22);
+    border-bottom-color: rgb(255 255 255 / 0.55);
   }
 }
