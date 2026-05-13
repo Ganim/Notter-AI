@@ -11,9 +11,14 @@
 //   └─────────────────────────────────────────┘
 //
 // The active card (set by clicking an anchored highlight in the editor or
-// the quote inside another card) gets a subtle ring; clicking the kebab
-// opens the actions popover. Dimmed appearance covers resolved + archived.
-import { useEffect, useRef, useState } from 'react';
+// the quote inside another card) uses the same `accent` palette as the
+// selected row in the project / subject sidebar — the user explicitly
+// asked for visual consistency with that surface.
+//
+// The kebab menu is portal-mounted so it escapes the panel's overflow:auto
+// container and renders with stable positioning + opaque background.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { Button } from '@/components/ui/button';
@@ -86,7 +91,12 @@ export function CommentsPanel() {
         </p>
       )}
 
-      <div className="flex-1 overflow-y-auto -mx-1 px-1 flex flex-col gap-2">
+      {/*
+        py-1 + px-1 keeps the first card's top border (and the active ring)
+        from clipping against the panel edge / scroll container; -mx-1
+        cancels the horizontal inset so the cards still span full width.
+      */}
+      <div className="flex-1 overflow-y-auto -mx-1 px-1 py-1 flex flex-col gap-2">
         {visible.map((c) => (
           <CommentCard
             key={c.id}
@@ -128,7 +138,7 @@ function ToggleChip({
       className={cn(
         'inline-flex items-center gap-1 h-6 px-2 rounded-full border text-[10px] capitalize transition-colors',
         active
-          ? 'border-primary/40 bg-primary/10 text-foreground'
+          ? 'border-accent bg-accent text-accent-foreground'
           : 'border-border/60 text-muted-foreground/80 hover:text-foreground hover:bg-muted/60',
       )}
     >
@@ -165,10 +175,8 @@ function CommentCard({
 }: CommentCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const subjectContent = usePlannerStore((s) => s.subjectContent);
 
@@ -200,18 +208,6 @@ function CommentCard({
     }
   }, [isActive]);
 
-  // Outside-click closes the kebab menu.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const h = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [menuOpen]);
-
   const handleScrollToAnchor = () => {
     onActivate();
     if (!resolved) return;
@@ -239,10 +235,13 @@ function CommentCard({
       ref={cardRef}
       onClick={onActivate}
       className={cn(
-        'group rounded-md border text-xs bg-card/40 cursor-default transition-all',
+        // Active state borrows the SAME accent palette used by selected
+        // rows in the project / subject sidebar — the user wanted visual
+        // consistency with that surface, so we drop the prior blue ring.
+        'group rounded-md border text-xs cursor-default transition-colors',
         isActive
-          ? 'border-primary/50 ring-1 ring-primary/40 bg-card/70'
-          : 'border-border/50 hover:border-border',
+          ? 'bg-accent border-accent text-accent-foreground'
+          : 'bg-card/40 border-border/50 hover:border-border',
         dimmed && 'opacity-65',
       )}
     >
@@ -255,7 +254,7 @@ function CommentCard({
               className={cn(
                 'inline-flex items-center px-1.5 h-[18px] rounded-full border font-medium tabular-nums',
                 resolved
-                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                  ? 'bg-accent border-accent text-accent-foreground'
                   : 'border-border/60 bg-muted/40 text-muted-foreground italic',
               )}
             >
@@ -269,7 +268,7 @@ function CommentCard({
             )}
           </div>
 
-          {/* Quoted snippet */}
+          {/* Quoted snippet — subtle tinted callout, not a left-border. */}
           {comment.anchorQuote && (
             <button
               type="button"
@@ -278,15 +277,15 @@ function CommentCard({
                 handleScrollToAnchor();
               }}
               title={comment.anchorQuote}
-              className="text-left border-l-2 border-primary/40 pl-2 italic text-muted-foreground line-clamp-2 hover:text-foreground hover:border-primary transition-colors"
+              className="text-left rounded-sm bg-muted/40 dark:bg-muted/25 px-2 py-1 italic text-[11px] text-muted-foreground line-clamp-2 hover:text-foreground hover:bg-muted/60 dark:hover:bg-muted/40 transition-colors"
             >
               "{comment.anchorQuote}"
             </button>
           )}
 
-          {/* Body */}
+          {/* Body — slightly smaller than the surrounding card text. */}
           {!editing ? (
-            <p className="whitespace-pre-wrap text-foreground leading-snug">
+            <p className="whitespace-pre-wrap text-foreground text-[11px] leading-snug">
               {comment.body}
             </p>
           ) : (
@@ -336,81 +335,175 @@ function CommentCard({
             </div>
           )}
 
-          {/* Footer: author · edited · date */}
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 mt-0.5">
-            <span className="truncate" title={comment.authorDisplayName ?? ''}>{author}</span>
-            {edited && <span className="opacity-70">· {t('plans.edited_marker')}</span>}
-            <span className="opacity-70">·</span>
-            <span className="tabular-nums" title={created.toLocaleString()}>
+          {/* Footer: author left, date+time right. */}
+          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/80 mt-0.5">
+            <span className="truncate min-w-0" title={comment.authorDisplayName ?? ''}>
+              {author}
+              {edited && <span className="opacity-70"> · {t('plans.edited_marker')}</span>}
+            </span>
+            <span className="tabular-nums shrink-0" title={created.toLocaleString()}>
               {dateLabel} {timeLabel}
             </span>
           </div>
         </div>
 
         {/* ── Right column: kebab only ──────────────────────────────── */}
-        <div ref={menuRef} className="relative shrink-0">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-            title={t('plans.more_options')}
-            className="p-1 rounded text-muted-foreground/70 opacity-0 group-hover:opacity-100 hover:bg-muted hover:text-foreground transition-all data-[open=true]:opacity-100"
-            data-open={menuOpen}
-          >
-            <MoreVertical size={14} />
-          </button>
-          {menuOpen && (
-            <div
-              className="absolute right-0 top-full mt-1 w-40 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-30"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {isAuthor && (
-                <MenuItem
-                  icon={<Pencil size={12} />}
-                  label={t('plans.edit_comment')}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setEditing(true);
-                  }}
-                />
-              )}
-              <MenuItem
-                icon={comment.resolved
-                  ? <CheckCircle2 size={12} className="text-green-500" />
-                  : <Circle size={12} />}
-                label={comment.resolved ? t('plans.unresolve') : t('plans.resolve')}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onResolve();
-                }}
-              />
-              <MenuItem
-                icon={comment.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
-                label={comment.archived ? t('plans.unarchive') : t('plans.archive')}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onArchiveToggle();
-                }}
-              />
-              {isAuthor && (
-                <>
-                  <div className="border-t border-border" />
-                  <MenuItem
-                    icon={<Trash2 size={12} />}
-                    label={t('plans.delete_comment')}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onDelete();
-                    }}
-                    destructive
-                  />
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        <KebabMenu
+          comment={comment}
+          isAuthor={isAuthor}
+          onEdit={() => setEditing(true)}
+          onResolve={onResolve}
+          onArchiveToggle={onArchiveToggle}
+          onDelete={onDelete}
+          t={t}
+        />
       </div>
+    </div>
+  );
+}
+
+// ── KebabMenu (portal-mounted) ──────────────────────────────────────────────
+
+function KebabMenu({
+  comment,
+  isAuthor,
+  onEdit,
+  onResolve,
+  onArchiveToggle,
+  onDelete,
+  t,
+}: {
+  comment: SubjectCommentRecord;
+  isAuthor: boolean;
+  onEdit: () => void;
+  onResolve: () => void;
+  onArchiveToggle: () => void;
+  onDelete: () => void;
+  t: (k: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  // Anchor the floating menu below + right-aligned to the kebab. Recompute
+  // on open and on window resize / scroll while open. Portal mounting means
+  // the panel's overflow:auto can't clip the menu and the absolute parent's
+  // size doesn't matter.
+  const recomputePos = () => {
+    const r = buttonRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setPos({
+      top: r.bottom + 4,
+      right: Math.max(8, window.innerWidth - r.right),
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    recomputePos();
+    const onScroll = () => recomputePos();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', recomputePos);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', recomputePos);
+    };
+  }, [open]);
+
+  // Click outside both the button and menu → close.
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (
+        buttonRef.current?.contains(t) ||
+        menuRef.current?.contains(t)
+      )
+        return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (
+    <div className="shrink-0">
+      <button
+        ref={buttonRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        title={t('plans.more_options')}
+        className={cn(
+          'p-1 rounded text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-all',
+          // Hidden at rest; shown on card hover OR while menu is open.
+          open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        )}
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          // bg-popover is opaque (oklch with no alpha); explicit !important
+          // via inline style guards against any cascading utility opacity.
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            right: pos.right,
+            zIndex: 70,
+            backgroundColor: 'var(--popover)',
+          }}
+          className="w-44 rounded-md border border-border text-popover-foreground shadow-lg overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isAuthor && (
+            <MenuItem
+              icon={<Pencil size={12} />}
+              label={t('plans.edit_comment')}
+              onClick={() => {
+                setOpen(false);
+                onEdit();
+              }}
+            />
+          )}
+          <MenuItem
+            icon={comment.resolved
+              ? <CheckCircle2 size={12} className="text-green-500" />
+              : <Circle size={12} />}
+            label={comment.resolved ? t('plans.unresolve') : t('plans.resolve')}
+            onClick={() => {
+              setOpen(false);
+              onResolve();
+            }}
+          />
+          <MenuItem
+            icon={comment.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+            label={comment.archived ? t('plans.unarchive') : t('plans.archive')}
+            onClick={() => {
+              setOpen(false);
+              onArchiveToggle();
+            }}
+          />
+          {isAuthor && (
+            <>
+              <div className="border-t border-border" />
+              <MenuItem
+                icon={<Trash2 size={12} />}
+                label={t('plans.delete_comment')}
+                onClick={() => {
+                  setOpen(false);
+                  onDelete();
+                }}
+                destructive
+              />
+            </>
+          )}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -430,7 +523,7 @@ function MenuItem({
     <button
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors',
+        'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors whitespace-nowrap',
         destructive
           ? 'text-destructive hover:bg-destructive/10'
           : 'hover:bg-muted',

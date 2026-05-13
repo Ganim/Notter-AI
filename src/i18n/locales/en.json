@@ -4,8 +4,8 @@
   },
   "plans": {
     "comment_placeholder": "Add a comment...",
-    "resolve": "Mark resolved",
-    "unresolve": "Mark unresolved",
+    "resolve": "Resolve",
+    "unresolve": "Reopen",
     "source_user": "user",
     "source_ai": "ai",
     "source_import": "import",

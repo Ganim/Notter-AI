@@ -4,7 +4,7 @@
   },
   "plans": {
     "comment_placeholder": "Adicionar comentário...",
-    "resolve": "Marcar como resolvido",
+    "resolve": "Resolver",
     "unresolve": "Reabrir",
     "source_user": "usuário",
     "source_ai": "ia",
