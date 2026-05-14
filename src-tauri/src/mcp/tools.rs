@@ -49,6 +49,8 @@ pub async fn dispatch(
 struct ListSubjectsParams {
     #[serde(default)]
     workspace_id: Option<String>,
+    #[serde(default)]
+    include_archived: bool,
 }
 
 async fn list_subjects(
@@ -82,6 +84,10 @@ async fn list_subjects(
             return Ok(serde_json::json!([]));
         }
         query.push_str(&format!("&project_name={}", build_in_clause(&names_in_ws)));
+    }
+
+    if !p.include_archived {
+        query.push_str("&archived_at=is.null");
     }
 
     let body = sb.get("subjects", &query, &token).await?;
