@@ -38,6 +38,8 @@ pub async fn dispatch(
         "update_account_settings" => update_account_settings(params, auth, state).await,
         "list_workspaces" => list_workspaces(params, auth, state).await,
         "save_workspace" => save_workspace(params, auth, state).await,
+        "list_projects" => list_projects(params, auth, state).await,
+        "save_project" => save_project(params, auth, state).await,
         // MCP "ping" is sometimes used by clients as a liveness check;
         // accept it as an empty-result success.
         "ping" => Ok(Value::Object(Default::default())),
@@ -309,6 +311,87 @@ async fn post_subject_revision(
             ))
         })?;
     Ok(serde_json::json!({ "version_id": id }))
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ListProjectsParams {
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    include_archived: bool,
+}
+
+async fn list_projects(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: ListProjectsParams = if params.is_null() {
+        ListProjectsParams::default()
+    } else {
+        serde_json::from_value(params.clone())
+            .map_err(|e| McpError::InvalidParams(format!("list_projects: {e}")))?
+    };
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    let mut q = String::from("select=id,name,workspace_id,archived_at,created_at,updated_at&order=updated_at.desc");
+    if let Some(w) = &p.workspace_id {
+        q.push_str(&format!("&workspace_id=eq.{}", url_encode(w)));
+    }
+    if !p.include_archived { q.push_str("&archived_at=is.null"); }
+    sb.get("projects", &q, &token).await
+}
+
+#[derive(serde::Deserialize)]
+struct SaveProjectParams {
+    #[serde(default)]
+    id: Option<String>,
+    name: String,
+    workspace_id: String,
+    /// For renames only: the existing project name. Required when id is
+    /// supplied AND name differs from the current row (we can't know without
+    /// fetching; the caller must tell us).
+    #[serde(default)]
+    previous_name: Option<String>,
+}
+
+async fn save_project(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: SaveProjectParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("save_project: {e}")))?;
+    if p.name.trim().is_empty() {
+        return Err(McpError::InvalidParams("name required".into()));
+    }
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    match &p.id {
+        None => {
+            let body = serde_json::json!({
+                "name": p.name,
+                "workspace_id": p.workspace_id,
+            });
+            let res = sb.post("projects", &body, &token, true).await?;
+            res.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::SupabaseError("save_project: empty response".into()))
+        }
+        Some(_id) => {
+            if let Some(prev) = &p.previous_name {
+                if prev != &p.name {
+                    let args = serde_json::json!({
+                        "old_name": prev,
+                        "new_name": p.name,
+                        "workspace_uuid": p.workspace_id,
+                    });
+                    sb.rpc("rename_project_cascade", &args, &token).await?;
+                }
+            }
+            let q = format!(
+                "select=id,name,workspace_id,archived_at,created_at,updated_at&workspace_id=eq.{}&name=eq.{}&limit=1",
+                url_encode(&p.workspace_id), url_encode(&p.name)
+            );
+            let body = sb.get("projects", &q, &token).await?;
+            body.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::NotFound(format!("project {} not found", p.name)))
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Default)]
