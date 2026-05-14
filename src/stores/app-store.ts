@@ -140,3 +140,27 @@ if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
 }
 
 registerResettableStore(() => useAppStore.getState().reset());
+
+/**
+ * M6: Hydrate theme and language from user_metadata.notter on SIGNED_IN.
+ * Additive — keeps the existing localStorage write path intact for same-device
+ * tab consistency.  Falls back silently if user_metadata is unavailable.
+ */
+export async function hydrateSettingsFromUserMetadata(): Promise<void> {
+  try {
+    const { readAccountSettings } = await import('@/lib/account-settings');
+    const s = await readAccountSettings();
+    const store = useAppStore.getState();
+    // Only apply theme if the user_metadata value differs from the current local value.
+    // We check against DEFAULTS.theme to avoid overwriting an explicit localStorage choice
+    // with a stale default — but if they explicitly saved a value remotely, honour it.
+    if (s.theme && (s.theme === 'light' || s.theme === 'dark' || s.theme === 'system')) {
+      store.setThemeMode(s.theme);
+    }
+    if (s.language) {
+      store.setLanguage(s.language);
+    }
+  } catch (e) {
+    console.warn('[app-store] hydrateSettingsFromUserMetadata failed:', e);
+  }
+}

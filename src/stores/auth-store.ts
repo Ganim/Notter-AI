@@ -10,7 +10,7 @@ import {
   fetchSubjects,
   fetchWorkspaces,
 } from '@/lib/sync';
-import { useAppStore } from '@/stores/app-store';
+import { useAppStore, hydrateSettingsFromUserMetadata } from '@/stores/app-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
@@ -184,6 +184,10 @@ export const useAuthStore = create<AuthState>((set) => ({
               console.warn('[account-settings] migration failed:', e),
             );
           });
+          // M6: hydrate theme + language from user_metadata after sign-in
+          hydrateSettingsFromUserMetadata().catch((e) =>
+            console.warn('[app-store] hydrate on sign-in failed:', e),
+          );
         }
         if (
           (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
