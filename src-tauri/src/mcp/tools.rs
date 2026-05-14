@@ -510,12 +510,15 @@ async fn get_account_settings(
     Ok(Value::Object(out))
 }
 
+// `language` is intentionally NOT writable here — it lives in the
+// `user_preferences` table and flows through the front-end's sync layer.
+// Writes via user_metadata would be silently overwritten by the next
+// applyRemotePreferences cycle. Add language back here only if/when the
+// front-end migrates to user_metadata.notter as the source of truth.
 #[derive(serde::Deserialize, Default)]
 struct UpdateAccountSettingsParams {
     #[serde(default)]
     theme: Option<String>,
-    #[serde(default)]
-    language: Option<String>,
     #[serde(default)]
     update_settings: Option<Value>,
     #[serde(default)]
@@ -535,16 +538,10 @@ async fn update_account_settings(
             return Err(McpError::InvalidParams(format!("theme must be light|dark|system, got '{t}'")));
         }
     }
-    if let Some(ref l) = p.language {
-        if !matches!(l.as_str(), "pt-BR"|"en-US") {
-            return Err(McpError::InvalidParams(format!("language must be pt-BR|en-US, got '{l}'")));
-        }
-    }
 
     let current = get_account_settings(&Value::Null, auth, state).await?;
     let mut merged = current.as_object().cloned().unwrap_or_default();
     if let Some(v) = p.theme { merged.insert("theme".into(), Value::String(v)); }
-    if let Some(v) = p.language { merged.insert("language".into(), Value::String(v)); }
     if let Some(v) = p.update_settings { merged.insert("update_settings".into(), v); }
     if let Some(v) = p.default_workspace_id {
         merged.insert("default_workspace_id".into(), Value::String(v));

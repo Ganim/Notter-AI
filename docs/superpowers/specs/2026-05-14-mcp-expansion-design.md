@@ -33,7 +33,7 @@ The Notter MCP server today exposes 6 read-mostly tools, requires the user to co
 ## 3. Decisions locked from brainstorming
 
 1. Audience: Claude Code CLI + Claude Desktop + Codex CLI + Cursor IDE + universal manual fallback.
-2. Account-settings write scope: `theme`, `language`, update settings (`auto_check`, `auto_install`), `default_workspace_id`. Profile (display_name, avatar) and email/linked accounts stay out.
+2. Account-settings write scope: `theme`, update settings (`auto_check`, `auto_install`), `default_workspace_id`. `language` is **read-only** — it lives in `user_preferences` and flows through the front-end's sync layer; writes via `user_metadata` would be silently overwritten by the next `applyRemotePreferences` cycle. Profile (display_name, avatar) and email/linked accounts stay out.
 3. Auth model: OAuth 2.1 with Dynamic Client Registration (RFC 7591) and PKCE S256. Bearer legacy accepted 1 version, then removed.
 4. Write semantics: snapshot-only on subject content. Soft-delete via `archived_at` on workspaces/projects/subjects. Full comment CRUD including hard delete.
 5. Tool surface shape: save+lifecycle consolidated (~17 tools total). `save_X` tools cover create/update by presence of `id`; generic `archive_resource` / `restore_resource` covers workspace/project/subject lifecycle.
@@ -174,7 +174,7 @@ The "Outro cliente" section is always present. The buttons are disabled with too
 | Tool                       | Status     | Notes                                                                                       |
 |----------------------------|------------|---------------------------------------------------------------------------------------------|
 | `get_account_settings`     | new        | Returns `{theme, language, update_settings, default_workspace_id}` from `user_metadata`.   |
-| `update_account_settings`  | new        | Patch (any subset). Validates enums. Calls `supabase.auth.updateUser({data:...})`-equivalent via REST. |
+| `update_account_settings`  | new        | Patch any subset of `theme`, `update_settings`, `default_workspace_id`. `language` is read-only (it lives in `user_preferences`). Validates enums. Calls `supabase.auth.updateUser({data:...})`-equivalent via REST. |
 | `list_workspaces`          | new        | `{include_archived?}`. Sorted by `is_default desc, name asc`.                                |
 | `save_workspace`           | new        | `{id?, name, is_default?}`. Honors the existing `workspaces_one_default_per_user_idx`.       |
 | `list_projects`            | new        | `{workspace_id?, include_archived?}`.                                                       |
@@ -195,7 +195,7 @@ The "Outro cliente" section is always present. The buttons are disabled with too
 
 - `update_account_settings`:
   - `theme ∈ {'light','dark','system'}`
-  - `language ∈ {'pt-BR','en-US'}` (matches `i18n` keys today)
+  - `language` is read-only — not accepted as a write param (lives in `user_preferences`).
   - `default_workspace_id` must reference a workspace owned by `auth.uid()` (Supabase RLS already enforces; tool returns `not_found` if RLS hides the row).
 - `save_workspace`: if `is_default=true`, server-side `before-insert/update` trigger flips all other rows' `is_default` to false in the same transaction (already exists for the partial unique index).
 - `save_project`: rename routes through `rename_project_cascade(old_name, new_name, workspace_id)` RPC because `subjects.project_name` is text, no FK.
