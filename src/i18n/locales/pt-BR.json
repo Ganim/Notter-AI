@@ -131,18 +131,24 @@
     "account_coming_soon": "Em breve",
     "tabs": {
       "account": "Conta",
-      "appearance": "Aparência",
-      "language": "Idioma",
+      "general": "Geral",
       "mcp": "MCP",
       "plugins": "Plugins"
     },
-    "appearance": {
-      "dark_mode": "Modo escuro",
-      "dark_mode_hint": "Alterna entre o tema claro e o escuro."
+    "theme": {
+      "section": "Tema",
+      "light": "Claro",
+      "dark": "Escuro"
     },
     "language": {
+      "section": "Idioma",
       "pt_BR": "Português (Brasil)",
       "en": "English"
+    },
+    "updates": {
+      "section": "Atualizações",
+      "current_version": "Versão atual",
+      "check_button": "Verificar atualizações"
     },
     "plugins": {
       "coming_soon": "Em breve."

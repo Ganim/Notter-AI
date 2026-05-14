@@ -131,18 +131,24 @@
     "account_coming_soon": "Coming soon",
     "tabs": {
       "account": "Account",
-      "appearance": "Appearance",
-      "language": "Language",
+      "general": "General",
       "mcp": "MCP",
       "plugins": "Plugins"
     },
-    "appearance": {
-      "dark_mode": "Dark mode",
-      "dark_mode_hint": "Toggle between light and dark theme."
+    "theme": {
+      "section": "Theme",
+      "light": "Light",
+      "dark": "Dark"
     },
     "language": {
+      "section": "Language",
       "pt_BR": "Portuguese (Brazil)",
       "en": "English"
+    },
+    "updates": {
+      "section": "Updates",
+      "current_version": "Current version",
+      "check_button": "Check for updates"
     },
     "plugins": {
       "coming_soon": "Coming soon."

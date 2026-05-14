@@ -4,10 +4,10 @@
 // the content (bg-muted/40). Five tab buttons; the active one uses the same
 // `bg-accent text-accent-foreground` pair as the workspace switcher selection.
 import { useTranslation } from 'react-i18next';
-import { User, Palette, Globe, Network, Puzzle } from 'lucide-react';
+import { User, Sliders, Network, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type SettingsTab = 'account' | 'appearance' | 'language' | 'mcp' | 'plugins';
+export type SettingsTab = 'account' | 'general' | 'mcp' | 'plugins';
 
 interface Props {
   active: SettingsTab;
@@ -15,11 +15,10 @@ interface Props {
 }
 
 const TABS: Array<{ id: SettingsTab; labelKey: string; Icon: typeof User }> = [
-  { id: 'account',    labelKey: 'settings.tabs.account',    Icon: User },
-  { id: 'appearance', labelKey: 'settings.tabs.appearance', Icon: Palette },
-  { id: 'language',   labelKey: 'settings.tabs.language',   Icon: Globe },
-  { id: 'mcp',        labelKey: 'settings.tabs.mcp',        Icon: Network },
-  { id: 'plugins',    labelKey: 'settings.tabs.plugins',    Icon: Puzzle },
+  { id: 'account', labelKey: 'settings.tabs.account', Icon: User },
+  { id: 'general', labelKey: 'settings.tabs.general', Icon: Sliders },
+  { id: 'mcp',     labelKey: 'settings.tabs.mcp',     Icon: Network },
+  { id: 'plugins', labelKey: 'settings.tabs.plugins', Icon: Puzzle },
 ];
 
 export function SettingsSideNav({ active, onChange }: Props) {

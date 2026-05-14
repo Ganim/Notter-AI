@@ -8,8 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SettingsSideNav, type SettingsTab } from './SettingsSideNav';
 import { AccountTab } from './tabs/AccountTab';
-import { AppearanceTab } from './tabs/AppearanceTab';
-import { LanguageTab } from './tabs/LanguageTab';
+import { GeneralTab } from './tabs/GeneralTab';
 import { McpTab } from './tabs/McpTab';
 import { PluginsTab } from './tabs/PluginsTab';
 
@@ -39,8 +38,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = 'account' }: P
           <SettingsSideNav active={activeTab} onChange={setActiveTab} />
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'account' && <AccountTab />}
-            {activeTab === 'appearance' && <AppearanceTab />}
-            {activeTab === 'language' && <LanguageTab />}
+            {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'mcp' && <McpTab />}
             {activeTab === 'plugins' && <PluginsTab />}
           </div>
