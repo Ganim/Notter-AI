@@ -137,9 +137,10 @@
     },
     "theme": {
       "section": "Theme",
-      "hint": "Toggle between light and dark.",
+      "hint": "Follow the OS or pick a fixed theme.",
       "light": "Light",
-      "dark": "Dark"
+      "dark": "Dark",
+      "system": "System"
     },
     "language": {
       "section": "Language",

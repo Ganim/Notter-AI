@@ -137,9 +137,10 @@
     },
     "theme": {
       "section": "Tema",
-      "hint": "Alterna entre claro e escuro.",
+      "hint": "Segue o sistema ou define um tema fixo.",
       "light": "Claro",
-      "dark": "Escuro"
+      "dark": "Escuro",
+      "system": "Sistema"
     },
     "language": {
       "section": "Idioma",

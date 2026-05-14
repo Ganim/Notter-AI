@@ -18,12 +18,20 @@ const LANGUAGES = [
   { id: 'en'    as const, labelKey: 'settings.language.en' },
 ];
 
+type ThemeOption = 'light' | 'dark' | 'system';
+
 export function GeneralTab() {
   const { t } = useTranslation();
-  const darkMode = useAppStore((s) => s.darkMode);
-  const setDarkMode = useAppStore((s) => s.setDarkMode);
+  const themeMode = useAppStore((s) => s.themeMode);
+  const setThemeMode = useAppStore((s) => s.setThemeMode);
   const language = useAppStore((s) => s.language);
   const setLanguage = useAppStore((s) => s.setLanguage);
+
+  const THEME_OPTIONS: Array<{ id: ThemeOption; labelKey: string }> = [
+    { id: 'light',  labelKey: 'settings.theme.light' },
+    { id: 'dark',   labelKey: 'settings.theme.dark' },
+    { id: 'system', labelKey: 'settings.theme.system' },
+  ];
 
   const [version, setVersion] = useState<string>('');
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
@@ -62,34 +70,26 @@ export function GeneralTab() {
           aria-label={t('settings.theme.section')}
           className="inline-flex p-0.5 bg-muted rounded-md border border-border flex-shrink-0"
         >
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!darkMode}
-            onClick={() => setDarkMode(false)}
-            className={cn(
-              'px-4 py-1.5 text-sm rounded-[5px] transition-colors',
-              !darkMode
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t('settings.theme.light')}
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={darkMode}
-            onClick={() => setDarkMode(true)}
-            className={cn(
-              'px-4 py-1.5 text-sm rounded-[5px] transition-colors',
-              darkMode
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t('settings.theme.dark')}
-          </button>
+          {THEME_OPTIONS.map((opt) => {
+            const isActive = themeMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => setThemeMode(opt.id)}
+                className={cn(
+                  'px-4 py-1.5 text-sm rounded-[5px] transition-colors',
+                  isActive
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t(opt.labelKey)}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -103,8 +103,13 @@ export function GeneralTab() {
           value={language}
           onValueChange={(v) => setLanguage(v as 'pt-BR' | 'en')}
         >
-          <SelectTrigger className="w-48 flex-shrink-0">
-            <SelectValue />
+          <SelectTrigger className="w-56 flex-shrink-0">
+            <SelectValue>
+              {(value: string) => {
+                const item = LANGUAGES.find((l) => l.id === value);
+                return item ? t(item.labelKey) : value;
+              }}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {LANGUAGES.map((l) => (
