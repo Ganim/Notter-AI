@@ -40,6 +40,11 @@ pub async fn dispatch(
         "save_workspace" => save_workspace(params, auth, state).await,
         "list_projects" => list_projects(params, auth, state).await,
         "save_project" => save_project(params, auth, state).await,
+        "save_subject" => save_subject(params, auth, state).await,
+        "save_comment" => save_comment(params, auth, state).await,
+        "delete_comment" => delete_comment(params, auth, state).await,
+        "archive_resource" => archive_resource(params, auth, state).await,
+        "restore_resource" => restore_resource(params, auth, state).await,
         // MCP "ping" is sometimes used by clients as a liveness check;
         // accept it as an empty-result success.
         "ping" => Ok(Value::Object(Default::default())),
@@ -551,6 +556,275 @@ async fn update_account_settings(
     Ok(Value::Object(merged))
 }
 
+// ── M3.5: save_subject ───────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct SaveSubjectParams {
+    #[serde(default)]
+    id: Option<String>,
+    project_name: String,
+    file_name: String,
+}
+
+async fn save_subject(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: SaveSubjectParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("save_subject: {e}")))?;
+    if p.project_name.trim().is_empty() || p.file_name.trim().is_empty() {
+        return Err(McpError::InvalidParams("project_name and file_name required".into()));
+    }
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    match &p.id {
+        None => {
+            let args = serde_json::json!({
+                "p_project_name": p.project_name,
+                "p_file_name": p.file_name,
+            });
+            let row = sb.rpc("create_subject_with_v0", &args, &token).await?;
+            // RPC returns a single subjects row (object, not array). If it
+            // returns an array (some PostgREST configs), unwrap.
+            if let Some(arr) = row.as_array() {
+                return arr.first().cloned()
+                    .ok_or_else(|| McpError::SupabaseError("create_subject_with_v0 returned empty array".into()));
+            }
+            Ok(row)
+        }
+        Some(id) => {
+            let body = serde_json::json!({
+                "project_name": p.project_name,
+                "file_name": p.file_name,
+                "updated_at": crate::mcp::endpoint::now_rfc3339(),
+            });
+            let url = format!("{}/rest/v1/subjects?id=eq.{}", sb.base_url, url_encode(id));
+            let res = reqwest::Client::new()
+                .patch(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .header("apikey", &sb.anon_key)
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .json(&body)
+                .send().await
+                .map_err(|e| McpError::SupabaseError(format!("patch subjects: {e}")))?;
+            if !res.status().is_success() {
+                let s = res.status().as_u16();
+                let b: Value = res.json().await.unwrap_or(Value::Null);
+                return Err(McpError::SupabaseError(format!("patch subjects: HTTP {s} body={b}")));
+            }
+            let body: Value = res.json().await.unwrap_or(Value::Null);
+            body.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::NotFound(format!("subject {id} not found")))
+        }
+    }
+}
+
+// ── M3.6: save_comment + delete_comment ──────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct SaveCommentParams {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    subject_id: Option<String>,
+    #[serde(default)]
+    version_id: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    resolved: Option<bool>,
+    #[serde(default)]
+    archived: Option<bool>,
+    #[serde(default)]
+    anchor_quote: Option<String>,
+    #[serde(default)]
+    anchor_prefix: Option<String>,
+    #[serde(default)]
+    anchor_suffix: Option<String>,
+}
+
+async fn save_comment(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: SaveCommentParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("save_comment: {e}")))?;
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    match &p.id {
+        None => {
+            let subject_id = p.subject_id.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("subject_id required on create".into()))?;
+            let version_id = p.version_id.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("version_id required on create".into()))?;
+            let body_text = p.body.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("body required on create".into()))?;
+            let aq = p.anchor_quote.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("anchor_quote required on create".into()))?;
+            let ap = p.anchor_prefix.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("anchor_prefix required on create".into()))?;
+            let asuf = p.anchor_suffix.as_ref()
+                .ok_or_else(|| McpError::InvalidParams("anchor_suffix required on create".into()))?;
+            let payload = serde_json::json!({
+                "subject_id": subject_id,
+                "version_id": version_id,
+                "body": body_text,
+                "anchor_quote": aq,
+                "anchor_prefix": ap,
+                "anchor_suffix": asuf,
+            });
+            let res = sb.post("subject_comments", &payload, &token, true).await?;
+            res.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::SupabaseError("save_comment: empty response".into()))
+        }
+        Some(id) => {
+            let mut obj = serde_json::Map::new();
+            if let Some(v) = &p.body { obj.insert("body".into(), Value::String(v.clone())); }
+            if let Some(v) = p.resolved { obj.insert("resolved".into(), Value::Bool(v)); }
+            if let Some(v) = p.archived { obj.insert("archived".into(), Value::Bool(v)); }
+            obj.insert("updated_at".into(), Value::String(crate::mcp::endpoint::now_rfc3339()));
+            let url = format!("{}/rest/v1/subject_comments?id=eq.{}", sb.base_url, url_encode(id));
+            let res = reqwest::Client::new()
+                .patch(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .header("apikey", &sb.anon_key)
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .json(&Value::Object(obj)).send().await
+                .map_err(|e| McpError::SupabaseError(e.to_string()))?;
+            if !res.status().is_success() {
+                let s = res.status().as_u16();
+                let b: Value = res.json().await.unwrap_or(Value::Null);
+                return Err(McpError::SupabaseError(format!("patch comment: HTTP {s} body={b}")));
+            }
+            let body: Value = res.json().await.unwrap_or(Value::Null);
+            body.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::NotFound(format!("comment {id} not found")))
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct DeleteCommentParams { id: String }
+
+async fn delete_comment(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: DeleteCommentParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("delete_comment: {e}")))?;
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    let url = format!("{}/rest/v1/subject_comments?id=eq.{}", sb.base_url, url_encode(&p.id));
+    let res = reqwest::Client::new()
+        .delete(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("apikey", &sb.anon_key)
+        .send().await
+        .map_err(|e| McpError::SupabaseError(e.to_string()))?;
+    if !res.status().is_success() {
+        let s = res.status().as_u16();
+        return Err(McpError::SupabaseError(format!("delete comment: HTTP {s}")));
+    }
+    Ok(serde_json::json!({ "deleted": p.id }))
+}
+
+// ── M3.7: archive_resource + restore_resource ─────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ArchiveParams {
+    #[serde(rename = "type")]
+    kind: String,
+    id: String,
+}
+
+fn table_for_kind(kind: &str) -> Result<&'static str, McpError> {
+    match kind {
+        "workspace" => Ok("workspaces"),
+        "project" => Ok("projects"),
+        "subject" => Ok("subjects"),
+        other => Err(McpError::InvalidParams(format!("type must be workspace|project|subject, got '{other}'"))),
+    }
+}
+
+async fn set_archived(
+    state: &McpState, auth: &AuthContext, kind: &str, id: &str, archived: bool,
+) -> Result<Value, McpError> {
+    let table = table_for_kind(kind)?;
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    if archived && kind == "workspace" {
+        let q = format!(
+            "select=id&workspace_id=eq.{}&archived_at=is.null&limit=1",
+            url_encode(id)
+        );
+        let body = sb.get("projects", &q, &token).await?;
+        if body.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+            return Err(McpError::Forbidden(
+                "workspace has live projects; archive them first".into()
+            ));
+        }
+    }
+    if archived && kind == "project" {
+        let q = format!("select=name&id=eq.{}&limit=1", url_encode(id));
+        let body = sb.get("projects", &q, &token).await?;
+        let name = body.as_array().and_then(|a| a.first())
+            .and_then(|o| o.get("name")).and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::NotFound(format!("project {id} not found")))?
+            .to_string();
+        let subj_q = format!(
+            "select=id&project_name=eq.{}&archived_at=is.null&limit=1",
+            url_encode(&name)
+        );
+        let subj_body = sb.get("subjects", &subj_q, &token).await?;
+        if subj_body.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+            return Err(McpError::Forbidden(
+                "project has live subjects; archive them first".into()
+            ));
+        }
+    }
+
+    let archived_value = if archived {
+        Value::String(crate::mcp::endpoint::now_rfc3339())
+    } else {
+        Value::Null
+    };
+    let patch = serde_json::json!({
+        "archived_at": archived_value,
+        "updated_at": crate::mcp::endpoint::now_rfc3339(),
+    });
+    let url = format!("{}/rest/v1/{}?id=eq.{}", sb.base_url, table, url_encode(id));
+    let res = reqwest::Client::new()
+        .patch(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("apikey", &sb.anon_key)
+        .header("Content-Type", "application/json")
+        .header("Prefer", "return=representation")
+        .json(&patch).send().await
+        .map_err(|e| McpError::SupabaseError(e.to_string()))?;
+    if !res.status().is_success() {
+        let s = res.status().as_u16();
+        let b: Value = res.json().await.unwrap_or(Value::Null);
+        return Err(McpError::SupabaseError(format!("patch {table}: HTTP {s} body={b}")));
+    }
+    let body: Value = res.json().await.unwrap_or(Value::Null);
+    body.as_array().and_then(|a| a.first().cloned())
+        .ok_or_else(|| McpError::NotFound(format!("{kind} {id} not found")))
+}
+
+async fn archive_resource(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: ArchiveParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("archive_resource: {e}")))?;
+    set_archived(state, auth, &p.kind, &p.id, true).await
+}
+
+async fn restore_resource(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: ArchiveParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("restore_resource: {e}")))?;
+    set_archived(state, auth, &p.kind, &p.id, false).await
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 /// Fetch every project the user can see and build a `project_name -> workspace_id`
@@ -615,5 +889,23 @@ mod tests {
     #[test]
     fn build_in_clause_handles_empty() {
         assert_eq!(build_in_clause(&[]), "in.()");
+    }
+
+    #[test]
+    fn dispatch_lists_all_17_methods() {
+        // Pseudo-test: reads the dispatch source via include_str! and counts arms.
+        let src = include_str!("tools.rs");
+        let methods = [
+            "list_subjects","get_subject","save_subject",
+            "list_versions","get_version","post_subject_revision",
+            "list_comments","save_comment","delete_comment",
+            "list_workspaces","save_workspace",
+            "list_projects","save_project",
+            "get_account_settings","update_account_settings",
+            "archive_resource","restore_resource",
+        ];
+        for m in methods {
+            assert!(src.contains(&format!("\"{}\"", m)), "method {} missing from dispatch", m);
+        }
     }
 }
