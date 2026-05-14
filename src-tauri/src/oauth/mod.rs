@@ -13,7 +13,6 @@ pub mod register;
 pub mod revoke;
 pub mod token;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -34,7 +33,7 @@ pub type OAuthState = Arc<RwLock<OAuthStateInner>>;
 /// Build the OAuthState at app boot. The signing key is read from
 /// `<data_dir>/jwt-secret.bin`; created on first run. Clients & grants
 /// are loaded from `<data_dir>/clients.json` if it exists.
-pub async fn bootstrap_oauth(data_dir: &PathBuf) -> Result<OAuthState, String> {
+pub async fn bootstrap_oauth(data_dir: &std::path::Path) -> Result<OAuthState, String> {
     let jwt_key = jwt::JwtKey::load_or_create(data_dir).await?;
     let clients = clients::ClientRegistry::load(data_dir).await?;
     let grants = grants::GrantStore::new();

@@ -40,7 +40,8 @@ impl ClientRegistry {
             .map_err(|e| format!("create_dir_all: {e}"))?;
         let path = dir.join(FILENAME);
         let file: ClientRegistryFile = match tokio::fs::read_to_string(&path).await {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+            Ok(s) => serde_json::from_str(&s)
+                .map_err(|e| format!("parse clients.json: {e}"))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => ClientRegistryFile::default(),
             Err(e) => return Err(format!("read clients.json: {e}")),
         };
@@ -73,7 +74,6 @@ impl ClientRegistry {
         &mut self,
         client_name: String,
         redirect_uris: Vec<String>,
-        _dir: &Path,
     ) -> Result<(String, String), String> {
         let mut id_bytes = [0u8; 16];
         rand::rng().fill_bytes(&mut id_bytes);

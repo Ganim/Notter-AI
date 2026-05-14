@@ -1,6 +1,6 @@
 // src-tauri/src/oauth/tests.rs
 use super::jwt::{Claims, JwtKey};
-use super::clients::{ClientRegistry, RegisteredClient as _};
+use super::clients::ClientRegistry;
 
 fn tmp() -> std::path::PathBuf {
     let mut p = std::env::temp_dir();
@@ -80,7 +80,6 @@ async fn client_registry_round_trip() {
     let (client_id, plaintext_secret) = reg.register(
         "Claude Code".into(),
         vec!["http://127.0.0.1:54881/callback".into()],
-        &dir,
     ).await.unwrap();
 
     assert!(client_id.starts_with("notter_client_"));
