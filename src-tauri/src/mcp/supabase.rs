@@ -222,11 +222,12 @@ mod tests {
                 .path("/rest/v1/rpc/rename_project_cascade")
                 .header("authorization", "Bearer access-tok")
                 .header("apikey", "anon")
+                .header("prefer", "return=representation")
                 .json_body(serde_json::json!({
                     "old_name": "Old", "new_name": "New",
                     "workspace_uuid": "00000000-0000-0000-0000-000000000001"
                 }));
-            then.status(200).body("");
+            then.status(200).json_body(serde_json::json!(null));
         }).await;
 
         let sb = SupabaseClient::new(server.base_url(), "anon".into());
@@ -234,7 +235,8 @@ mod tests {
             "old_name": "Old", "new_name": "New",
             "workspace_uuid": "00000000-0000-0000-0000-000000000001"
         });
-        sb.rpc("rename_project_cascade", &body, "access-tok").await.unwrap();
+        let res = sb.rpc("rename_project_cascade", &body, "access-tok").await.unwrap();
+        assert_eq!(res, serde_json::Value::Null);
         m.assert_async().await;
     }
 }

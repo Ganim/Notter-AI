@@ -40,7 +40,7 @@ begin
     and name = old_name;
 
   if not found then
-    raise exception 'project not found: %', old_name using errcode = '42P01';
+    raise exception 'project not found: %', old_name using errcode = 'P0002';
   end if;
 
   update subjects
