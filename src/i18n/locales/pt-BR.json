@@ -61,7 +61,23 @@
     "copy_button": "Copiar JSON",
     "copied_toast": "Configuração MCP copiada",
     "disabled_banner": "Servidor MCP indisponível",
-    "disabled_reason": "O servidor local não conseguiu iniciar. Reinicie o app; se persistir, verifique os logs."
+    "disabled_reason": "O servidor local não conseguiu iniciar. Reinicie o app; se persistir, verifique os logs.",
+    "no_url": "Servidor MCP ainda não pronto — aguarde um momento e tente de novo.",
+    "providers": {
+      "title": "Conectar a clientes IA",
+      "detected": "Detectado",
+      "not_detected": "Não detectado",
+      "connect": "Conectar",
+      "disconnect": "Desconectar",
+      "connected": "{{name}} conectado",
+      "disconnected": "{{name}} desconectado",
+      "install_first": "Instale {{name}} primeiro"
+    },
+    "manual": {
+      "title": "Outro cliente",
+      "url_label": "URL MCP",
+      "instructions": "Adicione esta URL na config MCP do seu cliente. Autorização via OAuth na primeira conexão."
+    }
   },
   "planner": {
     "projects": "Projetos",

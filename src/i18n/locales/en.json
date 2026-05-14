@@ -61,7 +61,23 @@
     "copy_button": "Copy JSON",
     "copied_toast": "MCP config copied to clipboard",
     "disabled_banner": "MCP server unavailable",
-    "disabled_reason": "The local server failed to bind. Restart the app; if it persists, check the logs."
+    "disabled_reason": "The local server failed to bind. Restart the app; if it persists, check the logs.",
+    "no_url": "MCP server not yet ready — wait a moment and try again.",
+    "providers": {
+      "title": "Connect to AI clients",
+      "detected": "Detected",
+      "not_detected": "Not detected",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "connected": "{{name}} connected",
+      "disconnected": "{{name}} disconnected",
+      "install_first": "Install {{name}} first"
+    },
+    "manual": {
+      "title": "Other client",
+      "url_label": "MCP URL",
+      "instructions": "Add this URL to your client's MCP config. Authorization is handled via OAuth on first connect."
+    }
   },
   "planner": {
     "projects": "Projects",
