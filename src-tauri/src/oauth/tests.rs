@@ -247,6 +247,192 @@ async fn authorize_post_issues_code_and_redirects() {
     assert!(loc_str.contains("&state=xyz"));
 }
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+fn pkce_pair() -> (String, String) {
+    use rand::RngCore;
+    use sha2::Digest;
+    let mut verifier_bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut verifier_bytes);
+    let verifier = URL_SAFE_NO_PAD.encode(verifier_bytes);
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(verifier.as_bytes());
+    let challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
+    (verifier, challenge)
+}
+
+#[tokio::test]
+async fn token_endpoint_exchanges_code_for_access_and_refresh() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, client_secret) = {
+        let mut s = state.write().await;
+        s.clients.register("Claude Code".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
+    };
+    let (verifier, challenge) = pkce_pair();
+
+    let code = "test-code-1".to_string();
+    {
+        let s = state.read().await;
+        s.grants.insert(code.clone(), super::grants::AuthCode {
+            client_id: client_id.clone(),
+            account_id: "acc-1".into(),
+            code_challenge: challenge.clone(),
+            redirect_uri: "http://127.0.0.1:54881/cb".into(),
+            scope: "notter:full".into(),
+            expires_at: i64::MAX,
+        }).await;
+    }
+
+    let router = super::routes(state.clone());
+    let form = format!(
+        "grant_type=authorization_code&code={}&client_id={}&client_secret={}&redirect_uri=http%3A%2F%2F127.0.0.1%3A54881%2Fcb&code_verifier={}",
+        urlencoding::encode(&code), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret), urlencoding::encode(&verifier),
+    );
+    let req = Request::builder()
+        .method("POST").uri("/token")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(form)).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 200);
+    let bytes = to_bytes(res.into_body(), 64*1024).await.unwrap();
+    let j: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(j["token_type"], "Bearer");
+    assert_eq!(j["expires_in"], 3600);
+    assert!(j["access_token"].as_str().unwrap().len() > 32);
+    assert!(j["refresh_token"].as_str().unwrap().len() > 32);
+    assert_eq!(j["scope"], "notter:full");
+}
+
+#[tokio::test]
+async fn token_endpoint_rejects_wrong_verifier() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, client_secret) = {
+        let mut s = state.write().await;
+        s.clients.register("X".into(), vec!["http://x/cb".into()]).await.unwrap()
+    };
+    let (_verifier, challenge) = pkce_pair();
+    let code = "c-bad".to_string();
+    {
+        let s = state.read().await;
+        s.grants.insert(code.clone(), super::grants::AuthCode {
+            client_id: client_id.clone(), account_id: "a".into(),
+            code_challenge: challenge,
+            redirect_uri: "http://x/cb".into(),
+            scope: "notter:full".into(), expires_at: i64::MAX,
+        }).await;
+    }
+    let router = super::routes(state);
+    let form = format!(
+        "grant_type=authorization_code&code={}&client_id={}&client_secret={}&redirect_uri=http%3A%2F%2Fx%2Fcb&code_verifier=NOT_THE_VERIFIER",
+        urlencoding::encode(&code), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret),
+    );
+    let req = Request::builder().method("POST").uri("/token")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(form)).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 400);
+}
+
+#[tokio::test]
+async fn refresh_token_rotation() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, client_secret) = {
+        let mut s = state.write().await;
+        s.clients.register("X".into(), vec!["http://x/cb".into()]).await.unwrap()
+    };
+    let (verifier, challenge) = pkce_pair();
+    let code = "c-refresh".to_string();
+    {
+        let s = state.read().await;
+        s.grants.insert(code.clone(), super::grants::AuthCode {
+            client_id: client_id.clone(), account_id: "acc-r".into(),
+            code_challenge: challenge,
+            redirect_uri: "http://x/cb".into(),
+            scope: "notter:full".into(), expires_at: i64::MAX,
+        }).await;
+    }
+    let router = super::routes(state.clone());
+
+    let form = format!(
+        "grant_type=authorization_code&code={}&client_id={}&client_secret={}&redirect_uri=http%3A%2F%2Fx%2Fcb&code_verifier={}",
+        urlencoding::encode(&code), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret), urlencoding::encode(&verifier),
+    );
+    let res = router.clone().oneshot(Request::builder().method("POST").uri("/token")
+        .header("content-type","application/x-www-form-urlencoded").body(Body::from(form)).unwrap()).await.unwrap();
+    let initial: serde_json::Value = serde_json::from_slice(&to_bytes(res.into_body(),64*1024).await.unwrap()).unwrap();
+    let old_refresh = initial["refresh_token"].as_str().unwrap().to_string();
+
+    let form2 = format!(
+        "grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}",
+        urlencoding::encode(&old_refresh), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret),
+    );
+    let res2 = router.clone().oneshot(Request::builder().method("POST").uri("/token")
+        .header("content-type","application/x-www-form-urlencoded").body(Body::from(form2)).unwrap()).await.unwrap();
+    assert_eq!(res2.status(), 200);
+    let rotated: serde_json::Value = serde_json::from_slice(&to_bytes(res2.into_body(),64*1024).await.unwrap()).unwrap();
+    assert_ne!(rotated["refresh_token"], serde_json::Value::String(old_refresh.clone()));
+
+    // Re-using the OLD refresh after rotation must fail.
+    let form3 = format!(
+        "grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}",
+        urlencoding::encode(&old_refresh), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret),
+    );
+    let res3 = router.oneshot(Request::builder().method("POST").uri("/token")
+        .header("content-type","application/x-www-form-urlencoded").body(Body::from(form3)).unwrap()).await.unwrap();
+    assert_eq!(res3.status(), 400);
+}
+
+#[tokio::test]
+async fn revoke_invalidates_refresh_jti() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, client_secret) = {
+        let mut s = state.write().await;
+        s.clients.register("X".into(), vec!["http://x/cb".into()]).await.unwrap()
+    };
+
+    let claims = Claims {
+        iss: "http://127.0.0.1:1".into(),
+        sub: "acc-1".into(),
+        client_id: client_id.clone(),
+        scope: "notter:full".into(),
+        iat: 0, exp: i64::MAX,
+        token_type: "refresh".into(),
+        jti: "jti-test".into(),
+    };
+    let refresh = {
+        let s = state.read().await;
+        s.jwt_key.sign(&claims).unwrap()
+    };
+
+    let router = super::routes(state.clone());
+    let form = format!(
+        "token={}&token_type_hint=refresh_token&client_id={}&client_secret={}",
+        urlencoding::encode(&refresh), urlencoding::encode(&client_id),
+        urlencoding::encode(&client_secret),
+    );
+    let req = Request::builder().method("POST").uri("/revoke")
+        .header("content-type","application/x-www-form-urlencoded")
+        .body(Body::from(form)).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 200);
+
+    let s = state.read().await;
+    assert!(s.clients.is_jti_revoked("jti-test"));
+}
+
 #[tokio::test]
 async fn authorize_post_rejects_unregistered_redirect_uri_even_on_deny() {
     let dir = tmp();

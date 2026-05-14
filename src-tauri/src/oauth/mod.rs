@@ -61,6 +61,8 @@ pub fn routes_with_accounts(state: OAuthState, accounts: Vec<AccountSummary>) ->
         .route("/register", post(register::register))
         .route("/authorize",
             get(authorize::authorize_get).post(authorize::authorize_post))
+        .route("/token", post(token::token))
+        .route("/revoke", post(revoke::revoke))
         .layer(Extension(std::sync::Arc::new(accounts)))
         .with_state(state)
 }
