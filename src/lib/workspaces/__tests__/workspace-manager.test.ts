@@ -14,7 +14,7 @@ vi.mock('@/lib/accounts/account-manager', () => ({
 
 vi.mock('@/lib/sync', () => ({
   fetchWorkspaces: vi.fn().mockResolvedValue([]),
-  pushWorkspace: vi.fn().mockResolvedValue({ ok: true }),
+  createWorkspaceWithOwner: vi.fn().mockResolvedValue({ ok: true }),
   renameWorkspace: vi.fn().mockResolvedValue({ ok: true }),
   setWorkspaceDefault: vi.fn().mockResolvedValue(undefined),
   deleteWorkspace: vi.fn().mockResolvedValue({ ok: true }),
@@ -58,10 +58,17 @@ describe('workspace-manager', () => {
   });
 
   it('bootstrap creates a default workspace lazily when none exist server-side', async () => {
-    (sync.fetchWorkspaces as any).mockResolvedValueOnce([]);
+    // First fetch (start of bootstrap) returns empty; second fetch (after the
+    // RPC succeeds) returns the newly-created row — mirrors the real flow
+    // where createWorkspaceWithOwner is followed by fetchWorkspaces re-fetch.
+    (sync.fetchWorkspaces as any)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: 'w-new', userId: 'u1', name: "User's workspace", isDefault: true, createdAt: '', updatedAt: '' },
+      ]);
     const mgr = getWorkspaceManager();
     await mgr.bootstrap();
-    expect(sync.pushWorkspace).toHaveBeenCalledWith(
+    expect(sync.createWorkspaceWithOwner).toHaveBeenCalledWith(
       expect.objectContaining({ name: "User's workspace", isDefault: true, userId: 'u1' }),
     );
     expect(mgr.list().length).toBe(1);
@@ -98,7 +105,7 @@ describe('workspace-manager', () => {
     await mgr.bootstrap();
     const before = mgr.list().length;
     await mgr.add({ name: 'Work' });
-    expect(sync.pushWorkspace).toHaveBeenCalled();
+    expect(sync.createWorkspaceWithOwner).toHaveBeenCalled();
     expect(mgr.list().length).toBe(before + 1);
   });
 

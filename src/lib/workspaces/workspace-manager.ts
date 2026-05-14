@@ -27,7 +27,7 @@ import {
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { useAuthStore } from '@/stores/auth-store';
 import {
-  fetchWorkspaces, pushWorkspace, renameWorkspace, setWorkspaceDefault,
+  fetchWorkspaces, createWorkspaceWithOwner, renameWorkspace, setWorkspaceDefault,
   deleteWorkspace, moveProjectsBetweenWorkspaces,
 } from '@/lib/sync';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
@@ -108,19 +108,15 @@ export class WorkspaceManager {
     // 1. Fetch from Supabase.
     let remote = (await fetchWorkspaces(userId)) ?? [];
 
-    // 2. Lazy default for project-less accounts.
+    // 2. Lazy default for project-less accounts. Uses the RPC so the
+    // workspace + owner-member rows land atomically.
     if (remote.length === 0) {
       const id = crypto.randomUUID();
-      const result = await pushWorkspace({
+      const result = await createWorkspaceWithOwner({
         id, userId, name: "User's workspace", isDefault: true,
       });
       if (result.ok) {
-        remote = [{
-          id, userId, name: "User's workspace", isDefault: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          currentRole: 'owner', memberCount: 1,
-        }];
+        remote = (await fetchWorkspaces(userId)) ?? [];
       } else {
         // Re-fetch — a parallel sign-in on another device may have created one.
         remote = (await fetchWorkspaces(userId)) ?? [];
@@ -166,16 +162,10 @@ export class WorkspaceManager {
     }
     const id = crypto.randomUUID();
     const isDefault = input.isDefault ?? false;
-    const result = await pushWorkspace({ id, userId, name: input.name, isDefault });
+    const result = await createWorkspaceWithOwner({ id, userId, name: input.name, isDefault });
     if (!result.ok) throw new Error(result.code);
 
     if (isDefault) {
-      // Clear is_default on the previous default in-memory; setWorkspaceDefault
-      // already did the DB writes inside pushWorkspace's transaction window
-      // via the partial unique index — but if it fired in REST order, the
-      // first INSERT may have collided. Be safe: call setWorkspaceDefault
-      // explicitly to converge.
-      await setWorkspaceDefault(id, userId);
       this.workspaces = this.workspaces.map((w) => ({ ...w, isDefault: false }));
     }
 
