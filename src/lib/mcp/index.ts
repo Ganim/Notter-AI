@@ -155,3 +155,24 @@ export function teardownMcpAuthListener(): void {
   }
   mcpAuthInFlight = false;
 }
+
+// ─── OAuth account summaries ──────────────────────────────────────────────
+
+export interface AccountSummary {
+  accountId: string;
+  displayName: string;
+  email: string;
+}
+
+/**
+ * Push the current list of registered accounts to Rust so the OAuth consent
+ * screen can offer them in the account picker. Called at boot and on every
+ * AccountManager mutation.
+ */
+export async function pushMcpAccountSummaries(accounts: AccountSummary[]): Promise<void> {
+  try {
+    await invoke('mcp_set_account_summaries', { args: { accounts } });
+  } catch (e) {
+    console.warn('[mcp] pushMcpAccountSummaries failed:', e);
+  }
+}
