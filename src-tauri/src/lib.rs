@@ -1,5 +1,6 @@
 mod secure_store;
 mod mcp;   // NEW — M3
+mod oauth;
 
 use tauri::Manager;
 
