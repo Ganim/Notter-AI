@@ -4,6 +4,7 @@ import type { EditorTheme, Project } from '@/types';
 import {
   pushProjects, pushSubject, deleteRemoteSubject,
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
+  commitSubjectVersion, renameSubjectInPlace,
   type SubjectRecord,
 } from '@/lib/sync';
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
@@ -12,6 +13,14 @@ import { useSubjectVersionsStore } from './subject-versions-store';
 import { useWorkspacesStore } from './workspaces-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
+
+/**
+ * Autosave coalescing window. The commit_subject_version RPC folds
+ * consecutive same-source writes within this window into one row instead of
+ * inserting a new version per keystroke debounce. 60s collapses a typing
+ * session into a single version; a >60s pause starts a new one.
+ */
+const AUTOSAVE_COALESCE_SECS = 60;
 
 const BG_COLORS: EditorTheme[] = [
   { name: 'Zinc',  value: 'bg-zinc-50 dark:bg-zinc-900',     light: { hex: '#fafafa', base: 'vs' },      dark: { hex: '#18181b', base: 'vs-dark' } },
@@ -27,9 +36,49 @@ function getProjectsFile(): string {
 }
 
 const projectsSync = makeDebouncedSync<Project[]>(pushProjects, 1000);
-type SubjectPayload = { projectName: string; fileName: string; content: string };
-const subjectSync = makeDebouncedSync<SubjectPayload>(
-  (uid, p) => pushSubject(uid, p.projectName, p.fileName, p.content),
+
+/**
+ * Debounced autosave for the active subject. Replaces the previous
+ * pushSubject debouncer that wrote raw content directly. Every payload now
+ * goes through `commit_subject_version` so each save creates (or coalesces
+ * into) a version row AND updates `subjects.content` + `current_version_id`
+ * atomically — keeping the invariant
+ *   subjects.content == current_version.content_markdown
+ * intact at every step. `parentVersionId` is snapshotted at schedule time;
+ * the RPC ignores it on a coalesce hit and uses it only on a fresh-row
+ * miss.
+ */
+type SubjectCommitPayload = {
+  subjectId: string;
+  content: string;
+  parentVersionId: string | null;
+};
+const subjectCommitSync = makeDebouncedSync<SubjectCommitPayload>(
+  async (_uid, p) => {
+    const versionId = await commitSubjectVersion({
+      subjectId: p.subjectId,
+      content: p.content,
+      source: 'user',
+      sourceActor: null,
+      label: null,
+      parentVersionId: p.parentVersionId,
+      coalesceWindowSecs: AUTOSAVE_COALESCE_SECS,
+    });
+    if (!versionId) return;
+    // Optimistic reflect: move the "atual" marker on subjectRows so the
+    // History dropdown updates without waiting for the realtime UPDATE.
+    usePlannerStore.getState().markSubjectCurrentVersion(p.subjectId, versionId);
+    // If the user is still looking at this subject's history, refresh the
+    // versions slice so the new (or coalesced) row appears in the panel.
+    const vs = useSubjectVersionsStore.getState();
+    if (vs.currentSubjectId === p.subjectId) {
+      const { fetchSubjectVersions } = await import('@/lib/sync');
+      const fresh = await fetchSubjectVersions(p.subjectId);
+      if (fresh && useSubjectVersionsStore.getState().currentSubjectId === p.subjectId) {
+        useSubjectVersionsStore.getState().applyRemoteVersions(fresh);
+      }
+    }
+  },
   1000,
 );
 
@@ -123,7 +172,24 @@ interface PlannerState {
   loadSubjectContent: (projectName: string, subject: string) => Promise<void>;
   setSubjectContent: (content: string) => void;
   saveSubjectContent: (projectName: string, subject: string, content: string) => Promise<void>;
-  createSubject: (projectName: string, name: string, initialContent?: string) => Promise<void>;
+  /** Disk-only write; use when remote already has the content (adopt flow). */
+  writeSubjectFileOnly: (projectName: string, subject: string, content: string) => Promise<void>;
+  /**
+   * Create a subject + its initial version. When `initialVersionMeta` is
+   * supplied (e.g. by the import flow), those fields override the defaults
+   * (`source='user'`, `sourceActor='initial'`, `label='Versão inicial'`) so
+   * the very first version carries accurate provenance.
+   */
+  createSubject: (
+    projectName: string,
+    name: string,
+    initialContent?: string,
+    initialVersionMeta?: {
+      source: 'user' | 'ai' | 'import';
+      sourceActor?: string | null;
+      label?: string | null;
+    },
+  ) => Promise<void>;
   renameSubject: (projectName: string, oldName: string, newName: string) => Promise<void>;
   deleteSubject: (projectName: string, subject: string) => Promise<void>;
 
@@ -336,13 +402,42 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   saveSubjectContent: async (projectName, subject, content) => {
     try {
       await writeTextFile(accountScopedPath(`NotterProjects/${projectName}/${subject}`), content, { baseDir: BaseDirectory.AppLocalData });
-      subjectSync.schedule({ projectName, fileName: subject, content });
+      // Resolve the remote row so we can commit a version. Offline / pre-sync
+      // subjects have no row yet — disk save is enough; the next sync will
+      // catch up via createSubject's path or a manual force-sync.
+      const row = get().subjectRows.find(
+        (r) => r.projectName === projectName && r.fileName === subject,
+      );
+      if (!row) return;
+      subjectCommitSync.schedule({
+        subjectId: row.id,
+        content,
+        parentVersionId: row.currentVersionId ?? null,
+      });
     } catch (e) {
       console.error('Failed to save subject content:', e);
     }
   },
 
-  createSubject: async (projectName, name, initialContent) => {
+  /**
+   * Disk-only write for callers that have ALREADY persisted content remotely
+   * via a different path (e.g. the Adopt button calls commit_subject_version
+   * directly; it just needs the local file to mirror that). Skips the
+   * autosave debouncer, so no second redundant version row is created.
+   */
+  writeSubjectFileOnly: async (projectName: string, subject: string, content: string) => {
+    try {
+      await writeTextFile(
+        accountScopedPath(`NotterProjects/${projectName}/${subject}`),
+        content,
+        { baseDir: BaseDirectory.AppLocalData },
+      );
+    } catch (e) {
+      console.error('Failed to write subject file:', e);
+    }
+  },
+
+  createSubject: async (projectName, name, initialContent, initialVersionMeta) => {
     const fileName = name.endsWith('.md') ? name : `${name}.md`;
     const content = initialContent ?? '# Nova Anotação\n\nDescreva o assunto...';
     await writeTextFile(
@@ -354,45 +449,58 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const userId = useAuthStore.getState().user?.id;
     if (!userId) return;
 
-    // Generate ids client-side so the subject + its initial version can be
-    // written in one flow without an intermediate fetch to recover server-
-    // generated ids. Every subject MUST have at least one version row from
-    // the moment of creation — no orphan subjects.
+    // Pin down the subject id client-side so the version commit can reference
+    // it in the same flow without a refetch round-trip. Every subject must
+    // have at least one version row from creation onward — no orphans.
     const subjectId = crypto.randomUUID();
-    const versionId = crypto.randomUUID();
     try {
+      // 1. Insert the subjects row (without current_version_id; the RPC
+      //    sets it in step 2). The RPC's ownership check needs the row to
+      //    exist, so we cannot collapse these two writes.
       await pushSubject(userId, projectName, fileName, content, subjectId);
-      const { pushSubjectVersion, updateSubjectCurrentVersion } = await import('@/lib/sync');
-      await pushSubjectVersion({
-        id: versionId,
-        subjectId,
-        contentMarkdown: content,
-        parentVersionId: null,
-        source: 'user',
-        sourceActor: null,
-        label: 'Versão inicial',
-      });
-      await updateSubjectCurrentVersion(userId, subjectId, versionId);
 
-      // Optimistically reflect both rows so the SnapshotPanel shows the
-      // initial version without waiting for realtime — same RLS-lag mitigation
-      // we apply elsewhere (commits f248994, 697ac90).
-      const nowIso = new Date().toISOString();
+      // 2. Commit the initial version atomically: inserts subject_versions
+      //    AND moves subjects.content + current_version_id. No coalesce
+      //    window — first version is always an explicit checkpoint.
+      const initialSource = initialVersionMeta?.source ?? 'user';
+      const initialSourceActor =
+        initialVersionMeta?.sourceActor !== undefined
+          ? initialVersionMeta.sourceActor
+          : 'initial';
+      const initialLabel =
+        initialVersionMeta?.label !== undefined
+          ? initialVersionMeta.label
+          : 'Versão inicial';
+      const newVersionId = await commitSubjectVersion({
+        subjectId,
+        content,
+        source: initialSource,
+        sourceActor: initialSourceActor,
+        label: initialLabel,
+        parentVersionId: null,
+        coalesceWindowSecs: 0,
+      });
+      if (!newVersionId) {
+        console.error('[planner] createSubject: initial version commit failed');
+        return;
+      }
+
+      // Optimistic subjectRows update so SnapshotPanel renders the new
+      // subject immediately, without waiting for the realtime UPDATE to
+      // round-trip back.
       set((s) => ({
         subjectRows: [
           ...s.subjectRows,
           {
             id: subjectId,
-            userId,
             projectName,
             fileName,
             content,
-            currentVersionId: versionId,
-            updatedAt: nowIso,
+            currentVersionId: newVersionId,
           },
         ],
       }));
-      useSubjectVersionsStore.getState().loadForSubject(subjectId);
+      await useSubjectVersionsStore.getState().loadForSubject(subjectId);
     } catch (e) {
       console.error('[planner] createSubject (initial version) failed:', e);
     }
@@ -400,18 +508,53 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   renameSubject: async (projectName, oldName, newName) => {
     const newFileName = newName.endsWith('.md') ? newName : `${newName}.md`;
-    await rename(accountScopedPath(`NotterProjects/${projectName}/${oldName}`), accountScopedPath(`NotterProjects/${projectName}/${newFileName}`), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    // Locate the remote row BEFORE renaming so we can call the in-place RPC.
+    // The previous implementation did DELETE+INSERT, which cascaded into
+    // subject_versions/subject_comments and destroyed the entire history of
+    // the renamed file. Now we UPDATE in place and the FK chain is preserved.
+    const row = get().subjectRows.find(
+      (r) => r.projectName === projectName && r.fileName === oldName,
+    );
+
+    await rename(
+      accountScopedPath(`NotterProjects/${projectName}/${oldName}`),
+      accountScopedPath(`NotterProjects/${projectName}/${newFileName}`),
+      { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData },
+    );
     set((state) => ({
       subjects: state.subjects.map((s) => (s === oldName ? newFileName : s)),
       selectedSubject: state.selectedSubject === oldName ? newFileName : state.selectedSubject,
+      subjectRows: state.subjectRows.map((r) =>
+        r.projectName === projectName && r.fileName === oldName
+          ? { ...r, fileName: newFileName }
+          : r,
+      ),
     }));
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) {
-      deleteRemoteSubject(userId, projectName, oldName);
+
+    if (!row) return;  // Local-only subject; nothing to sync.
+    const result = await renameSubjectInPlace(row.id, newFileName);
+    if (!result.ok) {
+      console.error(`[planner] renameSubject(${oldName} -> ${newFileName}) failed:`, result.message);
+      // Roll back local state on failure so UI matches remote truth.
+      set((state) => ({
+        subjects: state.subjects.map((s) => (s === newFileName ? oldName : s)),
+        selectedSubject: state.selectedSubject === newFileName ? oldName : state.selectedSubject,
+        subjectRows: state.subjectRows.map((r) =>
+          r.projectName === projectName && r.fileName === newFileName
+            ? { ...r, fileName: oldName }
+            : r,
+        ),
+      }));
       try {
-        const content = await readTextFile(accountScopedPath(`NotterProjects/${projectName}/${newFileName}`), { baseDir: BaseDirectory.AppLocalData });
-        pushSubject(userId, projectName, newFileName, content);
-      } catch { /* content will sync on next save */ }
+        await rename(
+          accountScopedPath(`NotterProjects/${projectName}/${newFileName}`),
+          accountScopedPath(`NotterProjects/${projectName}/${oldName}`),
+          { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData },
+        );
+      } catch (e) {
+        console.error('[planner] renameSubject rollback failed:', e);
+      }
+      throw new Error(result.code === 'duplicate_name' ? 'duplicate_name' : result.message);
     }
   },
 
@@ -464,27 +607,51 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   applyRemoteSubjects: async (subjects) => {
+    // ──────────────────────────────────────────────────────────────────────
+    // Disk-write policy (2026-05-14 versioning overhaul):
+    //   The previous implementation unconditionally wrote every remote
+    //   subject's content to disk on every realtime event. That clobbered
+    //   the local file of the active subject during the 1s autosave debounce
+    //   window — the server still had stale content, applyRemoteSubjects
+    //   wrote it, then the debounce flushed and re-synced. Net effect: the
+    //   user occasionally saw "old version" when reloading or switching
+    //   subjects ("carrega uma versão antiga em vez da nova").
+    //
+    //   New policy:
+    //     - Always update the in-memory slice (cheap, race-free).
+    //     - Ensure project directories exist (idempotent mkdir).
+    //     - Disk writes are SKIPPED for the currently-open subject (its
+    //       editor + autosave own that file). For other subjects we only
+    //       write to disk when the file doesn't exist yet — i.e. first
+    //       hydration. Subsequent edits propagate through their own
+    //       autosave, not through here.
+    // ──────────────────────────────────────────────────────────────────────
+    const selected = get().selectedProject;
+    const selectedSubject = get().selectedSubject;
+
     for (const s of subjects) {
       try {
-        await mkdir(accountScopedPath(`NotterProjects/${s.projectName}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-        await writeTextFile(accountScopedPath(`NotterProjects/${s.projectName}/${s.fileName}`), s.content, { baseDir: BaseDirectory.AppLocalData });
+        await mkdir(
+          accountScopedPath(`NotterProjects/${s.projectName}`),
+          { baseDir: BaseDirectory.AppLocalData, recursive: true },
+        );
+        const isActiveFile =
+          selected?.name === s.projectName && selectedSubject === s.fileName;
+        if (isActiveFile) continue;
+        const filePath = accountScopedPath(`NotterProjects/${s.projectName}/${s.fileName}`);
+        const fileExists = await exists(filePath, { baseDir: BaseDirectory.AppLocalData });
+        if (fileExists) continue;
+        await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
       } catch (e) {
-        console.error(`Failed to write remote subject ${s.projectName}/${s.fileName}:`, e);
+        console.error(`Failed to hydrate remote subject ${s.projectName}/${s.fileName}:`, e);
       }
     }
-    // Cache the full rows so selectedSubjectRow() can resolve subject.id +
-    // current_version_id without another network round trip. Realtime on the
-    // `subjects` table fires applyRemoteSubjects again on current_version_id
-    // updates, which keeps this slice live.
+
     set({ subjectRows: subjects });
-    // Reload subjects for the currently selected project
-    const selected = get().selectedProject;
     if (selected) get().loadSubjects(selected.name);
 
-    // If a subject is currently selected, make sure the subject-versions
-    // store is pointed at the right id. This handles the case where the row
-    // arrives AFTER the user picked the subject (sync race).
-    const selectedSubject = get().selectedSubject;
+    // Sync race: if the row for the currently-open subject arrived AFTER the
+    // user picked it, point the versions store at the now-known id.
     if (selected && selectedSubject) {
       const row = subjects.find(
         (r) => r.projectName === selected.name && r.fileName === selectedSubject,
@@ -495,25 +662,36 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  pushAllSubjects: async (userId) => {
-    // Iterate the canonical list so a "Force sync" pushes notes from every
-    // workspace's projects, not just the currently-active workspace.
-    const projects = get().allProjects;
-    for (const project of projects) {
+  pushAllSubjects: async (_userId) => {
+    // Force-sync: for each known subject row, read the local file and commit
+    // its content as a new version. Coalesces into the existing autosave
+    // version when within window, so this is a no-op for subjects the user
+    // already saved recently. Local-only subjects (no row) are skipped —
+    // they would have been created via createSubject which already issues
+    // the initial commit; if that flow failed, the user can re-create.
+    const rows = get().subjectRows;
+    for (const row of rows) {
       try {
-        const entries = await readDir(accountScopedPath(`NotterProjects/${project.name}`), { baseDir: BaseDirectory.AppLocalData });
-        const mdFiles = entries.filter((e) => e.isFile && e.name.endsWith('.md'));
-        for (const file of mdFiles) {
-          const content = await readTextFile(accountScopedPath(`NotterProjects/${project.name}/${file.name}`), { baseDir: BaseDirectory.AppLocalData });
-          await pushSubject(userId, project.name, file.name, content);
-        }
-      } catch { /* skip unreadable projects */ }
+        const content = await readTextFile(
+          accountScopedPath(`NotterProjects/${row.projectName}/${row.fileName}`),
+          { baseDir: BaseDirectory.AppLocalData },
+        );
+        await commitSubjectVersion({
+          subjectId: row.id,
+          content,
+          source: 'user',
+          sourceActor: null,
+          label: null,
+          parentVersionId: row.currentVersionId ?? null,
+          coalesceWindowSecs: AUTOSAVE_COALESCE_SECS,
+        });
+      } catch { /* skip unreadable subjects */ }
     }
   },
 
   flush: async () => {
     await projectsSync.flush();
-    await subjectSync.flush();
+    await subjectCommitSync.flush();
   },
 
   reset() {

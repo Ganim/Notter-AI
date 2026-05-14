@@ -117,29 +117,33 @@ export async function importMarkdownText(
     await planner.createProject(projectName, '');
   }
 
-  await planner.createSubject(projectName, fileName);
-  await planner.saveSubjectContent(projectName, fileName, body);
+  // Create the subject with the imported body as its initial version.
+  // Marking the initial version with source='import' (rather than the
+  // default 'user') preserves provenance — no second "Importado de X"
+  // version row is needed.
+  await planner.createSubject(projectName, fileName, body, {
+    source: 'import',
+    sourceActor: frontmatter.source_actor ?? null,
+    label: `Importado de ${sourceFilename}`,
+  });
 
-  // Wait for the subject row to land. createSubject writes optimistically
-  // and pushes to Supabase; the row arrives back via realtime which
-  // populates `subjectRows`. Poll up to 5s (~20 attempts × 250ms).
+  // Wait for the subject row to land in subjectRows (createSubject does an
+  // optimistic local set so this normally resolves on the first tick, but
+  // the realtime reconciliation can lag).
   const subjectId = await waitForSubjectRow(projectName, fileName, 5000);
   if (!subjectId) {
     throw new ImportError('NO_VERSION_AFTER_TIMEOUT', projectName, fileName);
   }
 
   await useSubjectVersionsStore.getState().loadForSubject(subjectId);
-  const newVersion = await useSubjectVersionsStore.getState().snapshotCurrent({
-    contentMarkdown: body,
-    source: 'import',
-    sourceActor: frontmatter.source_actor ?? null,
-    label: `Importado de ${sourceFilename}`,
-    parentVersionId: null,
-  });
-  if (!newVersion) {
-    throw new Error('Snapshot insert failed during import (case B)');
+  const row = usePlannerStore
+    .getState()
+    .subjectRows.find((r) => r.id === subjectId);
+  const versionId = row?.currentVersionId ?? null;
+  if (!versionId) {
+    throw new ImportError('NO_VERSION_AFTER_TIMEOUT', projectName, fileName, subjectId);
   }
-  return { kind: 'subject_created', subjectId, versionId: newVersion.id };
+  return { kind: 'subject_created', subjectId, versionId };
 }
 
 async function waitForSubjectRow(

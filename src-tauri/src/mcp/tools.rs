@@ -267,34 +267,37 @@ async fn post_subject_revision(
         .map_err(|e| McpError::InvalidParams(format!("post_subject_revision: {e}")))?;
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
 
+    // Atomic commit: the RPC inserts a subject_versions row AND moves
+    // `subjects.content` + `subjects.current_version_id` so the AI revision
+    // becomes the current version in one transaction. Before the 2026-05-14
+    // versioning overhaul, MCP did a direct INSERT and left current_version_id
+    // pointing at the prior version — AI revisions sat as "candidates"
+    // requiring the user to adopt manually, which contradicted the model
+    // (the user already accepted by invoking the tool).
     let payload = serde_json::json!({
-        "subject_id": p.subject_id,
-        "content_markdown": p.content_markdown,
-        "parent_version_id": p.parent_version_id,
-        "source": "ai", // every MCP-side write is "ai" by definition
-        "source_actor": p.source_actor,
-        "label": p.label,
+        "p_subject_id": p.subject_id,
+        "p_content": p.content_markdown,
+        "p_source": "ai",
+        "p_source_actor": p.source_actor,
+        "p_label": p.label,
+        "p_parent_version_id": p.parent_version_id,
+        // AI revisions are always explicit checkpoints; never coalesce.
+        "p_coalesce_window_secs": 0,
     });
 
-    // The set_user_id_on_subject_versions trigger fills user_id server-side;
-    // the column is intentionally absent from the payload.
     let response = sb
-        .post("subject_versions", &payload, &token, true)
+        .post("rpc/commit_subject_version", &payload, &token, false)
         .await?;
 
-    // Supabase returns the inserted row(s) as an array when Prefer:return=representation is set.
-    let row = response
-        .as_array()
-        .and_then(|a| a.first())
-        .cloned()
+    // PostgREST returns a scalar `uuid` result as a JSON-encoded string.
+    let id = response
+        .as_str()
+        .map(String::from)
         .ok_or_else(|| {
-            McpError::SupabaseError("post_subject_revision: insert returned no row".into())
+            McpError::SupabaseError(format!(
+                "post_subject_revision: rpc returned non-string body={response}"
+            ))
         })?;
-    let id = row
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
     Ok(serde_json::json!({ "version_id": id }))
 }
 
