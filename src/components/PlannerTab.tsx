@@ -214,6 +214,13 @@ export function PlannerTab() {
   useEffect(() => { initFilesystem(); }, [initFilesystem]);
 
   useEffect(() => {
+    // Pull the current dark/light state once on mount — the observer below
+    // only catches FUTURE mutations on `<html>.class`, so if the dark class
+    // was toggled before PlannerTab mounted (typical after sign-in:
+    // applyRemotePreferences fires before the editor pane mounts), the
+    // editor would otherwise stay on its hardcoded 'theme-Zinc-light' initial
+    // value and render a light Monaco background inside the dark wrapper.
+    refreshEditorTheme();
     const observer = new MutationObserver(() => { refreshEditorTheme(); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
@@ -534,14 +541,16 @@ export function PlannerTab() {
                         const v = await useSubjectVersionsStore.getState().snapshotAndAdopt({
                           contentMarkdown: subjectContent,
                           source: 'user',
+                          // 'manual' isolates manual checkpoints from the
+                          // autosave coalesce stream (source_actor=null), so
+                          // their label stays put even if the user keeps
+                          // typing afterwards.
+                          sourceActor: 'manual',
                           label: t('plans.manual_edit_label'),
                           parentVersionId: row.currentVersionId ?? null,
+                          coalesceWindowSecs: 0,
                         });
                         if (v) {
-                          // Optimistic marker update so the History dropdown reflects
-                          // the new current version immediately (realtime UPDATE on
-                          // subjects.current_version_id can lag — same pattern as
-                          // commits f248994 / 697ac90).
                           usePlannerStore.getState().markSubjectCurrentVersion(v.subjectId, v.id);
                           toast.success(t('planner.version_created'));
                         } else {
@@ -638,8 +647,14 @@ export function PlannerTab() {
               const adopted = await adoptVersion(previewVersion.id);
               if (adopted && selectedProject && selectedSubject) {
                 setSubjectContent(adopted.contentMarkdown);
-                await saveSubjectContent(selectedProject.name, selectedSubject, adopted.contentMarkdown);
-                // Move the "current" marker in the History dropdown right away.
+                // adoptVersion already committed the new version remotely;
+                // just mirror to disk without re-triggering the autosave
+                // debouncer (which would spawn a redundant version row).
+                await usePlannerStore.getState().writeSubjectFileOnly(
+                  selectedProject.name,
+                  selectedSubject,
+                  adopted.contentMarkdown,
+                );
                 usePlannerStore.getState().markSubjectCurrentVersion(adopted.subjectId, adopted.id);
               }
             }}

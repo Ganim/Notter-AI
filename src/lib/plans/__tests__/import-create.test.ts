@@ -21,16 +21,22 @@ vi.mock('@/stores/subject-versions-store', () => ({
 const createProject = vi.fn().mockImplementation(async (name: string) => {
   projects.push({ name, path: '' });
 });
-const createSubject = vi.fn().mockImplementation(async (proj: string, file: string) => {
-  // Simulate the row appearing post-create (the real planner-store push is
-  // debounced; the test fast-forwards by injecting it synchronously).
-  subjectRows.push({
-    id: 'cccccccc-cccc-4ccc-cccc-cccccccccccc',
-    userId: 'u1', projectName: proj, fileName: file, content: '',
-    currentVersionId: null, createdAt: '', updatedAt: '',
-  });
-});
-const saveSubjectContent = vi.fn().mockResolvedValue(undefined);
+// Post-2026-05-14 createSubject signature:
+//   (projectName, fileName, initialContent?, initialVersionMeta?)
+// The new import flow commits the body as the initial version with
+// source='import', so it relies on createSubject populating currentVersionId
+// on the subjectRows entry it injects.
+const createSubject = vi.fn().mockImplementation(
+  async (proj: string, file: string, _content?: string, _meta?: unknown) => {
+    subjectRows.push({
+      id: 'cccccccc-cccc-4ccc-cccc-cccccccccccc',
+      projectName: proj,
+      fileName: file,
+      content: _content ?? '',
+      currentVersionId: 'vvvvvvvv-vvvv-4vvv-vvvv-vvvvvvvvvvvv',
+    });
+  },
+);
 
 vi.mock('@/stores/planner-store', () => ({
   usePlannerStore: {
@@ -39,7 +45,6 @@ vi.mock('@/stores/planner-store', () => ({
       get projects() { return projects; },
       createProject,
       createSubject,
-      saveSubjectContent,
     }),
   },
 }));
@@ -72,17 +77,30 @@ describe('importMarkdownText — case B (no matching subject)', () => {
     vi.clearAllMocks();
   });
 
-  it('creates project + subject + snapshot when title has slash separator', async () => {
+  it('creates project + subject with import metadata on the initial version', async () => {
     const text = stringifyPlanMarkdown({ frontmatter: FM, body: '# imported' });
     const result = await importMarkdownText(text, 'new-note.md');
     expect(createProject).toHaveBeenCalledWith('My Project', expect.any(String));
-    expect(createSubject).toHaveBeenCalledWith('My Project', 'new-note.md');
-    expect(saveSubjectContent).toHaveBeenCalledWith('My Project', 'new-note.md', expect.stringContaining('imported'));
-    expect(loadForSubject).toHaveBeenCalled();
-    expect(snapshotCurrent).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'import', sourceActor: 'codex' }),
+    // body is passed as initialContent and import provenance flows through
+    // initialVersionMeta — no second snapshotCurrent call needed.
+    expect(createSubject).toHaveBeenCalledWith(
+      'My Project',
+      'new-note.md',
+      expect.stringContaining('imported'),
+      expect.objectContaining({
+        source: 'import',
+        sourceActor: 'codex',
+        label: expect.stringContaining('Importado de'),
+      }),
     );
+    expect(loadForSubject).toHaveBeenCalled();
+    // snapshotCurrent is NOT called in case B anymore — the initial version
+    // already carries import provenance.
+    expect(snapshotCurrent).not.toHaveBeenCalled();
     expect(result.kind).toBe('subject_created');
+    if (result.kind === 'subject_created') {
+      expect(result.versionId).toBe('vvvvvvvv-vvvv-4vvv-vvvv-vvvvvvvvvvvv');
+    }
   });
 
   it('uses "Importados" project when title has no slash', async () => {
@@ -90,7 +108,12 @@ describe('importMarkdownText — case B (no matching subject)', () => {
     const text = stringifyPlanMarkdown({ frontmatter: fmNoSlash, body: 'b' });
     await importMarkdownText(text, 'orphan-note.md');
     expect(createProject).toHaveBeenCalledWith('Importados', expect.any(String));
-    expect(createSubject).toHaveBeenCalledWith('Importados', 'orphan-note.md');
+    expect(createSubject).toHaveBeenCalledWith(
+      'Importados',
+      'orphan-note.md',
+      expect.any(String),
+      expect.objectContaining({ source: 'import' }),
+    );
   });
 
   it('skips createProject when project already exists', async () => {

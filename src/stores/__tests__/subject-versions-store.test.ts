@@ -12,26 +12,30 @@ vi.mock('@/lib/supabase', () => {
     }),
   }));
   const del = vi.fn(() => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }));
+  const rpc = vi.fn().mockResolvedValue({ data: 'v-new', error: null });
   const from = vi.fn((_table: string) => ({
     upsert,
     insert,
     delete: del,
     select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [], error: null }) }) }),
   }));
-  return { supabase: { from }, isSupabaseConfigured: true };
+  return { supabase: { from, rpc }, isSupabaseConfigured: true };
 });
 
+// Tests drive the store through the public API; we mock the sync layer so we
+// can assert what each method dispatches without hitting Supabase.
 vi.mock('@/lib/sync', () => ({
   fetchSubjectVersions: vi.fn().mockResolvedValue([]),
-  pushSubjectVersion: vi.fn().mockResolvedValue({ id: 'v1' }),
+  commitSubjectVersion: vi.fn().mockResolvedValue('v-new'),
   fetchSubjectComments: vi.fn().mockResolvedValue([]),
   pushSubjectComment: vi.fn().mockResolvedValue(undefined),
   deleteSubjectComment: vi.fn().mockResolvedValue(undefined),
-  updateSubjectCurrentVersion: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/stores/auth-store', () => ({
-  useAuthStore: { getState: () => ({ user: { id: 'u1' } }) },
+  useAuthStore: {
+    getState: () => ({ user: { id: 'u1' } }),
+  },
 }));
 
 vi.mock('@/lib/accounts/store-registry', () => ({
@@ -85,11 +89,12 @@ describe('SubjectVersionsStore', () => {
     expect(state.previewVersionId).toBeNull();
   });
 
-  it('snapshotCurrent prepends a new version with the supplied parentVersionId', async () => {
-    const { pushSubjectVersion } = await import('@/lib/sync');
+  it('snapshotCurrent calls commit_subject_version and prepends the new row', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
+    (commitSubjectVersion as any).mockResolvedValueOnce('v-new');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
 
-    // Seed an existing version that the caller will pass as parent.
+    // Seed an existing version that the caller passes as parent.
     useSubjectVersionsStore.getState().applyRemoteVersions([
       { id: 'old', subjectId: 's1', userId: 'u1', contentMarkdown: '# old', parentVersionId: null, source: 'user', sourceActor: null, label: null, createdAt: '' },
     ]);
@@ -102,44 +107,74 @@ describe('SubjectVersionsStore', () => {
     });
 
     expect(inserted).not.toBeNull();
+    expect(inserted!.id).toBe('v-new');
     expect(inserted!.contentMarkdown).toBe('# new content');
     expect(inserted!.label).toBe('milestone');
     expect(inserted!.parentVersionId).toBe('old');
-    expect(inserted!.source).toBe('user');
+    expect(commitSubjectVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: 's1',
+        content: '# new content',
+        source: 'user',
+        parentVersionId: 'old',
+      }),
+    );
 
     const versions = useSubjectVersionsStore.getState().versions;
     expect(versions).toHaveLength(2);
-    expect(versions[0]).toEqual(inserted);
-    expect(pushSubjectVersion).toHaveBeenCalledOnce();
+    expect(versions[0].id).toBe('v-new');
   });
 
-  it('snapshotCurrent supports source=ai with sourceActor', async () => {
+  it('snapshotCurrent threads coalesceWindowSecs to the RPC', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
-    const inserted = await useSubjectVersionsStore.getState().snapshotCurrent({
-      contentMarkdown: '# AI output',
-      source: 'ai',
-      sourceActor: 'claude',
-      label: 'Claude · revisão',
-      parentVersionId: null,
+    await useSubjectVersionsStore.getState().snapshotCurrent({
+      contentMarkdown: 'x',
+      source: 'user',
+      coalesceWindowSecs: 60,
     });
-    expect(inserted!.source).toBe('ai');
-    expect(inserted!.sourceActor).toBe('claude');
-    expect(inserted!.parentVersionId).toBeNull();
+    expect(commitSubjectVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ coalesceWindowSecs: 60 }),
+    );
+  });
+
+  it('snapshotCurrent replaces in place when the RPC coalesced onto an existing row', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
+    await useSubjectVersionsStore.getState().loadForSubject('s1');
+    useSubjectVersionsStore.getState().applyRemoteVersions([
+      { id: 'existing', subjectId: 's1', userId: 'u1', contentMarkdown: 'a', parentVersionId: null, source: 'user', sourceActor: null, label: 'first', createdAt: '2026-05-14T00:00:00Z' },
+    ]);
+    // RPC coalesced and returned the SAME id back.
+    (commitSubjectVersion as any).mockResolvedValueOnce('existing');
+
+    await useSubjectVersionsStore.getState().snapshotCurrent({
+      contentMarkdown: 'a + b',
+      source: 'user',
+      coalesceWindowSecs: 60,
+    });
+
+    const versions = useSubjectVersionsStore.getState().versions;
+    expect(versions).toHaveLength(1);
+    expect(versions[0].id).toBe('existing');
+    expect(versions[0].contentMarkdown).toBe('a + b');
+    // createdAt is preserved on coalesce-replace (the store doesn't bump it;
+    // the realtime refetch reconciles to the server's bumped value).
+    expect(versions[0].createdAt).toBe('2026-05-14T00:00:00Z');
   });
 
   it('snapshotCurrent returns null and inserts nothing when no subject is selected', async () => {
-    const { pushSubjectVersion } = await import('@/lib/sync');
+    const { commitSubjectVersion } = await import('@/lib/sync');
     const result = await useSubjectVersionsStore.getState().snapshotCurrent({
       contentMarkdown: '# orphan',
       source: 'user',
     });
     expect(result).toBeNull();
-    expect(pushSubjectVersion).not.toHaveBeenCalled();
+    expect(commitSubjectVersion).not.toHaveBeenCalled();
   });
 
-  it('snapshotCurrent returns null when push fails', async () => {
-    const { pushSubjectVersion } = await import('@/lib/sync');
-    (pushSubjectVersion as any).mockResolvedValueOnce(null);
+  it('snapshotCurrent returns null when commit fails', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
+    (commitSubjectVersion as any).mockResolvedValueOnce(null);
     await useSubjectVersionsStore.getState().loadForSubject('s1');
     const result = await useSubjectVersionsStore.getState().snapshotCurrent({
       contentMarkdown: '# fail',
@@ -149,31 +184,19 @@ describe('SubjectVersionsStore', () => {
     expect(useSubjectVersionsStore.getState().versions).toEqual([]);
   });
 
-  it('snapshotAndAdopt creates the version and writes current_version_id', async () => {
-    const { updateSubjectCurrentVersion } = await import('@/lib/sync');
+  it('snapshotAndAdopt is identical to snapshotCurrent (RPC always adopts)', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
-    const inserted = await useSubjectVersionsStore.getState().snapshotAndAdopt({
+    await useSubjectVersionsStore.getState().snapshotAndAdopt({
       contentMarkdown: '# new',
       source: 'ai',
       sourceActor: 'claude',
       label: 'Claude · revisão',
       parentVersionId: null,
     });
-    expect(inserted).not.toBeNull();
-    expect(updateSubjectCurrentVersion).toHaveBeenCalledWith('u1', 's1', inserted!.id);
-    expect(useSubjectVersionsStore.getState().previewVersionId).toBeNull();
-  });
-
-  it('snapshotAndAdopt returns null when snapshotCurrent fails', async () => {
-    const { pushSubjectVersion, updateSubjectCurrentVersion } = await import('@/lib/sync');
-    (pushSubjectVersion as any).mockResolvedValueOnce(null);
-    await useSubjectVersionsStore.getState().loadForSubject('s1');
-    const result = await useSubjectVersionsStore.getState().snapshotAndAdopt({
-      contentMarkdown: '# fail',
-      source: 'ai',
-    });
-    expect(result).toBeNull();
-    expect(updateSubjectCurrentVersion).not.toHaveBeenCalled();
+    expect(commitSubjectVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'ai', sourceActor: 'claude' }),
+    );
   });
 
   it('enterPreview / exitPreview toggle previewVersionId', () => {
@@ -189,33 +212,46 @@ describe('SubjectVersionsStore', () => {
     expect(useSubjectVersionsStore.getState().previewVersionId).toBeNull();
   });
 
-  it('adoptVersion writes current_version_id, clears preview, returns the version', async () => {
-    const { updateSubjectCurrentVersion } = await import('@/lib/sync');
+  it('adoptVersion creates a new copy-version with parent = adopted, clears preview', async () => {
+    const { commitSubjectVersion } = await import('@/lib/sync');
+    (commitSubjectVersion as any).mockResolvedValueOnce('v-adopt');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
     const target = {
-      id: 'v1', subjectId: 's1', userId: 'u1', contentMarkdown: '# v1',
+      id: 'v-historic', subjectId: 's1', userId: 'u1', contentMarkdown: '# historic',
       parentVersionId: null, source: 'user' as const, sourceActor: null,
-      label: null, createdAt: '',
+      label: 'Stable point', createdAt: '',
     };
     useSubjectVersionsStore.getState().applyRemoteVersions([target]);
-    useSubjectVersionsStore.getState().enterPreview('v1');
+    useSubjectVersionsStore.getState().enterPreview('v-historic');
 
-    const adopted = await useSubjectVersionsStore.getState().adoptVersion('v1');
+    const adopted = await useSubjectVersionsStore.getState().adoptVersion('v-historic');
 
-    expect(adopted).toEqual(target);
-    expect(updateSubjectCurrentVersion).toHaveBeenCalledWith('u1', 's1', 'v1');
+    expect(adopted).not.toBeNull();
+    expect(adopted!.id).toBe('v-adopt');
+    expect(adopted!.contentMarkdown).toBe('# historic'); // copy of target
+    expect(adopted!.parentVersionId).toBe('v-historic'); // chained back
+    expect(commitSubjectVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: 's1',
+        content: '# historic',
+        source: 'user',
+        sourceActor: 'adopt',
+        parentVersionId: 'v-historic',
+        coalesceWindowSecs: 0,
+      }),
+    );
     expect(useSubjectVersionsStore.getState().previewVersionId).toBeNull();
   });
 
-  it('adoptVersion warns and returns null when version is unknown', async () => {
+  it('adoptVersion warns and returns null when target is unknown', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { updateSubjectCurrentVersion } = await import('@/lib/sync');
+    const { commitSubjectVersion } = await import('@/lib/sync');
     await useSubjectVersionsStore.getState().loadForSubject('s1');
 
     const result = await useSubjectVersionsStore.getState().adoptVersion('does-not-exist');
 
     expect(result).toBeNull();
-    expect(updateSubjectCurrentVersion).not.toHaveBeenCalled();
+    expect(commitSubjectVersion).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });

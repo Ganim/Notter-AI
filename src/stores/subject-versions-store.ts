@@ -1,34 +1,29 @@
 // src/stores/subject-versions-store.ts
 //
 // Thin store keyed by `currentSubjectId`. Holds the version history and
-// comment thread for the currently-open subject (markdown note). Replaces
-// the older plan-anchored store that hung off a separate plans table; the
-// schema pivot in `2026-05-10-subject-versioning.sql` made subjects the
-// canonical plan entity, so this store now coordinates with planner-store.
+// comment thread for the currently-open subject (markdown note).
 //
-// UUID generation: uses crypto.randomUUID() — do NOT add the `uuid` npm package.
-//
-// No fs cache is needed here — subjects themselves are already cached on disk
-// by planner-store, and version/comment history is cheap to refetch on
-// subject open.
+// Versioning model (2026-05-14 overhaul, branch fix/versioning-overhaul):
+// every write goes through the atomic `commit_subject_version` RPC, which
+// inserts the version row AND moves `subjects.content` +
+// `subjects.current_version_id` together. The invariant
+//   subjects.content == current_version.content_markdown
+// is enforced by construction. Adopting an older version creates a NEW
+// copy-version with that version's content (and parent_version_id pointing
+// back to the adopted row) so the timeline stays linear and auditable.
 //
 // ── Circular-import note ───────────────────────────────────────────────────
-// This store does NOT import planner-store. The data flows the other way:
-// planner-store calls `loadForSubject` / `clearSubject` when the user picks a
-// subject. To avoid coupling, this store accepts the parent_version_id (i.e.
-// the current `subjects.current_version_id`) as an explicit parameter to
-// `snapshotCurrent` rather than reading planner-store. The caller is
-// responsible for passing the live current version pointer.
+// This store does NOT import planner-store. planner-store drives this one by
+// calling `loadForSubject` / `clearSubject` when the user picks a subject.
 import { create } from 'zustand';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { useAuthStore } from '@/stores/auth-store';
 import {
   fetchSubjectVersions,
-  pushSubjectVersion,
+  commitSubjectVersion,
   fetchSubjectComments,
   pushSubjectComment,
   deleteSubjectComment,
-  updateSubjectCurrentVersion,
   type SubjectVersionRecord,
   type SubjectCommentRecord,
 } from '@/lib/sync';
@@ -43,10 +38,18 @@ export interface SnapshotArgs {
   /**
    * The current `subjects.current_version_id` at the moment of the snapshot.
    * Stored as the new version's `parent_version_id`. Pass `null` for the
-   * very first snapshot of a subject. Caller (PlannerTab / planner-store)
-   * is the source of truth for this pointer.
+   * very first snapshot of a subject. Caller (PlannerTab / planner-store) is
+   * the source of truth for this pointer.
    */
   parentVersionId?: string | null;
+  /**
+   * Coalesce window in seconds. When > 0 and the most recent same-source
+   * version is within the window, the RPC updates that row's content in
+   * place instead of inserting a new one. Used to keep autosave from
+   * flooding the table — e.g. 60s for keystroke-driven saves. Defaults to
+   * 0 (always insert a new row).
+   */
+  coalesceWindowSecs?: number;
 }
 
 interface SubjectVersionsState {
@@ -66,19 +69,17 @@ interface SubjectVersionsState {
 
   // Versions
   /**
-   * Insert a new subject_version row. Does NOT advance
-   * `subjects.current_version_id` — the new row is a "candidate" until the
-   * user adopts it. AI-completion paths should use `snapshotAndAdopt`
-   * instead, since the user already accepted the AI output by triggering it.
-   *
-   * Returns the inserted record on success, `null` on failure (no auth, no
-   * subject selected, or Supabase rejection).
+   * Commit a new version. Goes through `commit_subject_version` so it ALSO
+   * sets `subjects.content` + `subjects.current_version_id` atomically.
+   * With `coalesceWindowSecs > 0`, the RPC may update the most recent same-
+   * source version in place (autosave-style). Returns the version record
+   * that now holds the content, or `null` on failure.
    */
   snapshotCurrent: (args: SnapshotArgs) => Promise<SubjectVersionRecord | null>;
   /**
-   * Convenience for AI-completion flows: snapshots the new content and
-   * immediately adopts it as the subject's current version. Errors during
-   * adopt are logged but not thrown — the version itself was created.
+   * Backward-compatible alias for `snapshotCurrent` — since every commit now
+   * adopts atomically, the two operations are identical. Kept for callsites
+   * that read better with the explicit name.
    */
   snapshotAndAdopt: (args: SnapshotArgs) => Promise<SubjectVersionRecord | null>;
 
@@ -86,9 +87,11 @@ interface SubjectVersionsState {
   enterPreview: (versionId: string) => void;
   exitPreview: () => void;
   /**
-   * Set `subjects.current_version_id = versionId` for the active subject.
-   * Clears the preview overlay. Returns the adopted version record (so the
-   * caller can swap the editor content), or `null` if not found / unauthed.
+   * Adopt an older version. Creates a NEW copy-version with that version's
+   * content (source='user', parent_version_id = adopted.id), which becomes
+   * the new current. The original version stays untouched in history —
+   * timeline reads as "linear with revert points". Returns the newly-created
+   * version, or `null` on failure.
    */
   adoptVersion: (versionId: string) => Promise<SubjectVersionRecord | null>;
 
@@ -155,26 +158,25 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
       const userId = useAuthStore.getState().user?.id;
       if (!currentSubjectId || !userId) return null;
 
-      const versionId = crypto.randomUUID();
       const parentVersionId = args.parentVersionId ?? null;
       const sourceActor = args.sourceActor ?? null;
       const label = args.label ?? null;
+      const coalesceWindowSecs = args.coalesceWindowSecs ?? 0;
 
-      const result = await pushSubjectVersion({
-        id: versionId,
+      const newId = await commitSubjectVersion({
         subjectId: currentSubjectId,
-        contentMarkdown: args.contentMarkdown,
-        parentVersionId,
+        content: args.contentMarkdown,
         source: args.source,
         sourceActor,
         label,
+        parentVersionId,
+        coalesceWindowSecs,
       });
-      if (!result) return null;
+      if (!newId) return null;
 
-      // Optimistic prepend (newest first) to match fetchSubjectVersions
-      // ordering. The realtime subscription will reconcile if needed.
-      const newVersion: SubjectVersionRecord = {
-        id: versionId,
+      const nowIso = new Date().toISOString();
+      const committed: SubjectVersionRecord = {
+        id: newId,
         subjectId: currentSubjectId,
         userId,
         contentMarkdown: args.contentMarkdown,
@@ -182,23 +184,26 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         source: args.source,
         sourceActor,
         label,
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
       };
-      set((s) => ({ versions: [newVersion, ...s.versions] }));
-      return newVersion;
+      // Coalesced writes can return an existing row's id — replace in place
+      // when found, otherwise prepend (matches fetchSubjectVersions newest-
+      // first ordering). Realtime reconciles further.
+      set((s) => {
+        const idx = s.versions.findIndex((v) => v.id === newId);
+        if (idx >= 0) {
+          const next = s.versions.slice();
+          next[idx] = { ...next[idx], ...committed, createdAt: next[idx].createdAt };
+          return { versions: next };
+        }
+        return { versions: [committed, ...s.versions] };
+      });
+      return committed;
     },
 
     async snapshotAndAdopt(args: SnapshotArgs) {
-      const v = await get().snapshotCurrent(args);
-      if (!v) return null;
-      // Best-effort adopt; failures here are non-fatal. The version row
-      // is already stored — the user can adopt manually from the panel.
-      try {
-        await get().adoptVersion(v.id);
-      } catch (e) {
-        console.error('[subject-versions] snapshotAndAdopt: adopt failed', e);
-      }
-      return v;
+      // The RPC always adopts, so this is now identical to snapshotCurrent.
+      return get().snapshotCurrent(args);
     },
 
     // ── Preview / adopt ──────────────────────────────────────────────────────
@@ -216,8 +221,7 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
 
     async adoptVersion(versionId: string) {
       const { currentSubjectId, versions } = get();
-      const userId = useAuthStore.getState().user?.id;
-      if (!currentSubjectId || !userId) return null;
+      if (!currentSubjectId) return null;
       const target = versions.find((v) => v.id === versionId);
       if (!target) {
         console.warn(
@@ -225,10 +229,27 @@ export const useSubjectVersionsStore = create<SubjectVersionsState>((set, get) =
         );
         return null;
       }
-      await updateSubjectCurrentVersion(userId, currentSubjectId, versionId);
-      // Clear any preview — the adopted version IS the new current.
+      // Adopt creates a new copy-version: the original stays in history,
+      // a fresh row carries the same content forward as the new current.
+      // Label is auto-generated (caller can rename via a future "edit
+      // label" flow). parent points back to the adopted row so the chain
+      // reflects "user reverted to X at time T".
+      const adoptLabel = `Revertido para ${target.label ?? `v${target.id.slice(0, 6)}`}`;
+      // source_actor='adopt' keeps subsequent autosaves (source_actor=null)
+      // from coalescing INTO this revert checkpoint and rewriting its label
+      // / content; the next autosave will start a fresh row instead.
+      const committed = await get().snapshotCurrent({
+        contentMarkdown: target.contentMarkdown,
+        source: 'user',
+        sourceActor: 'adopt',
+        label: adoptLabel,
+        parentVersionId: target.id,
+        coalesceWindowSecs: 0,
+      });
+      if (!committed) return null;
+      // Clear preview — the new current IS the adopted content.
       set({ previewVersionId: null });
-      return target;
+      return committed;
     },
 
     // ── Comments ─────────────────────────────────────────────────────────────

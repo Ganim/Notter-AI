@@ -123,28 +123,79 @@ export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | n
 }
 
 /**
- * Update the `current_version_id` pointer on a subject row. Used by the
- * "Adopt version" flow in the subject-versions store. Idempotent: writing the
- * same value is a no-op.
+ * Atomically commit a new version of a subject. Inserts a `subject_versions`
+ * row AND moves `subjects.content` + `subjects.current_version_id` to match,
+ * inside a single Postgres function (`commit_subject_version`).
+ *
+ * Coalescing: when `coalesceWindowSecs > 0` and the most recent version for
+ * this subject is within that window AND has the same `source` and
+ * `sourceActor`, the RPC updates that row's `content_markdown` in place
+ * instead of inserting a new one. Use for autosave (e.g. 60s) so a typing
+ * session collapses into one version row. Pass `0` for explicit checkpoints
+ * (manual save, AI revision, import, adopt) where a fresh row is always
+ * desired.
+ *
+ * Returns the version id that now holds the content, or `null` on failure.
  */
-export async function updateSubjectCurrentVersion(
-  userId: string,
-  subjectId: string,
-  versionId: string,
-): Promise<void> {
-  if (!isSupabaseConfigured) return;
+export async function commitSubjectVersion(args: {
+  subjectId: string;
+  content: string;
+  source: 'user' | 'ai' | 'import';
+  sourceActor?: string | null;
+  label?: string | null;
+  parentVersionId?: string | null;
+  coalesceWindowSecs?: number;
+}): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
   try {
-    const { error } = await supabase
-      .from('subjects')
-      .update({
-        current_version_id: versionId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', subjectId)
-      .eq('user_id', userId);
-    if (error) console.error('[sync] updateSubjectCurrentVersion failed:', error);
+    const { data, error } = await supabase.rpc('commit_subject_version', {
+      p_subject_id: args.subjectId,
+      p_content: args.content,
+      p_source: args.source,
+      p_source_actor: args.sourceActor ?? null,
+      p_label: args.label ?? null,
+      p_parent_version_id: args.parentVersionId ?? null,
+      p_coalesce_window_secs: args.coalesceWindowSecs ?? 0,
+    });
+    if (error) {
+      console.error('[sync] commitSubjectVersion failed:', error);
+      return null;
+    }
+    return (data as string | null) ?? null;
   } catch (e) {
-    console.error('[sync] updateSubjectCurrentVersion threw:', e);
+    console.error('[sync] commitSubjectVersion threw:', e);
+    return null;
+  }
+}
+
+/**
+ * In-place rename of a subject's file_name. Replaces the previous
+ * delete-then-insert dance, which cascaded into subject_versions /
+ * subject_comments and silently destroyed history. Returns ok:false with
+ * code 'duplicate_name' when another file in the same project already uses
+ * the target name (Postgres 23505).
+ */
+export async function renameSubjectInPlace(
+  subjectId: string,
+  newFileName: string,
+): Promise<{ ok: true } | { ok: false; code: 'duplicate_name' | 'unknown'; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { error } = await supabase.rpc('rename_subject', {
+      p_subject_id: subjectId,
+      p_new_file_name: newFileName,
+    });
+    if (error) {
+      if ((error as any).code === '23505') {
+        return { ok: false, code: 'duplicate_name', message: error.message };
+      }
+      console.error('[sync] renameSubjectInPlace failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[sync] renameSubjectInPlace threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
   }
 }
 
@@ -471,40 +522,11 @@ export async function fetchSubjectVersions(
   }
 }
 
-/**
- * Insert a single subject_version row. Uses a direct Supabase insert (not
- * upsertUserRows) because subject_versions are append-only — never updated.
- * The trigger set_user_id_on_subject_versions fills user_id server-side from
- * the parent subjects row, so the caller does NOT pass user_id.
- */
-export async function pushSubjectVersion(
-  version: Omit<SubjectVersionRecord, 'userId' | 'createdAt'>,
-): Promise<{ id: string } | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data, error } = await supabase
-      .from('subject_versions')
-      .insert({
-        id: version.id,
-        subject_id: version.subjectId,
-        content_markdown: version.contentMarkdown,
-        parent_version_id: version.parentVersionId ?? null,
-        source: version.source,
-        source_actor: version.sourceActor ?? null,
-        label: version.label ?? null,
-      })
-      .select('id')
-      .single();
-    if (error || !data) {
-      console.error('[sync] pushSubjectVersion failed:', error);
-      return null;
-    }
-    return { id: data.id };
-  } catch (e) {
-    console.error('[sync] pushSubjectVersion threw:', e);
-    return null;
-  }
-}
+// pushSubjectVersion and updateSubjectCurrentVersion were removed in the
+// 2026-05-14 versioning overhaul. Every write now goes through the atomic
+// `commit_subject_version` RPC — see `commitSubjectVersion` above. Direct
+// inserts on subject_versions are no longer safe because they would leave
+// `subjects.content` and `subjects.current_version_id` out of sync.
 
 // ── Subject Comments ──────────────────────────────────────────────────
 
