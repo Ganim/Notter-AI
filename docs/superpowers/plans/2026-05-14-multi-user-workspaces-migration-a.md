@@ -548,6 +548,19 @@ as $$
 $$;
 
 grant execute on function get_my_workspaces() to authenticated;
+
+-- 13. Post-deploy hardening (Supabase advisor: function_search_path_mutable +
+--     anon/authenticated_security_definer_function_executable).
+alter function is_workspace_member(uuid) set search_path = public;
+alter function workspace_role(uuid) set search_path = public;
+alter function get_my_workspaces() set search_path = public;
+alter function prevent_last_owner_orphan() set search_path = public;
+
+revoke execute on function set_subject_workspace_id() from anon, authenticated, public;
+revoke execute on function set_subject_version_workspace_id() from anon, authenticated, public;
+revoke execute on function set_subject_comment_workspace_id() from anon, authenticated, public;
+revoke execute on function cascade_project_workspace_to_subjects() from anon, authenticated, public;
+revoke execute on function cascade_subject_workspace_to_children() from anon, authenticated, public;
 ```
 
 - [ ] **Step 2: Run a static lint pass on the SQL**

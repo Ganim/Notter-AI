@@ -497,3 +497,30 @@ as $$
 $$;
 
 grant execute on function get_my_workspaces() to authenticated;
+
+-- 13. Post-deploy hardening (Supabase advisor: function_search_path_mutable +
+--     anon/authenticated_security_definer_function_executable).
+--
+--     a) Lock search_path on SECURITY INVOKER helpers. Functions run as the
+--        caller, so they cannot escalate privilege, but a malicious schema in
+--        the caller's search_path could still shadow a referenced object.
+--        Belt-and-suspenders.
+alter function is_workspace_member(uuid) set search_path = public;
+alter function workspace_role(uuid) set search_path = public;
+alter function get_my_workspaces() set search_path = public;
+alter function prevent_last_owner_orphan() set search_path = public;
+
+--     b) Revoke EXECUTE on the trigger-only SECURITY DEFINER functions. They
+--        are invoked exclusively by triggers (BEFORE INSERT / AFTER UPDATE)
+--        and have no business being callable via PostgREST RPC. The default
+--        EXECUTE grant to PUBLIC must be revoked explicitly.
+--
+--        create_workspace_with_owner is intentionally left callable by
+--        `authenticated` — that's the client-side workspace-create entry
+--        point. The advisor will continue to warn about it; that warning is
+--        a known false positive for this function.
+revoke execute on function set_subject_workspace_id() from anon, authenticated, public;
+revoke execute on function set_subject_version_workspace_id() from anon, authenticated, public;
+revoke execute on function set_subject_comment_workspace_id() from anon, authenticated, public;
+revoke execute on function cascade_project_workspace_to_subjects() from anon, authenticated, public;
+revoke execute on function cascade_subject_workspace_to_children() from anon, authenticated, public;
