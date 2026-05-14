@@ -36,6 +36,8 @@ pub async fn dispatch(
         "post_subject_revision" => post_subject_revision(params, auth, state).await,
         "get_account_settings" => get_account_settings(params, auth, state).await,
         "update_account_settings" => update_account_settings(params, auth, state).await,
+        "list_workspaces" => list_workspaces(params, auth, state).await,
+        "save_workspace" => save_workspace(params, auth, state).await,
         // MCP "ping" is sometimes used by clients as a liveness check;
         // accept it as an empty-result success.
         "ping" => Ok(Value::Object(Default::default())),
@@ -307,6 +309,84 @@ async fn post_subject_revision(
             ))
         })?;
     Ok(serde_json::json!({ "version_id": id }))
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ListWorkspacesParams {
+    #[serde(default)]
+    include_archived: bool,
+}
+
+async fn list_workspaces(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: ListWorkspacesParams = if params.is_null() {
+        ListWorkspacesParams::default()
+    } else {
+        serde_json::from_value(params.clone())
+            .map_err(|e| McpError::InvalidParams(format!("list_workspaces: {e}")))?
+    };
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    let mut q = String::from("select=id,name,is_default,archived_at,created_at,updated_at&order=is_default.desc,name.asc");
+    if !p.include_archived { q.push_str("&archived_at=is.null"); }
+    sb.get("workspaces", &q, &token).await
+}
+
+#[derive(serde::Deserialize)]
+struct SaveWorkspaceParams {
+    #[serde(default)]
+    id: Option<String>,
+    name: String,
+    #[serde(default)]
+    is_default: Option<bool>,
+}
+
+async fn save_workspace(
+    params: &Value, auth: &AuthContext, state: &McpState,
+) -> Result<Value, McpError> {
+    let p: SaveWorkspaceParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("save_workspace: {e}")))?;
+    if p.name.trim().is_empty() {
+        return Err(McpError::InvalidParams("name required".into()));
+    }
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    let body = match &p.id {
+        None => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("name".into(), Value::String(p.name.clone()));
+            if let Some(d) = p.is_default { obj.insert("is_default".into(), Value::Bool(d)); }
+            sb.post("workspaces", &Value::Object(obj), &token, true).await?
+        }
+        Some(id) => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("name".into(), Value::String(p.name.clone()));
+            if let Some(d) = p.is_default { obj.insert("is_default".into(), Value::Bool(d)); }
+            obj.insert("updated_at".into(), Value::String(crate::mcp::endpoint::now_rfc3339()));
+            let url = format!("{}/rest/v1/workspaces?id=eq.{}", sb.base_url, url_encode(id));
+            let res = reqwest::Client::new()
+                .patch(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .header("apikey", &sb.anon_key)
+                .header("Content-Type", "application/json")
+                .header("Prefer", "return=representation")
+                .json(&Value::Object(obj))
+                .send().await
+                .map_err(|e| McpError::SupabaseError(format!("patch workspaces: {e}")))?;
+            if !res.status().is_success() {
+                let s = res.status().as_u16();
+                let b: Value = res.json().await.unwrap_or(Value::Null);
+                if s == 409 {
+                    return Err(McpError::Conflict(format!("workspace name conflict: {b}")));
+                }
+                return Err(McpError::SupabaseError(format!("patch workspaces: HTTP {s} body={b}")));
+            }
+            res.json::<Value>().await.unwrap_or(Value::Null)
+        }
+    };
+
+    body.as_array().and_then(|a| a.first().cloned())
+        .ok_or_else(|| McpError::SupabaseError("save_workspace: empty response".into()))
 }
 
 async fn get_account_settings(
