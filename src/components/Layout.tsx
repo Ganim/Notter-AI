@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { UserMenu } from './UserMenu';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { WindowControls } from './WindowControls';
 
 type Tab = 'planner';
 
@@ -21,9 +22,11 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="h-screen w-screen bg-background text-foreground flex flex-col overflow-hidden">
-      {/* Navbar */}
-      <div className="h-12 shrink-0 border-b flex items-center justify-between px-4 bg-muted/40">
-        <div className="flex items-center gap-2">
+      {/* Navbar — the explicit flex-1 spacer between the two groups carries
+          `data-tauri-drag-region` so dragging the window from the empty header
+          area always works. Interactive children explicitly opt out. */}
+      <div className="h-12 shrink-0 border-b flex items-center px-4 bg-muted/40">
+        <div className="flex items-center gap-2" data-tauri-drag-region="false">
           {TABS.map((tab) => (
             <button
               key={tab.key}
@@ -43,9 +46,15 @@ export function Layout({ children }: LayoutProps) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div
+          data-tauri-drag-region="true"
+          className="flex-1 h-full self-stretch"
+          aria-hidden
+        />
+        <div className="flex items-center gap-1" data-tauri-drag-region="false">
           <WorkspaceSwitcher />
           <UserMenu />
+          <WindowControls />
         </div>
       </div>
 

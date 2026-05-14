@@ -47,7 +47,6 @@
   "user_menu": {
     "settings": "Configurações",
     "plugins": "Plugins",
-    "check_updates": "Verificar atualizações",
     "login": "Login",
     "themes": "Temas",
     "language": "Idioma",
@@ -63,16 +62,6 @@
     "copied_toast": "Configuração MCP copiada",
     "disabled_banner": "Servidor MCP indisponível",
     "disabled_reason": "O servidor local não conseguiu iniciar. Reinicie o app; se persistir, verifique os logs."
-  },
-  "updater": {
-    "title": "Atualizações",
-    "checking": "Verificando atualizações...",
-    "up_to_date": "Você está na versão mais recente",
-    "available": "Uma nova versão está disponível",
-    "install": "Instalar e reiniciar",
-    "downloading": "Baixando...",
-    "installing": "Instalando, o app vai reiniciar...",
-    "error": "Falha na atualização"
   },
   "planner": {
     "projects": "Projetos",
@@ -144,6 +133,8 @@
   "accounts": {
     "add": "Adicionar conta",
     "switch": "Trocar de conta",
+    "switch_account": "Trocar conta",
+    "back": "Voltar",
     "remove": "Remover",
     "confirm_remove": "Remover esta conta deste dispositivo? Você poderá entrar novamente mais tarde.",
     "none": "Nenhuma conta ainda",

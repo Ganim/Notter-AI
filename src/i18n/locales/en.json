@@ -47,7 +47,6 @@
   "user_menu": {
     "settings": "Settings",
     "plugins": "Plugins",
-    "check_updates": "Check for Updates",
     "login": "Login",
     "themes": "Themes",
     "language": "Language",
@@ -63,16 +62,6 @@
     "copied_toast": "MCP config copied to clipboard",
     "disabled_banner": "MCP server unavailable",
     "disabled_reason": "The local server failed to bind. Restart the app; if it persists, check the logs."
-  },
-  "updater": {
-    "title": "Updates",
-    "checking": "Checking for updates...",
-    "up_to_date": "You are on the latest version",
-    "available": "A new version is available",
-    "install": "Install and restart",
-    "downloading": "Downloading...",
-    "installing": "Installing, the app will restart...",
-    "error": "Update failed"
   },
   "planner": {
     "projects": "Projects",
@@ -144,6 +133,8 @@
   "accounts": {
     "add": "Add account",
     "switch": "Switch account",
+    "switch_account": "Switch account",
+    "back": "Back",
     "remove": "Remove",
     "confirm_remove": "Remove this account from this device? You can sign in again later.",
     "none": "No accounts yet",

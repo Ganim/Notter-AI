@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Trash2, UserPlus, Loader2 } from 'lucide-react';
+import { Check, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import type { AccountSummary } from '@/lib/accounts/types';
 
 interface AccountSwitcherProps {
-  onAddAccount: () => void;
   onClose: () => void;
 }
 
-export function AccountSwitcher({ onAddAccount, onClose }: AccountSwitcherProps) {
+export function AccountSwitcher({ onClose }: AccountSwitcherProps) {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const mgr = getAccountManager();
@@ -72,7 +71,7 @@ export function AccountSwitcher({ onAddAccount, onClose }: AccountSwitcherProps)
   }
 
   return (
-    <div className="border-t border-border mt-1 pt-1">
+    <div className="pt-1">
       {accounts.map((account) => {
         const isActive = account.id === activeId;
         const isSwitching = switchingId === account.id;
@@ -104,13 +103,6 @@ export function AccountSwitcher({ onAddAccount, onClose }: AccountSwitcherProps)
           </div>
         );
       })}
-      <button
-        onClick={() => { onClose(); onAddAccount(); }}
-        className="w-full flex items-center gap-3 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-      >
-        <UserPlus size={12} />
-        {t('accounts.add')}
-      </button>
     </div>
   );
 }
