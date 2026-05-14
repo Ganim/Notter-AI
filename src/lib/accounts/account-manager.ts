@@ -5,8 +5,10 @@ import { resetAllStores } from '@/lib/accounts/store-registry';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtime';
 import {
   pushMcpSupabaseConfig,
+  pushMcpAccountSummaries,
   notifyMcpAccountRemoved,
   notifyMcpAccountRegistered,
+  type AccountSummary as McpAccountSummary,
 } from '@/lib/mcp';
 import type { AccountSummary } from './types';
 
@@ -15,6 +17,15 @@ export interface AddAccountInput {
   email: string;
   displayName: string | null;
   refreshToken: string;
+}
+
+/** Map app-level AccountSummary[] to the MCP OAuth account picker shape. */
+function toMcpAccountSummaries(accounts: AccountSummary[]): McpAccountSummary[] {
+  return accounts.map((a) => ({
+    accountId: a.id,
+    displayName: a.displayName ?? a.email ?? a.id,
+    email: a.email ?? '',
+  }));
 }
 
 /** 32 random bytes → base64url, prefixed `notter_acc_`. One bearer per account. */
@@ -95,6 +106,14 @@ export class AccountManager {
       await notifyMcpAccountRegistered(a.id, bearer);
     }
 
+    // Push account list to Rust so the OAuth consent screen can populate the
+    // account picker immediately on first MCP authorization request.
+    try {
+      await pushMcpAccountSummaries(toMcpAccountSummaries(this.accounts));
+    } catch (e) {
+      console.warn('[account-manager] pushMcpAccountSummaries failed on bootstrap:', e);
+    }
+
     this.booted = true;
   }
 
@@ -118,6 +137,12 @@ export class AccountManager {
     this.accounts.push(summary);
     await writeAccountIndex({ accounts: this.accounts });
     this.notify();
+    // Keep the OAuth consent screen account picker in sync.
+    try {
+      await pushMcpAccountSummaries(toMcpAccountSummaries(this.accounts));
+    } catch (e) {
+      console.warn('[account-manager] pushMcpAccountSummaries failed on add:', e);
+    }
     return summary;
   }
 
@@ -135,6 +160,12 @@ export class AccountManager {
     // token slice so the removed account is unreachable immediately.
     await notifyMcpAccountRemoved(id);
     this.notify();
+    // Keep the OAuth consent screen account picker in sync.
+    try {
+      await pushMcpAccountSummaries(toMcpAccountSummaries(this.accounts));
+    } catch (e) {
+      console.warn('[account-manager] pushMcpAccountSummaries failed on remove:', e);
+    }
   }
 
   async switchAccount(targetId: string): Promise<void> {
