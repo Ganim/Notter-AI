@@ -137,11 +137,13 @@
     },
     "theme": {
       "section": "Tema",
+      "hint": "Alterna entre claro e escuro.",
       "light": "Claro",
       "dark": "Escuro"
     },
     "language": {
       "section": "Idioma",
+      "hint": "Idioma da interface.",
       "pt_BR": "Português (Brasil)",
       "en": "English"
     },

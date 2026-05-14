@@ -4,11 +4,14 @@
 // and updates section (current version + manual check + install).
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Loader2, CheckCircle2, Download, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, CheckCircle2, Download, AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
 import { checkForUpdates, downloadAndInstall, getCurrentVersion, type UpdateState } from '@/lib/updater';
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select';
 
 const LANGUAGES = [
   { id: 'pt-BR' as const, labelKey: 'settings.language.pt_BR' },
@@ -47,14 +50,17 @@ export function GeneralTab() {
   };
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-6 space-y-0">
       {/* Tema */}
-      <section>
-        <h3 className="text-sm font-semibold text-foreground mb-3">{t('settings.theme.section')}</h3>
+      <div className="flex items-center justify-between gap-4 py-4 border-b border-border">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium text-foreground">{t('settings.theme.section')}</span>
+          <span className="text-xs text-muted-foreground">{t('settings.theme.hint')}</span>
+        </div>
         <div
           role="radiogroup"
           aria-label={t('settings.theme.section')}
-          className="inline-flex p-0.5 bg-muted rounded-md border border-border"
+          className="inline-flex p-0.5 bg-muted rounded-md border border-border flex-shrink-0"
         >
           <button
             type="button"
@@ -85,32 +91,32 @@ export function GeneralTab() {
             {t('settings.theme.dark')}
           </button>
         </div>
-      </section>
+      </div>
 
       {/* Idioma */}
-      <section>
-        <h3 className="text-sm font-semibold text-foreground mb-3">{t('settings.language.section')}</h3>
-        <div className="border border-border rounded-md divide-y divide-border overflow-hidden">
-          {LANGUAGES.map((l) => (
-            <button
-              key={l.id}
-              onClick={() => setLanguage(l.id)}
-              className={cn(
-                'w-full flex items-center justify-between px-4 py-3 text-left transition-colors',
-                language === l.id ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/60',
-              )}
-            >
-              <span className="text-sm">{t(l.labelKey)}</span>
-              {language === l.id && <Check size={14} />}
-            </button>
-          ))}
+      <div className="flex items-center justify-between gap-4 py-4 border-b border-border">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium text-foreground">{t('settings.language.section')}</span>
+          <span className="text-xs text-muted-foreground">{t('settings.language.hint')}</span>
         </div>
-      </section>
+        <Select
+          value={language}
+          onValueChange={(v) => setLanguage(v as 'pt-BR' | 'en')}
+        >
+          <SelectTrigger className="w-48 flex-shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LANGUAGES.map((l) => (
+              <SelectItem key={l.id} value={l.id}>{t(l.labelKey)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Atualizações */}
-      <section>
-        <h3 className="text-sm font-semibold text-foreground mb-3">{t('settings.updates.section')}</h3>
-        <div className="flex items-center justify-between gap-4 py-3 border-t border-border">
+      <div>
+        <div className="flex items-center justify-between gap-4 py-4 border-b border-border">
           <div className="flex flex-col">
             <span className="text-sm font-medium text-foreground">
               {t('settings.updates.current_version')}
@@ -122,7 +128,7 @@ export function GeneralTab() {
           <button
             onClick={handleCheck}
             disabled={updateState.kind === 'checking' || updateState.kind === 'downloading' || updateState.kind === 'installing'}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
           >
             {updateState.kind === 'checking'
               ? <Loader2 size={14} className="animate-spin" />
@@ -183,7 +189,7 @@ export function GeneralTab() {
             </div>
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }

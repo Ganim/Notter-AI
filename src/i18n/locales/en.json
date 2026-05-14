@@ -137,11 +137,13 @@
     },
     "theme": {
       "section": "Theme",
+      "hint": "Toggle between light and dark.",
       "light": "Light",
       "dark": "Dark"
     },
     "language": {
       "section": "Language",
+      "hint": "App interface language.",
       "pt_BR": "Portuguese (Brazil)",
       "en": "English"
     },

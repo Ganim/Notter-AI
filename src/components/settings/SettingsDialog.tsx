@@ -18,7 +18,7 @@ interface Props {
   initialTab?: SettingsTab;
 }
 
-export function SettingsDialog({ open, onOpenChange, initialTab = 'account' }: Props) {
+export function SettingsDialog({ open, onOpenChange, initialTab = 'general' }: Props) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 

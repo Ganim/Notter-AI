@@ -15,8 +15,8 @@ interface Props {
 }
 
 const TABS: Array<{ id: SettingsTab; labelKey: string; Icon: typeof User }> = [
-  { id: 'account', labelKey: 'settings.tabs.account', Icon: User },
   { id: 'general', labelKey: 'settings.tabs.general', Icon: Sliders },
+  { id: 'account', labelKey: 'settings.tabs.account', Icon: User },
   { id: 'mcp',     labelKey: 'settings.tabs.mcp',     Icon: Network },
   { id: 'plugins', labelKey: 'settings.tabs.plugins', Icon: Puzzle },
 ];
