@@ -108,18 +108,21 @@ grant execute on function workspace_role(uuid) to authenticated;
 -- 5. workspace_members RLS. Drop the temporary permissive policy now that
 --    the seed is committed, then install the real policies.
 --
---    Self-referential SELECT is safe: PostgreSQL evaluates the inner query
---    under the same RLS, the inner query is restricted to `user_id =
---    auth.uid()` (an index probe), the set converges on the caller's own
---    membership rows, and recursion terminates after one level.
+--    SELECT is restricted to the caller's own membership row. The first cut
+--    used a "I can see all members of any workspace I belong to" formulation
+--    via `workspace_id IN (SELECT workspace_id ... WHERE user_id = auth.uid())`
+--    but Postgres rejected it at runtime with infinite-recursion: the inner
+--    subquery reads workspace_members under the same policy, retriggering it,
+--    and the recursion guard fires before convergence. For Plan 1 single-user
+--    this self-row policy is sufficient — the only consumer (workspace_role /
+--    is_workspace_member / the get_my_workspaces JOIN) only needs to see the
+--    caller's own row. Plan 2 will revisit when WorkspaceMembersDialog needs
+--    to render peer members; that'll require a SECURITY DEFINER helper or a
+--    non-recursive policy formulation.
 drop policy "members_seed_temp_permissive" on workspace_members;
 
-create policy "members_read_self_workspaces" on workspace_members
-  for select using (
-    workspace_id in (
-      select workspace_id from workspace_members where user_id = auth.uid()
-    )
-  );
+create policy "members_read_self" on workspace_members
+  for select using ( user_id = auth.uid() );
 
 create policy "members_insert_owner_only" on workspace_members
   for insert with check ( workspace_role(workspace_id) = 'owner' );

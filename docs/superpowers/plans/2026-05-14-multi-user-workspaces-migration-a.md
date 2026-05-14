@@ -165,12 +165,11 @@ grant execute on function workspace_role(uuid) to authenticated;
 --    membership rows, and recursion terminates after one level.
 drop policy "members_seed_temp_permissive" on workspace_members;
 
-create policy "members_read_self_workspaces" on workspace_members
-  for select using (
-    workspace_id in (
-      select workspace_id from workspace_members where user_id = auth.uid()
-    )
-  );
+-- Self-row only. The "see all peers of workspaces I belong to" formulation
+-- triggers infinite-recursion at runtime; see migration comment for context.
+-- Plan 2 needs a different mechanism for peer-member visibility.
+create policy "members_read_self" on workspace_members
+  for select using ( user_id = auth.uid() );
 
 create policy "members_insert_owner_only" on workspace_members
   for insert with check ( workspace_role(workspace_id) = 'owner' );
