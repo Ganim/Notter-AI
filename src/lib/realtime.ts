@@ -8,16 +8,13 @@ import {
   fetchProjects, fetchSubjects,
   fetchSubjectVersions, fetchSubjectComments, fetchWorkspaces,
 } from '@/lib/sync';
-import { subscribeUserTable } from '@/lib/synced-store';
+import { subscribeWorkspaceTable } from '@/lib/synced-store';
 
 let channel: RealtimeChannel | null = null;
 
 export function startRealtimeSync(userId: string): void {
   if (!isSupabaseConfigured) return;
   stopRealtimeSync();
-  // Sweep any lingering db-sync* channels from prior calls (HMR, double-mount,
-  // or initialize() races). Each call uses a unique name so collisions are
-  // impossible going forward, but old channels still consume realtime quota.
   for (const c of supabase.getChannels()) {
     if (c.topic.includes('db-sync')) {
       supabase.removeChannel(c);
@@ -49,14 +46,15 @@ export function startRealtimeSync(userId: string): void {
     if (rows) useWorkspacesStore.getState().applyRemoteWorkspaces(rows);
   };
 
-  // Unique channel name per call. supabase.channel(name) returns the SAME
-  // object for the same name, even after removeChannel(); calling .on() on
-  // an already-subscribed channel throws. A fresh name guarantees a fresh
-  // channel and side-steps HMR / double-mount races entirely.
+  // Workspace ids the user is a member of. In Plan 1 this equals "workspaces
+  // the user owns" because there are no invites yet — the set was just
+  // hydrated by WorkspaceManager.bootstrap before we got here.
+  const memberWsIds = useWorkspacesStore.getState().workspaces.map((w) => w.id);
+
   const channelName = `db-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let ch = supabase.channel(channelName);
-  // user_preferences keeps the inline listener — it consumes payload.new
-  // directly (single row per user, no re-fetch), legitimately different.
+
+  // user_preferences stays on the inline payload listener (account-scoped, not workspace).
   ch = ch.on(
     'postgres_changes',
     { event: '*', schema: 'public', table: 'user_preferences', filter: `user_id=eq.${userId}` },
@@ -70,11 +68,27 @@ export function startRealtimeSync(userId: string): void {
     },
   );
 
-  ch = subscribeUserTable(ch, 'workspaces',        userId, refetchWorkspaces);
-  ch = subscribeUserTable(ch, 'projects',          userId, refetchProjects);
-  ch = subscribeUserTable(ch, 'subjects',          userId, refetchSubjects);
-  ch = subscribeUserTable(ch, 'subject_versions',  userId, refetchSubjectVersions);
-  ch = subscribeUserTable(ch, 'subject_comments',  userId, refetchSubjectComments);
+  // Workspace-scoped tables. workspaces filters on `id`, the rest on
+  // `workspace_id`.
+  ch = subscribeWorkspaceTable(ch, 'workspaces',        memberWsIds, refetchWorkspaces,        'id');
+  ch = subscribeWorkspaceTable(ch, 'projects',          memberWsIds, refetchProjects);
+  ch = subscribeWorkspaceTable(ch, 'subjects',          memberWsIds, refetchSubjects);
+  ch = subscribeWorkspaceTable(ch, 'subject_versions',  memberWsIds, refetchSubjectVersions);
+  ch = subscribeWorkspaceTable(ch, 'subject_comments',  memberWsIds, refetchSubjectComments);
+
+  // Membership change listener: filter by user_id of the caller because
+  // workspace_members rows for OTHER users in the same workspace are also
+  // visible (RLS admits all rows where the caller is a member). We only need
+  // to react when the caller's own membership set changes.
+  ch = ch.on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'workspace_members', filter: `user_id=eq.${userId}` },
+    () => {
+      // The user joined or left a workspace. Rebuild the channel so the
+      // workspace_id=in.(...) filter list reflects the new set.
+      void rebuildRealtimeOnMembershipChange(userId);
+    },
+  );
 
   channel = ch.subscribe();
 }
@@ -83,5 +97,30 @@ export function stopRealtimeSync(): void {
   if (channel) {
     supabase.removeChannel(channel);
     channel = null;
+  }
+}
+
+/**
+ * Re-fetch the caller's workspaces and rebuild the realtime channel so the
+ * `workspace_id=in.(...)` filter list reflects newly-joined or left
+ * workspaces. Triggered by a workspace_members change event scoped to the
+ * caller. No-op for Plan 1 in practice (single-user accounts never receive
+ * such events), but the wiring is in place for Plan 2's invites.
+ */
+async function rebuildRealtimeOnMembershipChange(userId: string): Promise<void> {
+  try {
+    const rows = await fetchWorkspaces(userId);
+    if (!rows) return;
+    const prevIds = new Set(useWorkspacesStore.getState().workspaces.map((w) => w.id));
+    const nextIds = new Set(rows.map((w) => w.id));
+    const same = prevIds.size === nextIds.size && [...prevIds].every((id) => nextIds.has(id));
+    useWorkspacesStore.getState().applyRemoteWorkspaces(rows);
+    if (!same) {
+      // Membership set changed. Stop+start the channel with the new filter list.
+      stopRealtimeSync();
+      startRealtimeSync(userId);
+    }
+  } catch (e) {
+    console.error('[realtime] rebuildRealtimeOnMembershipChange failed:', e);
   }
 }
