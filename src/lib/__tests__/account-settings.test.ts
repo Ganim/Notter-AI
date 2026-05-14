@@ -44,16 +44,19 @@ describe('account-settings', () => {
     });
   });
 
-  it('migrateFromLocalStorageOnce copies legacy keys when notter blob absent', async () => {
-    localStorage.setItem('notter-theme', 'dark');
-    localStorage.setItem('notter-language', 'en-US');
+  it('migrateFromLocalStorageOnce copies legacy theme + update prefs when notter blob absent', async () => {
+    localStorage.setItem('notter-theme-mode', 'dark');
+    localStorage.setItem('notter-update-auto-check', 'false');
     getUser.mockResolvedValue({ data: { user: { user_metadata: {} } } });
     updateUser.mockResolvedValue({});
     await migrateFromLocalStorageOnce();
     expect(updateUser).toHaveBeenCalled();
     const call = updateUser.mock.calls[0][0];
     expect(call.data.notter.theme).toBe('dark');
-    expect(call.data.notter.language).toBe('en-US');
+    expect(call.data.notter.update_settings.auto_check).toBe(false);
+    // Language is NOT migrated from localStorage — it flows through Supabase user_preferences.
+    // The merged blob defaults to 'pt-BR' from DEFAULTS, not from localStorage.
+    expect(call.data.notter.language).toBe('pt-BR');
   });
 
   it('migrateFromLocalStorageOnce is a no-op when notter blob already exists', async () => {

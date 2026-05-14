@@ -35,9 +35,12 @@ export async function writeAccountSettings(patch: Partial<AccountSettings>): Pro
   await supabase.auth.updateUser({ data: { notter: merged } });
 }
 
+// Legacy localStorage keys used in older versions. Language flows through
+// the Supabase `user_preferences` table already, so it isn't migrated from
+// localStorage — `user_metadata.notter.language` stays empty until the user
+// next changes it via the Settings UI or the MCP update_account_settings tool.
 const LEGACY_KEYS = {
-  theme: 'notter-theme',
-  language: 'notter-language',
+  theme: 'notter-theme-mode',
   autoCheck: 'notter-update-auto-check',
   autoInstall: 'notter-update-auto-install',
 };
@@ -48,13 +51,11 @@ export async function migrateFromLocalStorageOnce(): Promise<void> {
   if (existing && Object.keys(existing).length > 0) return; // already migrated
 
   const theme = localStorage.getItem(LEGACY_KEYS.theme) as AccountSettings['theme'] | null;
-  const language = localStorage.getItem(LEGACY_KEYS.language) as AccountSettings['language'] | null;
   const autoCheck = localStorage.getItem(LEGACY_KEYS.autoCheck);
   const autoInstall = localStorage.getItem(LEGACY_KEYS.autoInstall);
 
   const patch: Partial<AccountSettings> = {};
   if (theme) patch.theme = theme;
-  if (language) patch.language = language;
   if (autoCheck !== null || autoInstall !== null) {
     patch.update_settings = {
       auto_check: autoCheck === null ? DEFAULTS.update_settings.auto_check : autoCheck === 'true',
