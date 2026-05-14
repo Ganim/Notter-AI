@@ -79,6 +79,20 @@ pub async fn authorize_post(
     State(state): State<OAuthState>,
     Form(f): Form<AuthorizeForm>,
 ) -> impl IntoResponse {
+    // Validate client + redirect_uri up front. RFC 6749 §4.1.2.1: any redirect
+    // back to the client must use a redirect_uri the AS has previously
+    // validated against the client's registered list. This guards the deny
+    // branch from being weaponized as an open redirect.
+    let s = state.read().await;
+    let client = match s.clients.find_by_id(&f.client_id) {
+        Some(c) => c.clone(),
+        None => return (StatusCode::BAD_REQUEST, "unknown client_id").into_response(),
+    };
+    if !client.redirect_uris.contains(&f.redirect_uri) {
+        return (StatusCode::BAD_REQUEST, "redirect_uri not registered").into_response();
+    }
+    drop(s);
+
     if f.deny.is_some() {
         let url = format!("{}?error=access_denied&state={}", f.redirect_uri, urlencoding::encode(&f.state));
         return Redirect::to(&url).into_response();
@@ -91,14 +105,6 @@ pub async fn authorize_post(
     }
 
     let s = state.read().await;
-    let client = match s.clients.find_by_id(&f.client_id) {
-        Some(c) => c.clone(),
-        None => return (StatusCode::BAD_REQUEST, "unknown client_id").into_response(),
-    };
-    if !client.redirect_uris.contains(&f.redirect_uri) {
-        return (StatusCode::BAD_REQUEST, "redirect_uri not registered").into_response();
-    }
-
     let mut code_bytes = [0u8; 24];
     rand::rng().fill_bytes(&mut code_bytes);
     let code = URL_SAFE_NO_PAD.encode(code_bytes);

@@ -246,3 +246,29 @@ async fn authorize_post_issues_code_and_redirects() {
     assert!(loc_str.starts_with("http://127.0.0.1:54881/cb?code="));
     assert!(loc_str.contains("&state=xyz"));
 }
+
+#[tokio::test]
+async fn authorize_post_rejects_unregistered_redirect_uri_even_on_deny() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, _secret) = {
+        let mut s = state.write().await;
+        s.clients.register("X".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
+    };
+    let router = super::routes_with_accounts(state.clone(), vec![
+        super::AccountSummary { account_id: "a".into(), display_name: "G".into(), email: "g@x.com".into() }
+    ]);
+
+    // Attacker tries deny path with an attacker-controlled redirect_uri.
+    let form = format!(
+        "client_id={}&redirect_uri=https%3A%2F%2Fevil.example%2Fphish&code_challenge=x&code_challenge_method=S256&state=xyz&deny=1",
+        client_id
+    );
+    let req = Request::builder()
+        .method("POST").uri("/authorize")
+        .header("content-type","application/x-www-form-urlencoded")
+        .body(Body::from(form)).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 400);  // must reject — not redirect
+}
