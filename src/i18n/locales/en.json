@@ -128,7 +128,25 @@
     "title": "Settings",
     "close": "Close",
     "nav_account": "Account",
-    "account_coming_soon": "Coming soon"
+    "account_coming_soon": "Coming soon",
+    "tabs": {
+      "account": "Account",
+      "appearance": "Appearance",
+      "language": "Language",
+      "mcp": "MCP",
+      "plugins": "Plugins"
+    },
+    "appearance": {
+      "dark_mode": "Dark mode",
+      "dark_mode_hint": "Toggle between light and dark theme."
+    },
+    "language": {
+      "pt_BR": "Portuguese (Brazil)",
+      "en": "English"
+    },
+    "plugins": {
+      "coming_soon": "Coming soon."
+    }
   },
   "accounts": {
     "add": "Add account",

@@ -128,7 +128,25 @@
     "title": "Configurações",
     "close": "Fechar",
     "nav_account": "Conta",
-    "account_coming_soon": "Em breve"
+    "account_coming_soon": "Em breve",
+    "tabs": {
+      "account": "Conta",
+      "appearance": "Aparência",
+      "language": "Idioma",
+      "mcp": "MCP",
+      "plugins": "Plugins"
+    },
+    "appearance": {
+      "dark_mode": "Modo escuro",
+      "dark_mode_hint": "Alterna entre o tema claro e o escuro."
+    },
+    "language": {
+      "pt_BR": "Português (Brasil)",
+      "en": "English"
+    },
+    "plugins": {
+      "coming_soon": "Em breve."
+    }
   },
   "accounts": {
     "add": "Adicionar conta",

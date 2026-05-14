@@ -1,14 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Puzzle, LogIn, LogOut, Globe, Moon, Sun, User, Network, ArrowLeftRight, UserPlus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useAppStore } from '@/stores/app-store';
+import { Settings, LogIn, LogOut, User, ArrowLeftRight, UserPlus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { AuthDialog } from '@/components/AuthDialog';
-import { AccountForm } from '@/components/AccountForm';
 import { AccountSwitcher } from '@/components/AccountSwitcher';
-import { McpConfigDialog } from '@/components/McpConfigDialog';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { toast } from 'sonner';
 
 export function UserMenu() {
@@ -18,9 +15,7 @@ export function UserMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
-  const [mcpConfigOpen, setMcpConfigOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { darkMode, setDarkMode, language, setLanguage } = useAppStore();
   const { user, signOut } = useAuthStore();
   const [accountCount, setAccountCount] = useState(() => getAccountManager().list().length);
 
@@ -45,11 +40,7 @@ export function UserMenu() {
     if (!open) setSubView('main');
   }, [open]);
 
-  const toggleDarkMode = () => setDarkMode(!darkMode);
-  const toggleLanguage = () => setLanguage(language === 'pt-BR' ? 'en' : 'pt-BR');
-
   const openSettings = () => { setOpen(false); setSettingsOpen(true); };
-  const openMcpConfig = () => { setOpen(false); setMcpConfigOpen(true); };
   const openAuthDialog = () => { setOpen(false); setAuthDialogOpen(true); };
   const handleAddAccount = () => { setOpen(false); setAddAccountOpen(true); };
 
@@ -120,22 +111,9 @@ export function UserMenu() {
 
                 {user && <div className="border-t border-border my-1" />}
 
-                {user && (
-                  <button
-                    onClick={openMcpConfig}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Network size={14} />
-                    {t('mcp.menu_label')}
-                  </button>
-                )}
                 <button onClick={openSettings} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
                   <Settings size={14} />
                   {t('user_menu.settings')}
-                </button>
-                <button disabled className="w-full flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground cursor-not-allowed">
-                  <Puzzle size={14} />
-                  {t('user_menu.plugins')}
                 </button>
 
                 {user ? (
@@ -149,30 +127,6 @@ export function UserMenu() {
                     {t('auth.login')}
                   </button>
                 )}
-
-                <div className="border-t border-border my-1" />
-
-                <button
-                  onClick={toggleDarkMode}
-                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                >
-                  <span className="flex items-center gap-3">
-                    {darkMode ? <Sun size={14} /> : <Moon size={14} />}
-                    {t('user_menu.dark_mode')}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{darkMode ? 'ON' : 'OFF'}</span>
-                </button>
-
-                <button
-                  onClick={toggleLanguage}
-                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-                >
-                  <span className="flex items-center gap-3">
-                    <Globe size={14} />
-                    {t('user_menu.language')}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{language === 'pt-BR' ? 'PT' : 'EN'}</span>
-                </button>
               </>
             )}
 
@@ -198,21 +152,8 @@ export function UserMenu() {
       {/* Add Account Dialog */}
       <AuthDialog open={addAccountOpen} onOpenChange={setAddAccountOpen} mode="add-account" />
 
-      {/* MCP Config Dialog */}
-      <McpConfigDialog open={mcpConfigOpen} onOpenChange={setMcpConfigOpen} />
-
       {/* Settings Dialog */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{t('settings.title')}</DialogTitle>
-          </DialogHeader>
-
-          <div className="min-h-[420px]">
-            <AccountForm />
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }
