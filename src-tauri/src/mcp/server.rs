@@ -127,6 +127,15 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
     // McpStateInner) so unit tests in this crate don't pull AppHandle's
     // WebView2 runtime deps into the test binary's link graph.
 
+    // Feature flag: MCP_OAUTH_ENABLED (default true).
+    // Set to "false" or "0" to suppress the OAuth routes — useful in locked-down
+    // environments or during rollout. OAuth state is still bootstrapped (persisted
+    // key + clients.json) so any previously-issued JWTs continue to be accepted
+    // by the bearer middleware; only new authorizations are blocked.
+    let oauth_enabled = std::env::var("MCP_OAUTH_ENABLED")
+        .map(|v| v != "false" && v != "0")
+        .unwrap_or(true);
+
     // Pin the OAuth issuer URL now that the listener address is known.
     let oauth_state = state.read().await.oauth.clone();
     {
@@ -144,9 +153,13 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
         .layer(Extension(app.clone()))
         .with_state(state.clone());
 
-    let oauth_router = crate::oauth::routes(oauth_state);
-
-    let combined = mcp_router.merge(oauth_router);
+    let combined = if oauth_enabled {
+        let oauth_router = crate::oauth::routes(oauth_state);
+        mcp_router.merge(oauth_router)
+    } else {
+        eprintln!("[mcp] MCP_OAUTH_ENABLED=false — OAuth routes (/authorize /token /revoke /register /.well-known) are disabled");
+        mcp_router
+    };
 
     // 7. Spawn the server in the background.
     tokio::spawn(async move {
