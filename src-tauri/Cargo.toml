@@ -48,6 +48,7 @@ sha2 = "0.10"
 
 [dev-dependencies]
 httpmock = "0.8"
+tower = { version = "0.5", features = ["util"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

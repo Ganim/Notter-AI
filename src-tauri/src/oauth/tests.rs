@@ -129,3 +129,59 @@ async fn grants_store_drops_expired_codes() {
     store.insert("expired".into(), code).await;
     assert!(store.take("expired").await.is_none());
 }
+
+use axum::{body::to_bytes, body::Body, http::Request};
+use tower::ServiceExt;
+
+async fn build_test_router(dir: &std::path::Path) -> axum::Router {
+    let state = super::bootstrap_oauth(dir).await.unwrap();
+    {
+        let mut s = state.write().await;
+        s.issuer = "http://127.0.0.1:54781".into();
+    }
+    super::routes(state)
+}
+
+#[tokio::test]
+async fn well_known_metadata_returns_expected_shape() {
+    let dir = tmp();
+    let router = build_test_router(&dir).await;
+    let req = Request::builder()
+        .uri("/.well-known/oauth-authorization-server")
+        .body(Body::empty()).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 200);
+    let bytes = to_bytes(res.into_body(), 64 * 1024).await.unwrap();
+    let j: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(j["issuer"], "http://127.0.0.1:54781");
+    assert_eq!(j["authorization_endpoint"], "http://127.0.0.1:54781/authorize");
+    assert_eq!(j["token_endpoint"], "http://127.0.0.1:54781/token");
+    assert_eq!(j["registration_endpoint"], "http://127.0.0.1:54781/register");
+    assert_eq!(j["revocation_endpoint"], "http://127.0.0.1:54781/revoke");
+    assert_eq!(j["code_challenge_methods_supported"], serde_json::json!(["S256"]));
+    assert_eq!(j["grant_types_supported"], serde_json::json!(["authorization_code","refresh_token"]));
+    assert_eq!(j["response_types_supported"], serde_json::json!(["code"]));
+    assert_eq!(j["token_endpoint_auth_methods_supported"], serde_json::json!(["client_secret_post"]));
+}
+
+#[tokio::test]
+async fn register_endpoint_returns_client_id_and_secret() {
+    let dir = tmp();
+    let router = build_test_router(&dir).await;
+    let body = serde_json::json!({
+        "client_name": "Claude Code",
+        "redirect_uris": ["http://127.0.0.1:54881/callback"]
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string())).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 201);
+    let bytes = to_bytes(res.into_body(), 64 * 1024).await.unwrap();
+    let j: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(j["client_id"].as_str().unwrap().starts_with("notter_client_"));
+    assert!(j["client_secret"].as_str().unwrap().len() >= 32);
+    assert_eq!(j["client_name"], "Claude Code");
+}

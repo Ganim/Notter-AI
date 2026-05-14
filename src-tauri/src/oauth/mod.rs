@@ -45,5 +45,14 @@ pub async fn bootstrap_oauth(data_dir: &std::path::Path) -> Result<OAuthState, S
     })))
 }
 
+pub fn routes(state: OAuthState) -> axum::Router {
+    use axum::{routing::{get, post}, Router};
+    Router::new()
+        .route("/.well-known/oauth-authorization-server", get(metadata::well_known))
+        .route("/register", post(register::register))
+        // /authorize, /token, /revoke wired in M2.6–M2.8
+        .with_state(state)
+}
+
 #[cfg(test)]
 pub mod tests;
