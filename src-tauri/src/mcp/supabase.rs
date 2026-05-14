@@ -98,6 +98,72 @@ impl SupabaseClient {
         }
         Ok(body)
     }
+
+    /// PATCH /auth/v1/user — used to update auth.users.raw_user_meta_data.
+    /// This is the Supabase Auth API, NOT PostgREST. The same access_token
+    /// the MCP server already holds for the account authorizes this call.
+    pub async fn auth_patch_user(
+        &self,
+        body: &Value,
+        access_token: &str,
+    ) -> Result<Value, McpError> {
+        let url = format!("{}/auth/v1/user", self.base_url);
+        let res = self
+            .http
+            .patch(&url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("apikey", &self.anon_key)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| McpError::SupabaseError(format!("auth_patch_user: {e}")))?;
+        let status = res.status();
+        let body: Value = res.json().await.unwrap_or(Value::Null);
+        if !status.is_success() {
+            return Err(McpError::SupabaseError(format!(
+                "auth_patch_user: HTTP {} body={body}",
+                status.as_u16()
+            )));
+        }
+        Ok(body)
+    }
+
+    /// POST /rest/v1/rpc/<name> — calls a Postgres function with JSON args.
+    pub async fn rpc(
+        &self,
+        name: &str,
+        args: &Value,
+        access_token: &str,
+    ) -> Result<Value, McpError> {
+        let url = format!("{}/rest/v1/rpc/{}", self.base_url, name);
+        let res = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("apikey", &self.anon_key)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .header("Prefer", "return=representation")
+            .json(args)
+            .send()
+            .await
+            .map_err(|e| McpError::SupabaseError(format!("rpc {name}: {e}")))?;
+        let status = res.status();
+        let body: Value = if status == reqwest::StatusCode::NO_CONTENT {
+            Value::Null
+        } else {
+            res.json().await.unwrap_or(Value::Null)
+        };
+        if !status.is_success() {
+            return Err(McpError::SupabaseError(format!(
+                "rpc {name}: HTTP {} body={body}",
+                status.as_u16()
+            )));
+        }
+        Ok(body)
+    }
 }
 
 /// Helper for tools — looks up the access token for the request's account
@@ -119,4 +185,56 @@ pub async fn supabase_for(
         (s.supabase_url.clone(), s.supabase_anon_key.clone())
     };
     Ok((SupabaseClient::new(base_url, anon_key), token))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::{Method, MockServer};
+
+    #[tokio::test]
+    async fn auth_patch_user_hits_auth_v1_user() {
+        let server = MockServer::start_async().await;
+        let m = server.mock_async(|when, then| {
+            when.method(Method::PATCH)
+                .path("/auth/v1/user")
+                .header("authorization", "Bearer access-tok")
+                .header("apikey", "anon");
+            then.status(200).json_body(serde_json::json!({
+                "id": "user-1",
+                "user_metadata": { "notter": { "theme": "dark" } }
+            }));
+        }).await;
+
+        let sb = SupabaseClient::new(server.base_url(), "anon".into());
+        let body = serde_json::json!({ "data": { "notter": { "theme": "dark" } } });
+        let res = sb.auth_patch_user(&body, "access-tok").await.unwrap();
+
+        m.assert_async().await;
+        assert_eq!(res["user_metadata"]["notter"]["theme"], "dark");
+    }
+
+    #[tokio::test]
+    async fn rpc_posts_to_rest_v1_rpc_name() {
+        let server = MockServer::start_async().await;
+        let m = server.mock_async(|when, then| {
+            when.method(Method::POST)
+                .path("/rest/v1/rpc/rename_project_cascade")
+                .header("authorization", "Bearer access-tok")
+                .header("apikey", "anon")
+                .json_body(serde_json::json!({
+                    "old_name": "Old", "new_name": "New",
+                    "workspace_uuid": "00000000-0000-0000-0000-000000000001"
+                }));
+            then.status(200).body("");
+        }).await;
+
+        let sb = SupabaseClient::new(server.base_url(), "anon".into());
+        let body = serde_json::json!({
+            "old_name": "Old", "new_name": "New",
+            "workspace_uuid": "00000000-0000-0000-0000-000000000001"
+        });
+        sb.rpc("rename_project_cascade", &body, "access-tok").await.unwrap();
+        m.assert_async().await;
+    }
 }
