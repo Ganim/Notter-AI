@@ -178,6 +178,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (event === 'SIGNED_IN' && session?.user) {
           syncOnLogin(session.user.id);
           startRealtimeSync(session.user.id);
+          // M6: one-shot localStorage → user_metadata migration
+          import('@/lib/account-settings').then(({ migrateFromLocalStorageOnce }) => {
+            migrateFromLocalStorageOnce().catch((e) =>
+              console.warn('[account-settings] migration failed:', e),
+            );
+          });
         }
         if (
           (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') &&
