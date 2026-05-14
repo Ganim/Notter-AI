@@ -31,11 +31,11 @@ export function SettingsDialog({ open, onOpenChange, initialTab = 'account' }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden">
+      <DialogContent className="!max-w-[min(960px,90vw)] w-[min(960px,90vw)] p-0 overflow-hidden">
         <DialogHeader className="px-6 py-4 border-b border-border">
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
-        <div className="flex min-h-[480px] max-h-[70vh]">
+        <div className="flex min-h-[520px] max-h-[75vh]">
           <SettingsSideNav active={activeTab} onChange={setActiveTab} />
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'account' && <AccountTab />}

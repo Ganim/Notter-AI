@@ -1,12 +1,13 @@
 // src/components/settings/tabs/AccountTab.tsx
-import { useTranslation } from 'react-i18next';
+//
+// AccountForm renders its own "Conta" heading internally, so we don't add a
+// second one here — keeps the visual hierarchy clean (sidebar label is the
+// tab identifier, the in-content heading is the section title).
 import { AccountForm } from '@/components/AccountForm';
 
 export function AccountTab() {
-  const { t } = useTranslation();
   return (
     <div className="p-6">
-      <h2 className="text-base font-semibold text-foreground mb-4">{t('settings.tabs.account')}</h2>
       <AccountForm />
     </div>
   );

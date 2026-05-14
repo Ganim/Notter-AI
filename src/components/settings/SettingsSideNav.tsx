@@ -25,7 +25,7 @@ const TABS: Array<{ id: SettingsTab; labelKey: string; Icon: typeof User }> = [
 export function SettingsSideNav({ active, onChange }: Props) {
   const { t } = useTranslation();
   return (
-    <nav className="w-[200px] shrink-0 bg-muted/40 border-r border-border py-3 flex flex-col gap-0.5">
+    <nav className="w-[240px] shrink-0 bg-muted/40 border-r border-border py-3 flex flex-col gap-0.5">
       {TABS.map(({ id, labelKey, Icon }) => {
         const isActive = id === active;
         return (
