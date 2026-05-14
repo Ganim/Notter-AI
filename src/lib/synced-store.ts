@@ -77,6 +77,43 @@ export function subscribeUserTable(
 }
 
 /**
+ * Subscribe to postgres_changes for a workspace-scoped table. Used for
+ * `projects`, `subjects`, `subject_versions`, `subject_comments`, and
+ * `workspaces` itself — tables whose rows are now visible to any member of
+ * the workspace, not just to the row's owner.
+ *
+ * The filter `workspace_id=in.(<list>)` admits events on any row whose
+ * workspace_id is in the caller's member-workspace list. For `workspaces`
+ * itself the filter is on `id` instead of `workspace_id` — the caller passes
+ * `idColumn: 'id'`.
+ *
+ * If the list of workspace ids changes (the caller joined/left a workspace),
+ * the channel must be rebuilt with a fresh subscription — postgres_changes
+ * filters are not mutable after the channel subscribes.
+ */
+export function subscribeWorkspaceTable(
+  channel: RealtimeChannel,
+  table: string,
+  workspaceIds: string[],
+  refetchAndApply: () => Promise<void>,
+  idColumn: 'workspace_id' | 'id' = 'workspace_id',
+): RealtimeChannel {
+  // No workspace ids = no subscription. The caller will rebuild the channel
+  // once a workspace appears (bootstrap path).
+  if (workspaceIds.length === 0) return channel;
+  const filter = `${idColumn}=in.(${workspaceIds.join(',')})`;
+  return channel.on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table, filter },
+    () => {
+      refetchAndApply().catch((e) =>
+        console.error(`[synced-store] refetch ${table} failed:`, e),
+      );
+    },
+  );
+}
+
+/**
  * Debounced "schedule -> push" with a `flush()` for window-close handlers.
  * The callback receives the current active user id at fire time, not at
  * schedule time, so a payload scheduled before account-switch fires under
