@@ -1,5 +1,6 @@
 // src-tauri/src/oauth/tests.rs
 use super::jwt::{Claims, JwtKey};
+use super::clients::{ClientRegistry, RegisteredClient as _};
 
 fn tmp() -> std::path::PathBuf {
     let mut p = std::env::temp_dir();
@@ -70,4 +71,27 @@ async fn jwt_verify_rejects_expired() {
     };
     let tok = key.sign(&claims).unwrap();
     assert!(key.verify(&tok).is_err());
+}
+
+#[tokio::test]
+async fn client_registry_round_trip() {
+    let dir = tmp();
+    let mut reg = ClientRegistry::load(&dir).await.unwrap();
+    let (client_id, plaintext_secret) = reg.register(
+        "Claude Code".into(),
+        vec!["http://127.0.0.1:54881/callback".into()],
+        &dir,
+    ).await.unwrap();
+
+    assert!(client_id.starts_with("notter_client_"));
+    assert_eq!(plaintext_secret.len(), 32);
+    assert!(reg.find_by_id(&client_id).is_some());
+
+    // Persisted: reload from disk reads the row back.
+    let reg2 = ClientRegistry::load(&dir).await.unwrap();
+    assert!(reg2.find_by_id(&client_id).is_some());
+
+    // Secret verifies.
+    assert!(reg2.verify_secret(&client_id, &plaintext_secret).unwrap());
+    assert!(!reg2.verify_secret(&client_id, "wrong-secret").unwrap());
 }
