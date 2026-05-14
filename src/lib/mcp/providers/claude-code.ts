@@ -2,7 +2,10 @@
 import { Command } from '@tauri-apps/plugin-shell';
 import { entryKey, type McpInstallProvider } from '.';
 
-async function runClaude(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+/** Returns true only when the process exited with code 0 (not signaled). */
+const ok = (res: { code: number | null }): boolean => res.code === 0;
+
+async function runClaude(args: string[]) {
   const cmd = Command.create('claude', args);
   return await cmd.execute();
 }
@@ -14,7 +17,7 @@ export const claudeCodeProvider: McpInstallProvider = {
   async detect() {
     try {
       const res = await runClaude(['--version']);
-      return res.code === 0 ? 'installed' : 'missing';
+      return ok(res) ? 'installed' : 'missing';
     } catch {
       return 'missing';
     }
@@ -22,14 +25,14 @@ export const claudeCodeProvider: McpInstallProvider = {
 
   async install(slug, mcpUrl) {
     const res = await runClaude(['mcp', 'add', entryKey(slug), mcpUrl, '--transport', 'http']);
-    if (res.code !== 0) {
+    if (!ok(res)) {
       throw new Error(`claude mcp add failed: ${res.stderr || res.stdout}`);
     }
   },
 
   async uninstall(slug) {
     const res = await runClaude(['mcp', 'remove', entryKey(slug)]);
-    if (res.code !== 0) {
+    if (!ok(res)) {
       throw new Error(`claude mcp remove failed: ${res.stderr || res.stdout}`);
     }
   },
@@ -37,7 +40,7 @@ export const claudeCodeProvider: McpInstallProvider = {
   async isLinked(slug) {
     try {
       const res = await runClaude(['mcp', 'list']);
-      return res.code === 0 && res.stdout.includes(entryKey(slug));
+      return ok(res) && res.stdout.includes(entryKey(slug));
     } catch {
       return false;
     }
