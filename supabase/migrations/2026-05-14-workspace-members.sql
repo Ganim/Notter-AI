@@ -134,33 +134,52 @@ create policy "members_delete_self_or_owner" on workspace_members
     or workspace_role(workspace_id) = 'owner'
   );
 
--- 6. Last-owner protection. An UPDATE that would leave a workspace with
---    zero owners raises. Covers both "owner demotes self via DB" and the
---    pathological case where a code bug fires UPDATE without WHERE.
-create or replace function prevent_last_owner_demotion()
+-- 6. Last-owner protection. Any operation that would leave a workspace with
+--    zero owners raises. Covers:
+--      - UPDATE that demotes the last owner's role to editor/viewer.
+--      - DELETE on the last owner's membership row.
+--    Spec §2/§3.3 v1 rule: ownership cannot be transferred and owners cannot
+--    leave. Transfer is a v2 feature; until then, the DB rejects the orphan.
+create or replace function prevent_last_owner_orphan()
 returns trigger
 language plpgsql
 as $$
 declare
   remaining_owners int;
 begin
-  if old.role = 'owner' and new.role <> 'owner' then
-    select count(*) into remaining_owners
-    from workspace_members
-    where workspace_id = new.workspace_id
-      and role = 'owner'
-      and user_id <> old.user_id;
-    if remaining_owners = 0 then
-      raise exception 'cannot demote last owner of workspace %', new.workspace_id
-        using errcode = 'P0001';
+  if tg_op = 'UPDATE' then
+    if old.role = 'owner' and new.role <> 'owner' then
+      select count(*) into remaining_owners
+      from workspace_members
+      where workspace_id = new.workspace_id
+        and role = 'owner'
+        and user_id <> old.user_id;
+      if remaining_owners = 0 then
+        raise exception 'cannot demote last owner of workspace %', new.workspace_id
+          using errcode = 'P0001';
+      end if;
     end if;
+    return new;
+  elsif tg_op = 'DELETE' then
+    if old.role = 'owner' then
+      select count(*) into remaining_owners
+      from workspace_members
+      where workspace_id = old.workspace_id
+        and role = 'owner'
+        and user_id <> old.user_id;
+      if remaining_owners = 0 then
+        raise exception 'cannot delete last owner of workspace %', old.workspace_id
+          using errcode = 'P0001';
+      end if;
+    end if;
+    return old;
   end if;
-  return new;
+  return null;
 end $$;
 
 create trigger workspace_members_last_owner_guard
-  before update on workspace_members
-  for each row execute function prevent_last_owner_demotion();
+  before update or delete on workspace_members
+  for each row execute function prevent_last_owner_orphan();
 
 -- 7. Denormalize workspace_id onto subjects/subject_versions/subject_comments.
 --    Backfill from the parent project / subject. Set NOT NULL after backfill.
@@ -276,6 +295,16 @@ create trigger set_workspace_id_on_subject_comments
 
 -- 9. Cascade triggers: when a project moves between workspaces, every child
 --    subject + child subject_version + child subject_comment must follow.
+--
+--    Note: cascade_subject_workspace_to_children writes to subject_versions
+--    and subject_comments via direct UPDATE. The strict RLS on
+--    subject_versions has NO UPDATE policy (versions are append-only at the
+--    application layer), but the trigger runs as SECURITY DEFINER and
+--    bypasses RLS by design. Only workspace_id is mutated — the immutable
+--    content_markdown / parent_version_id / etc are not touched. If a future
+--    migration adds an UPDATE policy on subject_versions, this trigger
+--    continues to work; if someone deletes the SECURITY DEFINER attribute,
+--    the cascade would silently fail under RLS.
 
 create or replace function cascade_project_workspace_to_subjects()
 returns trigger language plpgsql security definer
