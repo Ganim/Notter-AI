@@ -126,6 +126,14 @@ async fn handle_refresh(state: OAuthState, f: TokenForm, now: i64) -> axum::resp
     }
     drop(s);
 
+    // Rotation race window: between dropping the read guard above and
+    // acquiring the write guard below, a concurrent refresh request carrying
+    // the same refresh token could pass `is_jti_revoked` before we revoke it.
+    // The blast radius is at most one extra valid refresh pair issued before
+    // the revoke propagates — acceptable in the desktop single-user context
+    // this server runs in. If this ever runs multi-tenant, replace with a
+    // single write-locked transaction.
+
     // Rotate: revoke old JTI, then issue new pair.
     {
         let mut s = state.write().await;

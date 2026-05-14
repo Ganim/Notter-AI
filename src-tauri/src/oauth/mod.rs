@@ -16,8 +16,13 @@ pub mod token;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// Public API surface. Re-exports are consumed by `mcp::auth` bearer middleware
+// (M2D) and any external crate code paths added in later milestones.
+#[allow(unused_imports)]
 pub use jwt::{Claims, JwtKey};
+#[allow(unused_imports)]
 pub use clients::{ClientRegistry, RegisteredClient};
+#[allow(unused_imports)]
 pub use grants::GrantStore;
 
 #[derive(Clone)]
