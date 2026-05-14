@@ -32,6 +32,14 @@ pub enum McpError {
     NotFound(String),
     /// -32004 (Notter-specific): Supabase REST returned an error.
     SupabaseError(String),
+    /// -32005 (Notter-specific): the operation is refused because of state
+    /// preconditions (e.g. archive a workspace that still has live projects).
+    #[allow(dead_code)]
+    Forbidden(String),
+    /// -32006 (Notter-specific): the operation conflicts with an existing
+    /// resource (e.g. duplicate workspace name for the same user).
+    #[allow(dead_code)]
+    Conflict(String),
 }
 
 impl McpError {
@@ -47,6 +55,8 @@ impl McpError {
             Unauthorized(_) => -32002,
             NotFound(_) => -32003,
             SupabaseError(_) => -32004,
+            Forbidden(_) => -32005,
+            Conflict(_) => -32006,
         }
     }
     pub fn message(&self) -> String {
@@ -59,7 +69,9 @@ impl McpError {
             | InternalError(m)
             | Unauthorized(m)
             | NotFound(m)
-            | SupabaseError(m) => m.clone(),
+            | SupabaseError(m)
+            | Forbidden(m)
+            | Conflict(m) => m.clone(),
             AuthPending => {
                 "auth_pending: front-end has not yet refreshed the access token; retry once".into()
             }
