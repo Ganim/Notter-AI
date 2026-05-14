@@ -94,3 +94,38 @@ async fn client_registry_round_trip() {
     assert!(reg2.verify_secret(&client_id, &plaintext_secret).unwrap());
     assert!(!reg2.verify_secret(&client_id, "wrong-secret").unwrap());
 }
+
+use super::grants::{AuthCode, GrantStore};
+
+#[tokio::test]
+async fn grants_store_round_trip_and_one_shot() {
+    let store = GrantStore::new();
+    let code = AuthCode {
+        client_id: "c1".into(),
+        account_id: "a1".into(),
+        code_challenge: "challenge".into(),
+        redirect_uri: "http://x/callback".into(),
+        scope: "notter:full".into(),
+        expires_at: i64::MAX,
+    };
+    store.insert("code-1".into(), code.clone()).await;
+    let taken = store.take("code-1").await.unwrap();
+    assert_eq!(taken.account_id, "a1");
+    // Re-take is gone.
+    assert!(store.take("code-1").await.is_none());
+}
+
+#[tokio::test]
+async fn grants_store_drops_expired_codes() {
+    let store = GrantStore::new();
+    let code = AuthCode {
+        client_id: "c1".into(),
+        account_id: "a1".into(),
+        code_challenge: "x".into(),
+        redirect_uri: "http://x/callback".into(),
+        scope: "notter:full".into(),
+        expires_at: 1, // far in the past
+    };
+    store.insert("expired".into(), code).await;
+    assert!(store.take("expired").await.is_none());
+}
