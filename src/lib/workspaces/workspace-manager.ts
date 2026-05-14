@@ -119,6 +119,7 @@ export class WorkspaceManager {
           id, userId, name: "User's workspace", isDefault: true,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          currentRole: 'owner', memberCount: 1,
         }];
       } else {
         // Re-fetch — a parallel sign-in on another device may have created one.

@@ -21,8 +21,8 @@ describe('useWorkspacesStore', () => {
 
   it('applyRemoteWorkspaces replaces the slice', () => {
     const rows = [
-      { id: 'w1', userId: 'u1', name: 'A', isDefault: true,  createdAt: '', updatedAt: '' },
-      { id: 'w2', userId: 'u1', name: 'B', isDefault: false, createdAt: '', updatedAt: '' },
+      { id: 'w1', userId: 'u1', name: 'A', isDefault: true,  createdAt: '', updatedAt: '', currentRole: 'owner' as const, memberCount: 1 },
+      { id: 'w2', userId: 'u1', name: 'B', isDefault: false, createdAt: '', updatedAt: '', currentRole: 'owner' as const, memberCount: 1 },
     ];
     useWorkspacesStore.getState().applyRemoteWorkspaces(rows);
     expect(useWorkspacesStore.getState().workspaces).toEqual(rows);
@@ -35,7 +35,7 @@ describe('useWorkspacesStore', () => {
 
   it('reset wipes all slices', () => {
     useWorkspacesStore.getState().applyRemoteWorkspaces([
-      { id: 'w1', userId: 'u1', name: 'A', isDefault: true, createdAt: '', updatedAt: '' },
+      { id: 'w1', userId: 'u1', name: 'A', isDefault: true, createdAt: '', updatedAt: '', currentRole: 'owner', memberCount: 1 },
     ]);
     useWorkspacesStore.getState().setCurrentWorkspaceId('w1');
     useWorkspacesStore.getState().reset();

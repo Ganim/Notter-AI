@@ -242,16 +242,24 @@ export interface WorkspaceRecord {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Caller's role in this workspace. 'owner' for any workspace the caller created (every workspace, in Plan 1). */
+  currentRole: 'owner' | 'editor' | 'viewer';
+  /** Total members in this workspace. Always 1 in Plan 1. */
+  memberCount: number;
 }
 
 export async function fetchWorkspaces(userId: string): Promise<WorkspaceRecord[] | null> {
   if (!isSupabaseConfigured) return null;
+  // userId is kept in the signature so call sites don't change, but the RPC
+  // reads auth.uid() server-side — we don't pass it. A PostgREST embed
+  // (`workspaces?select=*,workspace_members(role,count)` + an .eq filter)
+  // was considered first but is unsound: .eq('workspace_members.user_id',
+  // ...) filters BOTH embeds by table name, leaking the user filter into
+  // the unfiltered members_count and yielding 1 per workspace. The RPC
+  // encapsulates the join + scalar subquery and is immune to that.
+  void userId;
   try {
-    const { data, error } = await supabase
-      .from('workspaces')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
+    const { data, error } = await supabase.rpc('get_my_workspaces');
     if (error) {
       console.error('[sync] fetchWorkspaces failed:', error);
       return null;
@@ -263,6 +271,8 @@ export async function fetchWorkspaces(userId: string): Promise<WorkspaceRecord[]
       isDefault: row.is_default,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      currentRole: row.my_role as 'owner' | 'editor' | 'viewer',
+      memberCount: Number(row.member_count),
     }));
   } catch (e) {
     console.error('[sync] fetchWorkspaces threw:', e);
@@ -277,7 +287,7 @@ export async function fetchWorkspaces(userId: string): Promise<WorkspaceRecord[]
  * than silent merge.
  */
 export async function pushWorkspace(
-  workspace: Omit<WorkspaceRecord, 'createdAt' | 'updatedAt'>,
+  workspace: Omit<WorkspaceRecord, 'createdAt' | 'updatedAt' | 'currentRole' | 'memberCount'>,
 ): Promise<{ ok: true } | { ok: false; code: 'duplicate_name' | 'unknown'; message: string }> {
   if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
   try {
@@ -298,6 +308,41 @@ export async function pushWorkspace(
     return { ok: true };
   } catch (e: any) {
     console.error('[sync] pushWorkspace threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Atomically create a workspace + its owner-member row via SECURITY DEFINER
+ * RPC. Returns the inserted workspace row.
+ *
+ * Used instead of `pushWorkspace` for new workspace creation. The RPC handles
+ * the is_default partial-unique-index dance internally (clears the previous
+ * default in the same transaction).
+ */
+export async function createWorkspaceWithOwner(
+  workspace: Omit<WorkspaceRecord, 'createdAt' | 'updatedAt' | 'currentRole' | 'memberCount'>,
+): Promise<{ ok: true } | { ok: false; code: 'duplicate_name' | 'not_authenticated' | 'unknown'; message: string }> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { error } = await supabase.rpc('create_workspace_with_owner', {
+      ws_id: workspace.id,
+      ws_name: workspace.name,
+      ws_is_default: workspace.isDefault,
+    });
+    if (error) {
+      if ((error as any).code === '23505') {
+        return { ok: false, code: 'duplicate_name', message: error.message };
+      }
+      if ((error as any).code === '42501' || /not_authenticated/.test(error.message)) {
+        return { ok: false, code: 'not_authenticated', message: error.message };
+      }
+      console.error('[sync] createWorkspaceWithOwner failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    console.error('[sync] createWorkspaceWithOwner threw:', e);
     return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
   }
 }

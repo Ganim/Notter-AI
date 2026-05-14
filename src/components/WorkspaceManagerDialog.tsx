@@ -64,6 +64,7 @@ export function WorkspaceManagerDialog({ open, onOpenChange, initialMode = 'mana
       useWorkspacesStore.getState().applyRemoteWorkspaces(list.map((w) => ({
         id: w.id, userId: '', name: w.name, isDefault: w.isDefault,
         createdAt: '', updatedAt: '',
+        currentRole: 'owner', memberCount: 1,
       })));
       setNewName('');
       setNewIsDefault(false);
