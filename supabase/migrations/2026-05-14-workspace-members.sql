@@ -475,7 +475,7 @@ returns table (
   is_default boolean,
   created_at timestamptz,
   updated_at timestamptz,
-  current_role text,
+  my_role text,
   member_count bigint
 )
 language sql
@@ -489,7 +489,7 @@ as $$
     w.is_default,
     w.created_at,
     w.updated_at,
-    me.role as current_role,
+    me.role as my_role,
     (select count(*) from workspace_members m where m.workspace_id = w.id) as member_count
   from workspaces w
   join workspace_members me on me.workspace_id = w.id and me.user_id = auth.uid()

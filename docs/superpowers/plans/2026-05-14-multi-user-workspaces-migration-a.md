@@ -526,7 +526,7 @@ returns table (
   is_default boolean,
   created_at timestamptz,
   updated_at timestamptz,
-  current_role text,
+  my_role text,
   member_count bigint
 )
 language sql
@@ -540,7 +540,7 @@ as $$
     w.is_default,
     w.created_at,
     w.updated_at,
-    me.role as current_role,
+    me.role as my_role,
     (select count(*) from workspace_members m where m.workspace_id = w.id) as member_count
   from workspaces w
   join workspace_members me on me.workspace_id = w.id and me.user_id = auth.uid()
@@ -726,7 +726,7 @@ export async function fetchWorkspaces(userId: string): Promise<WorkspaceRecord[]
       isDefault: row.is_default,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      currentRole: row.current_role as 'owner' | 'editor' | 'viewer',
+      currentRole: row.my_role as 'owner' | 'editor' | 'viewer',
       memberCount: Number(row.member_count),
     }));
   } catch (e) {
@@ -1347,12 +1347,12 @@ describe('createWorkspaceWithOwner', () => {
 });
 
 describe('fetchWorkspaces RPC shape', () => {
-  it('maps current_role / member_count into the WorkspaceRecord', async () => {
+  it('maps my_role / member_count into the WorkspaceRecord', async () => {
     rpcMock.mockResolvedValue({
       data: [{
         id: 'w1', user_id: 'u1', name: 'w', is_default: true,
         created_at: '2026-05-14T00:00:00Z', updated_at: '2026-05-14T00:00:00Z',
-        current_role: 'owner',
+        my_role: 'owner',
         member_count: 1,
       }],
       error: null,
@@ -1371,7 +1371,7 @@ describe('fetchWorkspaces RPC shape', () => {
       data: [{
         id: 'w1', user_id: 'u1', name: 'w', is_default: false,
         created_at: '2026-05-14T00:00:00Z', updated_at: '2026-05-14T00:00:00Z',
-        current_role: 'editor',
+        my_role: 'editor',
         member_count: '4',
       }],
       error: null,
@@ -1410,7 +1410,7 @@ git add src/lib/__tests__/sync-workspaces.test.ts
 git commit -m "test(workspaces): createWorkspaceWithOwner + fetchWorkspaces RPC shape
 
 Plan 1, Task 8. Covers the happy path of the RPC wrapper, duplicate_name
-mapping, not_authenticated mapping, and the current_role/member_count
+mapping, not_authenticated mapping, and the my_role/member_count
 unpacking from the get_my_workspaces RPC (including bigint coercion).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
