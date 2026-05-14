@@ -1,6 +1,7 @@
 // src/lib/mcp/providers/index.ts
 import { claudeCodeProvider } from './claude-code';
 import { claudeDesktopProvider } from './claude-desktop';
+import { codexCliProvider } from './codex-cli';
 
 export type ProviderId = 'claude-code' | 'claude-desktop' | 'codex-cli' | 'cursor';
 export type DetectStatus = 'installed' | 'missing' | 'unknown';
@@ -18,6 +19,7 @@ export interface McpInstallProvider {
 export const PROVIDERS: McpInstallProvider[] = [
   claudeCodeProvider,
   claudeDesktopProvider,
+  codexCliProvider,
 ];
 
 export function entryKey(accountSlug: string): string {
