@@ -45,6 +45,7 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 base64 = "0.22"
 sha2 = "0.10"
+urlencoding = "2"
 
 [dev-dependencies]
 httpmock = "0.8"

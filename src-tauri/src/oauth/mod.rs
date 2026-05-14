@@ -45,13 +45,28 @@ pub async fn bootstrap_oauth(data_dir: &std::path::Path) -> Result<OAuthState, S
     })))
 }
 
-pub fn routes(state: OAuthState) -> axum::Router {
-    use axum::{routing::{get, post}, Router};
+/// Snapshot of accounts the consent screen can offer. Pushed in from the
+/// front-end at boot and refreshed on AccountManager mutations.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AccountSummary {
+    pub account_id: String,
+    pub display_name: String,
+    pub email: String,
+}
+
+pub fn routes_with_accounts(state: OAuthState, accounts: Vec<AccountSummary>) -> axum::Router {
+    use axum::{routing::{get, post}, Extension, Router};
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata::well_known))
         .route("/register", post(register::register))
-        // /authorize, /token, /revoke wired in M2.6–M2.8
+        .route("/authorize",
+            get(authorize::authorize_get).post(authorize::authorize_post))
+        .layer(Extension(std::sync::Arc::new(accounts)))
         .with_state(state)
+}
+
+pub fn routes(state: OAuthState) -> axum::Router {
+    routes_with_accounts(state, vec![])
 }
 
 #[cfg(test)]

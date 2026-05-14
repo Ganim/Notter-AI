@@ -185,3 +185,64 @@ async fn register_endpoint_returns_client_id_and_secret() {
     assert!(j["client_secret"].as_str().unwrap().len() >= 32);
     assert_eq!(j["client_name"], "Claude Code");
 }
+
+use axum::http::HeaderValue;
+
+#[tokio::test]
+async fn authorize_get_renders_consent_html_listing_accounts() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+
+    let (client_id, _secret) = {
+        let mut s = state.write().await;
+        s.clients.register("Claude Code".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
+    };
+
+    let router = super::routes_with_accounts(state.clone(), vec![
+        super::AccountSummary { account_id: "acc-1".into(), display_name: "Guilherme".into(), email: "g@x.com".into() }
+    ]);
+
+    let uri = format!(
+        "/authorize?response_type=code&client_id={}&redirect_uri=http%3A%2F%2F127.0.0.1%3A54881%2Fcb&code_challenge=challenge&code_challenge_method=S256&state=xyz",
+        client_id
+    );
+    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 200);
+    let bytes = to_bytes(res.into_body(), 1024*1024).await.unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(html.contains("Claude Code"));
+    assert!(html.contains("Guilherme"));
+    assert!(html.contains("acc-1"));
+}
+
+#[tokio::test]
+async fn authorize_post_issues_code_and_redirects() {
+    let dir = tmp();
+    let state = super::bootstrap_oauth(&dir).await.unwrap();
+    { let mut s = state.write().await; s.issuer = "http://127.0.0.1:1".into(); }
+    let (client_id, _secret) = {
+        let mut s = state.write().await;
+        s.clients.register("Claude Code".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
+    };
+    let router = super::routes_with_accounts(state.clone(), vec![
+        super::AccountSummary { account_id: "acc-1".into(), display_name: "G".into(), email: "g@x.com".into() }
+    ]);
+
+    let form = format!(
+        "client_id={}&redirect_uri=http%3A%2F%2F127.0.0.1%3A54881%2Fcb&code_challenge=challenge&code_challenge_method=S256&state=xyz&account_id=acc-1&scope=notter%3Afull",
+        client_id
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/authorize")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(form)).unwrap();
+    let res = router.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), 303);  // Redirect::to in axum uses 303 See Other for POST
+    let loc: &HeaderValue = res.headers().get("location").unwrap();
+    let loc_str = loc.to_str().unwrap();
+    assert!(loc_str.starts_with("http://127.0.0.1:54881/cb?code="));
+    assert!(loc_str.contains("&state=xyz"));
+}
