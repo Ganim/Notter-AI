@@ -1,5 +1,6 @@
 // src/lib/mcp/providers/index.ts
 import { claudeCodeProvider } from './claude-code';
+import { claudeDesktopProvider } from './claude-desktop';
 
 export type ProviderId = 'claude-code' | 'claude-desktop' | 'codex-cli' | 'cursor';
 export type DetectStatus = 'installed' | 'missing' | 'unknown';
@@ -14,9 +15,9 @@ export interface McpInstallProvider {
   configPath(): Promise<string>;
 }
 
-// Future providers (Claude Desktop, Codex CLI, Cursor) added in M4B.
 export const PROVIDERS: McpInstallProvider[] = [
   claudeCodeProvider,
+  claudeDesktopProvider,
 ];
 
 export function entryKey(accountSlug: string): string {
