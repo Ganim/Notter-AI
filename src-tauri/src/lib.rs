@@ -8,6 +8,39 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Bootstrap the OAuth 2.1 state (JWT signing key, client registry, grant
+    // store). The data directory mirrors the MCP directory so all server state
+    // lives together.
+    //
+    // We resolve the path without an AppHandle by reading the platform local
+    // data dir env var directly (the same location Tauri's app_local_data_dir()
+    // resolves to for identifier "com.guilh.notterai").
+    // On Windows:  %LOCALAPPDATA%\com.guilh.notterai\
+    // On macOS/Linux: we fall back to a temp dir on bootstrap failure; the
+    // server still starts with an in-memory-only OAuth stack.
+    let mcp_data_dir = {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir());
+        #[cfg(not(target_os = "windows"))]
+        let base = std::env::var("HOME")
+            .map(|h| std::path::PathBuf::from(h).join("Library").join("Application Support"))
+            .unwrap_or_else(|_| std::env::temp_dir());
+        base.join("com.guilh.notterai").join("notter-ai").join("mcp")
+    };
+    let oauth_state = tauri::async_runtime::block_on(
+        crate::oauth::bootstrap_oauth(&mcp_data_dir)
+    ).unwrap_or_else(|e| {
+        eprintln!("[oauth] bootstrap failed ({e}), using in-memory-only state");
+        // Fallback: create an in-memory-only state so the app still starts.
+        tauri::async_runtime::block_on(async {
+            crate::oauth::bootstrap_oauth(
+                &std::env::temp_dir().join(format!("notter-oauth-fallback-{}", std::process::id()))
+            ).await.expect("even temp bootstrap_oauth failed")
+        })
+    });
+
     // Build the MCP server state. Token maps are initially empty; Phase D's
     // boot routine repopulates from the secure store, and the front-end pushes
     // access tokens via mcp_update_account_token. Supabase URL + anon key are
@@ -22,6 +55,7 @@ pub fn run() {
             nonce: mcp::endpoint::generate_nonce(),
             supabase_url: String::new(),
             supabase_anon_key: String::new(),
+            oauth: oauth_state,
         },
     ));
 
@@ -79,6 +113,7 @@ pub fn run() {
             mcp::auth::mcp_clear_account_access_token,
             mcp::auth::mcp_set_supabase_config,
             mcp::auth::mcp_register_bearer,
+            mcp::auth::mcp_set_account_summaries,
             mcp::server::mcp_read_account_config,
         ])
         .run(tauri::generate_context!())

@@ -31,6 +31,9 @@ pub struct OAuthStateInner {
     pub clients: ClientRegistry,
     pub grants: GrantStore,
     pub issuer: String, // "http://127.0.0.1:<port>" — set when the listener binds
+    /// Snapshot of registered accounts pushed from the front-end at boot and on
+    /// every AccountManager mutation. Used by the OAuth consent screen.
+    pub account_summaries: Vec<AccountSummary>,
 }
 
 pub type OAuthState = Arc<RwLock<OAuthStateInner>>;
@@ -47,6 +50,7 @@ pub async fn bootstrap_oauth(data_dir: &std::path::Path) -> Result<OAuthState, S
         clients,
         grants,
         issuer: String::new(),
+        account_summaries: vec![],
     })))
 }
 
@@ -59,8 +63,8 @@ pub struct AccountSummary {
     pub email: String,
 }
 
-pub fn routes_with_accounts(state: OAuthState, accounts: Vec<AccountSummary>) -> axum::Router {
-    use axum::{routing::{get, post}, Extension, Router};
+pub fn routes(state: OAuthState) -> axum::Router {
+    use axum::{routing::{get, post}, Router};
     Router::new()
         .route("/.well-known/oauth-authorization-server", get(metadata::well_known))
         .route("/register", post(register::register))
@@ -68,12 +72,7 @@ pub fn routes_with_accounts(state: OAuthState, accounts: Vec<AccountSummary>) ->
             get(authorize::authorize_get).post(authorize::authorize_post))
         .route("/token", post(token::token))
         .route("/revoke", post(revoke::revoke))
-        .layer(Extension(std::sync::Arc::new(accounts)))
         .with_state(state)
-}
-
-pub fn routes(state: OAuthState) -> axum::Router {
-    routes_with_accounts(state, vec![])
 }
 
 #[cfg(test)]

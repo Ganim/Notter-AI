@@ -199,9 +199,13 @@ async fn authorize_get_renders_consent_html_listing_accounts() {
         s.clients.register("Claude Code".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
     };
 
-    let router = super::routes_with_accounts(state.clone(), vec![
-        super::AccountSummary { account_id: "acc-1".into(), display_name: "Guilherme".into(), email: "g@x.com".into() }
-    ]);
+    {
+        let mut s = state.write().await;
+        s.account_summaries = vec![
+            super::AccountSummary { account_id: "acc-1".into(), display_name: "Guilherme".into(), email: "g@x.com".into() }
+        ];
+    }
+    let router = super::routes(state.clone());
 
     let uri = format!(
         "/authorize?response_type=code&client_id={}&redirect_uri=http%3A%2F%2F127.0.0.1%3A54881%2Fcb&code_challenge=challenge&code_challenge_method=S256&state=xyz",
@@ -226,9 +230,13 @@ async fn authorize_post_issues_code_and_redirects() {
         let mut s = state.write().await;
         s.clients.register("Claude Code".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
     };
-    let router = super::routes_with_accounts(state.clone(), vec![
-        super::AccountSummary { account_id: "acc-1".into(), display_name: "G".into(), email: "g@x.com".into() }
-    ]);
+    {
+        let mut s = state.write().await;
+        s.account_summaries = vec![
+            super::AccountSummary { account_id: "acc-1".into(), display_name: "G".into(), email: "g@x.com".into() }
+        ];
+    }
+    let router = super::routes(state.clone());
 
     let form = format!(
         "client_id={}&redirect_uri=http%3A%2F%2F127.0.0.1%3A54881%2Fcb&code_challenge=challenge&code_challenge_method=S256&state=xyz&account_id=acc-1&scope=notter%3Afull",
@@ -442,9 +450,13 @@ async fn authorize_post_rejects_unregistered_redirect_uri_even_on_deny() {
         let mut s = state.write().await;
         s.clients.register("X".into(), vec!["http://127.0.0.1:54881/cb".into()]).await.unwrap()
     };
-    let router = super::routes_with_accounts(state.clone(), vec![
-        super::AccountSummary { account_id: "a".into(), display_name: "G".into(), email: "g@x.com".into() }
-    ]);
+    {
+        let mut s = state.write().await;
+        s.account_summaries = vec![
+            super::AccountSummary { account_id: "a".into(), display_name: "G".into(), email: "g@x.com".into() }
+        ];
+    }
+    let router = super::routes(state.clone());
 
     // Attacker tries deny path with an attacker-controlled redirect_uri.
     let form = format!(

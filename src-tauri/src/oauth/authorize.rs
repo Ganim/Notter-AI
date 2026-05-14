@@ -1,6 +1,6 @@
 // src-tauri/src/oauth/authorize.rs
 use axum::{
-    extract::{Extension, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect},
     Form,
@@ -8,9 +8,8 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::RngCore;
 use serde::Deserialize;
-use std::sync::Arc;
 
-use super::{consent_html, grants::AuthCode, AccountSummary, OAuthState};
+use super::{consent_html, grants::AuthCode, OAuthState};
 
 #[derive(Deserialize)]
 pub struct AuthorizeQuery {
@@ -29,7 +28,6 @@ fn default_scope() -> String { "notter:full".into() }
 
 pub async fn authorize_get(
     State(state): State<OAuthState>,
-    Extension(accounts): Extension<Arc<Vec<AccountSummary>>>,
     Query(q): Query<AuthorizeQuery>,
 ) -> impl IntoResponse {
     if q.response_type != "code" {
@@ -47,11 +45,13 @@ pub async fn authorize_get(
     if !client.redirect_uris.contains(&q.redirect_uri) {
         return (StatusCode::BAD_REQUEST, "redirect_uri not registered").into_response();
     }
+    let accounts = s.account_summaries.clone();
+    let client_name = client.client_name.clone();
     drop(s);
 
     let html = consent_html::render(
-        &client.client_name,
-        accounts.as_ref(),
+        &client_name,
+        &accounts,
         &q.client_id,
         &q.redirect_uri,
         &q.code_challenge,

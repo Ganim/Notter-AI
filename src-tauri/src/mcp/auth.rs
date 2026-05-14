@@ -154,9 +154,12 @@ use axum::{
     Json,
 };
 
-/// Bearer-auth middleware. Rejects with 401 + JSON-RPC unauthorized error if
-/// the Authorization header is absent, malformed, or carries an unknown token.
-/// On success, stores AuthContext in the request extensions for handlers to read.
+use std::sync::atomic::{AtomicBool, Ordering};
+static LEGACY_WARNED: AtomicBool = AtomicBool::new(false);
+
+/// Bearer-auth middleware. Tries OAuth JWT first (M2D), then falls back to the
+/// legacy in-memory bearer map with a one-time deprecation warning. Rejects
+/// with 401 + JSON-RPC unauthorized error if neither matches.
 pub async fn bearer_auth(
     AxumState(state): AxumState<crate::mcp::server::McpState>,
     mut req: Request,
@@ -172,13 +175,53 @@ pub async fn bearer_auth(
         return unauthorized_response("missing or malformed Authorization header");
     };
 
-    let account_id = match lookup_account_for_token(&state, token).await {
-        Some(a) => a,
-        None => return unauthorized_response("unknown token"),
+    // Try OAuth JWT first.
+    let oauth_state = {
+        let s = state.read().await;
+        s.oauth.clone()
     };
+    {
+        let s = oauth_state.read().await;
+        if let Ok(claims) = s.jwt_key.verify(token) {
+            if claims.token_type == "access" && !s.clients.is_jti_revoked(&claims.jti) {
+                req.extensions_mut().insert(AuthContext { account_id: claims.sub.clone() });
+                return next.run(req).await;
+            }
+        }
+    }
 
-    req.extensions_mut().insert(AuthContext { account_id });
-    next.run(req).await
+    // Fallback: legacy in-memory bearer map (deprecated, kept for one release).
+    if let Some(account_id) = lookup_account_for_token(&state, token).await {
+        if !LEGACY_WARNED.swap(true, Ordering::Relaxed) {
+            eprintln!("[mcp] DEPRECATED: legacy bearer token accepted. Migrate clients to OAuth 2.1.");
+        }
+        req.extensions_mut().insert(AuthContext { account_id });
+        return next.run(req).await;
+    }
+
+    unauthorized_response("unknown token")
+}
+
+// ─── M2.10: Account summaries ─────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAccountSummariesArgs {
+    pub accounts: Vec<crate::oauth::AccountSummary>,
+}
+
+/// Tauri command — front-end calls at boot and on every AccountManager
+/// mutation to push the list of registered accounts into the OAuth state so
+/// the consent screen can display them in the account picker.
+#[tauri::command]
+pub async fn mcp_set_account_summaries(
+    args: SetAccountSummariesArgs,
+    state: tauri::State<'_, crate::mcp::server::McpState>,
+) -> Result<(), String> {
+    let oauth = state.read().await.oauth.clone();
+    let mut o = oauth.write().await;
+    o.account_summaries = args.accounts;
+    Ok(())
 }
 
 fn unauthorized_response(msg: &str) -> Response {
@@ -205,7 +248,20 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
-    fn make_state() -> McpState {
+    async fn make_state() -> McpState {
+        let dir = {
+            let mut p = std::env::temp_dir();
+            p.push(format!(
+                "notter-mcp-auth-test-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&p).unwrap();
+            p
+        };
+        let oauth = crate::oauth::bootstrap_oauth(&dir).await.unwrap();
         Arc::new(RwLock::new(McpStateInner {
             token_to_account: HashMap::new(),
             access_tokens: HashMap::new(),
@@ -213,12 +269,13 @@ mod tests {
             nonce: "test-nonce".to_string(),
             supabase_url: String::new(),
             supabase_anon_key: String::new(),
+            oauth,
         }))
     }
 
     #[tokio::test]
     async fn lookup_account_for_token_returns_account_id() {
-        let state = make_state();
+        let state = make_state().await;
         {
             let mut s = state.write().await;
             s.token_to_account.insert("tok-a".into(), "acc-1".into());
@@ -229,13 +286,13 @@ mod tests {
 
     #[tokio::test]
     async fn lookup_account_for_token_misses_unknown_bearer() {
-        let state = make_state();
+        let state = make_state().await;
         assert_eq!(lookup_account_for_token(&state, "nope").await, None);
     }
 
     #[tokio::test]
     async fn remove_account_drops_account_bearer_and_access_token() {
-        let state = make_state();
+        let state = make_state().await;
         {
             let mut s = state.write().await;
             s.access_tokens
@@ -258,7 +315,7 @@ mod tests {
     #[tokio::test]
     async fn soft_clear_drops_only_access_token() {
         // Verifies the signOut contract: bearer stays, access token goes.
-        let state = make_state();
+        let state = make_state().await;
         {
             let mut s = state.write().await;
             s.access_tokens
@@ -280,7 +337,7 @@ mod tests {
     async fn register_bearer_replaces_existing_for_same_account() {
         // Verifies the rotation contract: a second register with a new bearer
         // for the same account drops the old bearer.
-        let state = make_state();
+        let state = make_state().await;
         {
             let mut s = state.write().await;
             s.token_to_account.insert("tok-old".into(), "acc-1".into());

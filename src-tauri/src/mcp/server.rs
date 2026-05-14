@@ -41,6 +41,8 @@ pub struct McpStateInner {
     /// supabase configuration (pushed by the front-end at boot)
     pub supabase_url: String,
     pub supabase_anon_key: String,
+    /// OAuth 2.1 state (JWT key, client registry, grant store, account summaries)
+    pub oauth: crate::oauth::OAuthState,
 }
 
 pub type McpState = Arc<RwLock<McpStateInner>>;
@@ -124,16 +126,31 @@ pub async fn start_mcp_server(app: &AppHandle, state: McpState) -> Result<(), St
     // The AppHandle is attached as an axum `Extension` (not stashed inside
     // McpStateInner) so unit tests in this crate don't pull AppHandle's
     // WebView2 runtime deps into the test binary's link graph.
-    let app_router = Router::new()
+
+    // Pin the OAuth issuer URL now that the listener address is known.
+    let oauth_state = state.read().await.oauth.clone();
+    {
+        let mut o = oauth_state.write().await;
+        o.issuer = url.trim_end_matches("/mcp").to_string();
+    }
+
+    // Build the MCP router (bearer-auth-guarded) and the OAuth router (open)
+    // separately, then merge them. Both are type-erased to Router<()> via
+    // their respective .with_state() calls so axum can merge them cleanly.
+    let mcp_router = Router::new()
         .route("/mcp", post(mcp_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), bearer_auth))
         .route("/health", get(health))
         .layer(Extension(app.clone()))
         .with_state(state.clone());
 
+    let oauth_router = crate::oauth::routes(oauth_state);
+
+    let combined = mcp_router.merge(oauth_router);
+
     // 7. Spawn the server in the background.
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app_router).await {
+        if let Err(e) = axum::serve(listener, combined).await {
             eprintln!("[mcp] server crashed: {e}");
         }
     });
