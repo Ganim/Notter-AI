@@ -34,6 +34,8 @@ pub async fn dispatch(
         "get_version" => get_version(params, auth, state).await,
         "list_comments" => list_comments(params, auth, state).await,
         "post_subject_revision" => post_subject_revision(params, auth, state).await,
+        "get_account_settings" => get_account_settings(params, auth, state).await,
+        "update_account_settings" => update_account_settings(params, auth, state).await,
         // MCP "ping" is sometimes used by clients as a liveness check;
         // accept it as an empty-result success.
         "ping" => Ok(Value::Object(Default::default())),
@@ -305,6 +307,85 @@ async fn post_subject_revision(
             ))
         })?;
     Ok(serde_json::json!({ "version_id": id }))
+}
+
+async fn get_account_settings(
+    _params: &Value,
+    auth: &AuthContext,
+    state: &McpState,
+) -> Result<Value, McpError> {
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    let url = format!("{}/auth/v1/user", sb.base_url);
+    let res = reqwest::Client::new()
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("apikey", &sb.anon_key)
+        .send()
+        .await
+        .map_err(|e| McpError::SupabaseError(format!("get user: {e}")))?;
+    if !res.status().is_success() {
+        return Err(McpError::SupabaseError(format!("get user: HTTP {}", res.status())));
+    }
+    let body: Value = res.json().await.map_err(|e| McpError::SupabaseError(e.to_string()))?;
+    let notter = body
+        .get("user_metadata").and_then(|m| m.get("notter")).cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut out = serde_json::Map::new();
+    out.insert("theme".into(),
+        notter.get("theme").cloned().unwrap_or_else(|| Value::String("system".into())));
+    out.insert("language".into(),
+        notter.get("language").cloned().unwrap_or_else(|| Value::String("pt-BR".into())));
+    out.insert("update_settings".into(),
+        notter.get("update_settings").cloned().unwrap_or_else(|| serde_json::json!({"auto_check": true, "auto_install": false})));
+    out.insert("default_workspace_id".into(),
+        notter.get("default_workspace_id").cloned().unwrap_or(Value::Null));
+    Ok(Value::Object(out))
+}
+
+#[derive(serde::Deserialize, Default)]
+struct UpdateAccountSettingsParams {
+    #[serde(default)]
+    theme: Option<String>,
+    #[serde(default)]
+    language: Option<String>,
+    #[serde(default)]
+    update_settings: Option<Value>,
+    #[serde(default)]
+    default_workspace_id: Option<String>,
+}
+
+async fn update_account_settings(
+    params: &Value,
+    auth: &AuthContext,
+    state: &McpState,
+) -> Result<Value, McpError> {
+    let p: UpdateAccountSettingsParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("update_account_settings: {e}")))?;
+
+    if let Some(ref t) = p.theme {
+        if !matches!(t.as_str(), "light"|"dark"|"system") {
+            return Err(McpError::InvalidParams(format!("theme must be light|dark|system, got '{t}'")));
+        }
+    }
+    if let Some(ref l) = p.language {
+        if !matches!(l.as_str(), "pt-BR"|"en-US") {
+            return Err(McpError::InvalidParams(format!("language must be pt-BR|en-US, got '{l}'")));
+        }
+    }
+
+    let current = get_account_settings(&Value::Null, auth, state).await?;
+    let mut merged = current.as_object().cloned().unwrap_or_default();
+    if let Some(v) = p.theme { merged.insert("theme".into(), Value::String(v)); }
+    if let Some(v) = p.language { merged.insert("language".into(), Value::String(v)); }
+    if let Some(v) = p.update_settings { merged.insert("update_settings".into(), v); }
+    if let Some(v) = p.default_workspace_id {
+        merged.insert("default_workspace_id".into(), Value::String(v));
+    }
+
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+    let body = serde_json::json!({ "data": { "notter": Value::Object(merged.clone()) } });
+    sb.auth_patch_user(&body, &token).await?;
+    Ok(Value::Object(merged))
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────
