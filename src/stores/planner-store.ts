@@ -13,6 +13,19 @@ import { useSubjectVersionsStore } from './subject-versions-store';
 import { useWorkspacesStore } from './workspaces-store';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 import { accountScopedPath, tryAccountScopedPath } from '@/lib/accounts/account-paths';
+import { safeFsName, unsafeFsName } from '@/lib/accounts/safe-fs-name';
+
+// Filesystem path helpers. Names may contain characters that Windows (and to
+// a lesser extent macOS/Linux) reject in paths — `: < > " | ? * \ /`. Any
+// name produced by the MCP server or another device may legally carry these.
+// We percent-encode at the disk boundary and decode when reading back so the
+// logical name in the UI/store stays intact.
+function projectFsPath(projectName: string): string {
+  return accountScopedPath(`NotterProjects/${safeFsName(projectName)}`);
+}
+function subjectFsPath(projectName: string, fileName: string): string {
+  return accountScopedPath(`NotterProjects/${safeFsName(projectName)}/${safeFsName(fileName)}`);
+}
 
 /**
  * Autosave coalescing window. The commit_subject_version RPC folds
@@ -260,7 +273,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       console.error('[planner] createProject: no active workspace; aborting');
       return;
     }
-    await mkdir(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    await mkdir(projectFsPath(name), { baseDir: BaseDirectory.AppLocalData, recursive: true });
     const newProject: Project = { name, path, workspaceId: wsId };
     const newAll = [...get().allProjects, newProject];
     set({ allProjects: newAll, projects: recomputeProjects(newAll) });
@@ -269,7 +282,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   renameProject: async (oldName, newName) => {
-    await rename(accountScopedPath(`NotterProjects/${oldName}`), accountScopedPath(`NotterProjects/${newName}`), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
+    await rename(projectFsPath(oldName), projectFsPath(newName), { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData });
     const newAll = get().allProjects.map((p) => (p.name === oldName ? { ...p, name: newName } : p));
     set({
       allProjects: newAll,
@@ -295,7 +308,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   deleteProject: async (name) => {
-    await remove(accountScopedPath(`NotterProjects/${name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true });
+    await remove(projectFsPath(name), { baseDir: BaseDirectory.AppLocalData, recursive: true });
     const newAll = get().allProjects.filter((p) => p.name !== name);
     set({
       allProjects: newAll,
@@ -380,8 +393,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   loadSubjects: async (projectName) => {
     try {
-      const entries = await readDir(accountScopedPath(`NotterProjects/${projectName}`), { baseDir: BaseDirectory.AppLocalData });
-      const files = entries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => e.name);
+      const entries = await readDir(projectFsPath(projectName), { baseDir: BaseDirectory.AppLocalData });
+      // The on-disk filename is percent-encoded; decode back to the logical
+      // name so the UI displays "Texto aleatório 13:39:12.md" not the
+      // "...%3A39%3A12.md" form that lives on Windows.
+      const files = entries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => unsafeFsName(e.name));
       set({ subjects: files });
     } catch (e) {
       console.error('Failed to load subjects:', e);
@@ -390,7 +406,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   loadSubjectContent: async (projectName, subject) => {
     try {
-      const content = await readTextFile(accountScopedPath(`NotterProjects/${projectName}/${subject}`), { baseDir: BaseDirectory.AppLocalData });
+      const content = await readTextFile(subjectFsPath(projectName, subject), { baseDir: BaseDirectory.AppLocalData });
       set({ subjectContent: content });
     } catch (e) {
       set({ subjectContent: '# Erro ao carregar' });
@@ -401,7 +417,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   saveSubjectContent: async (projectName, subject, content) => {
     try {
-      await writeTextFile(accountScopedPath(`NotterProjects/${projectName}/${subject}`), content, { baseDir: BaseDirectory.AppLocalData });
+      await writeTextFile(subjectFsPath(projectName, subject), content, { baseDir: BaseDirectory.AppLocalData });
       // Resolve the remote row so we can commit a version. Offline / pre-sync
       // subjects have no row yet — disk save is enough; the next sync will
       // catch up via createSubject's path or a manual force-sync.
@@ -428,7 +444,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   writeSubjectFileOnly: async (projectName: string, subject: string, content: string) => {
     try {
       await writeTextFile(
-        accountScopedPath(`NotterProjects/${projectName}/${subject}`),
+        subjectFsPath(projectName, subject),
         content,
         { baseDir: BaseDirectory.AppLocalData },
       );
@@ -441,7 +457,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const fileName = name.endsWith('.md') ? name : `${name}.md`;
     const content = initialContent ?? '# Nova Anotação\n\nDescreva o assunto...';
     await writeTextFile(
-      accountScopedPath(`NotterProjects/${projectName}/${fileName}`),
+      subjectFsPath(projectName, fileName),
       content,
       { baseDir: BaseDirectory.AppLocalData }
     );
@@ -517,8 +533,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     );
 
     await rename(
-      accountScopedPath(`NotterProjects/${projectName}/${oldName}`),
-      accountScopedPath(`NotterProjects/${projectName}/${newFileName}`),
+      subjectFsPath(projectName, oldName),
+      subjectFsPath(projectName, newFileName),
       { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData },
     );
     set((state) => ({
@@ -547,8 +563,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       }));
       try {
         await rename(
-          accountScopedPath(`NotterProjects/${projectName}/${newFileName}`),
-          accountScopedPath(`NotterProjects/${projectName}/${oldName}`),
+          subjectFsPath(projectName, newFileName),
+          subjectFsPath(projectName, oldName),
           { oldPathBaseDir: BaseDirectory.AppLocalData, newPathBaseDir: BaseDirectory.AppLocalData },
         );
       } catch (e) {
@@ -559,7 +575,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   deleteSubject: async (projectName, subject) => {
-    await remove(accountScopedPath(`NotterProjects/${projectName}/${subject}`), { baseDir: BaseDirectory.AppLocalData });
+    await remove(subjectFsPath(projectName, subject), { baseDir: BaseDirectory.AppLocalData });
     set((state) => ({
       subjects: state.subjects.filter((s) => s !== subject),
       selectedSubject: state.selectedSubject === subject ? null : state.selectedSubject,
@@ -602,7 +618,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     // Ensure local directories exist for each remote project (across all
     // workspaces — directories are workspace-agnostic on disk).
     for (const p of projects) {
-      mkdir(accountScopedPath(`NotterProjects/${p.name}`), { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
+      mkdir(projectFsPath(p.name), { baseDir: BaseDirectory.AppLocalData, recursive: true }).catch(() => {});
     }
   },
 
@@ -632,13 +648,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     for (const s of subjects) {
       try {
         await mkdir(
-          accountScopedPath(`NotterProjects/${s.projectName}`),
+          projectFsPath(s.projectName),
           { baseDir: BaseDirectory.AppLocalData, recursive: true },
         );
         const isActiveFile =
           selected?.name === s.projectName && selectedSubject === s.fileName;
         if (isActiveFile) continue;
-        const filePath = accountScopedPath(`NotterProjects/${s.projectName}/${s.fileName}`);
+        const filePath = subjectFsPath(s.projectName, s.fileName);
         const fileExists = await exists(filePath, { baseDir: BaseDirectory.AppLocalData });
         if (fileExists) continue;
         await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
@@ -673,7 +689,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     for (const row of rows) {
       try {
         const content = await readTextFile(
-          accountScopedPath(`NotterProjects/${row.projectName}/${row.fileName}`),
+          subjectFsPath(row.projectName, row.fileName),
           { baseDir: BaseDirectory.AppLocalData },
         );
         await commitSubjectVersion({
