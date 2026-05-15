@@ -30,6 +30,8 @@ import {
   leaveWorkspace,
   generateInviteToken,
   sendInviteEmail,
+  type WorkspaceMember,
+  type WorkspaceInvite,
 } from '@/lib/sync';
 
 interface Props {
@@ -37,17 +39,26 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+// Module-level stable references. Returning `s.members[id] ?? []` from a
+// Zustand selector creates a fresh array literal every read, which makes
+// useSyncExternalStore think the snapshot changed → infinite re-render
+// loop. Selectors must return reference-stable values; we read the map
+// itself and derive the per-workspace slice OUTSIDE the selector.
+const EMPTY_MEMBERS: WorkspaceMember[] = [];
+const EMPTY_INVITES: WorkspaceInvite[] = [];
+
 export function WorkspaceMembersDialog({ open, onOpenChange }: Props) {
   const { t } = useTranslation();
   const currentWorkspaceId = useWorkspacesStore((s) => s.currentWorkspaceId);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const currentRole = useWorkspacesStore((s) => s.currentRole);
-  const members = useWorkspacesStore((s) =>
-    currentWorkspaceId ? s.members[currentWorkspaceId] ?? [] : [],
-  );
-  const pendingInvites = useWorkspacesStore((s) =>
-    currentWorkspaceId ? s.pendingInvites[currentWorkspaceId] ?? [] : [],
-  );
+  // Read the maps as primitives; derive per-workspace slices in render so
+  // the selectors stay reference-stable. See the comment by EMPTY_MEMBERS.
+  const membersMap = useWorkspacesStore((s) => s.members);
+  const pendingInvitesMap = useWorkspacesStore((s) => s.pendingInvites);
+  const members = (currentWorkspaceId && membersMap[currentWorkspaceId]) || EMPTY_MEMBERS;
+  const pendingInvites =
+    (currentWorkspaceId && pendingInvitesMap[currentWorkspaceId]) || EMPTY_INVITES;
   const setMembers = useWorkspacesStore((s) => s.setWorkspaceMembers);
   const setInvites = useWorkspacesStore((s) => s.setPendingInvites);
   const user = useAuthStore((s) => s.user);
