@@ -25,21 +25,21 @@ describe('claudeCodeProvider', () => {
     expect(await claudeCodeProvider.detect()).toBe('missing');
   });
 
-  it('install runs claude mcp add with computed entry name + URL', async () => {
+  it('install runs claude mcp add with --scope user + computed entry name + URL', async () => {
     const execMock = vi.fn().mockResolvedValue({ code: 0, stdout: '', stderr: '' });
     commandMock.mockReturnValue({ execute: execMock });
     await claudeCodeProvider.install('guilherme', 'http://127.0.0.1:54781/mcp');
     expect(commandMock).toHaveBeenCalledWith('claude', [
-      'mcp', 'add', entryKey('guilherme'),
+      'mcp', 'add', '--scope', 'user', '--transport', 'http',
+      entryKey('guilherme'),
       'http://127.0.0.1:54781/mcp',
-      '--transport', 'http',
     ]);
   });
 
-  it('uninstall runs claude mcp remove with the entry name', async () => {
+  it('uninstall runs claude mcp remove with --scope user + entry name', async () => {
     const execMock = vi.fn().mockResolvedValue({ code: 0, stdout: '', stderr: '' });
     commandMock.mockReturnValue({ execute: execMock });
     await claudeCodeProvider.uninstall('guilherme');
-    expect(commandMock).toHaveBeenCalledWith('claude', ['mcp','remove', entryKey('guilherme')]);
+    expect(commandMock).toHaveBeenCalledWith('claude', ['mcp','remove','--scope','user', entryKey('guilherme')]);
   });
 });

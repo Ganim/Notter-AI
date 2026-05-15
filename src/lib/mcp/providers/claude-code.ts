@@ -24,14 +24,22 @@ export const claudeCodeProvider: McpInstallProvider = {
   },
 
   async install(slug, mcpUrl) {
-    const res = await runClaude(['mcp', 'add', entryKey(slug), mcpUrl, '--transport', 'http']);
+    // `--scope user` persists to ~/.claude/settings.json (user-global) instead
+    // of the cwd-tied local scope (default). Without it the entry lives in a
+    // transient .claude.json in whatever cwd the Tauri shell launched from,
+    // and `claude mcp list` from anywhere else won't see it — making the UI
+    // flicker connected→not-connected on the next isLinked check.
+    const res = await runClaude([
+      'mcp', 'add', '--scope', 'user', '--transport', 'http',
+      entryKey(slug), mcpUrl,
+    ]);
     if (!ok(res)) {
       throw new Error(`claude mcp add failed: ${res.stderr || res.stdout}`);
     }
   },
 
   async uninstall(slug) {
-    const res = await runClaude(['mcp', 'remove', entryKey(slug)]);
+    const res = await runClaude(['mcp', 'remove', '--scope', 'user', entryKey(slug)]);
     if (!ok(res)) {
       throw new Error(`claude mcp remove failed: ${res.stderr || res.stdout}`);
     }
