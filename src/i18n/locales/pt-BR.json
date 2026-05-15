@@ -302,6 +302,28 @@
     "move_to": "Mover para workspace…",
     "move_undo": "Desfazer",
     "moved_toast": "{{project}} movido para {{ws}}",
-    "move_failed": "Falha ao mover projeto."
+    "move_failed": "Falha ao mover projeto.",
+    "members_title": "Membros de {{name}}",
+    "members_entry": "Membros e convites",
+    "members_short": "membros",
+    "members_loading": "Carregando…",
+    "you": "você",
+    "pending_invites": "Convites pendentes",
+    "invite_member": "Convidar membro",
+    "send_invite": "Enviar",
+    "email_placeholder": "email@exemplo.com",
+    "revoke": "Revogar",
+    "revoke_failed": "Falha ao revogar convite",
+    "leave_button": "Sair do workspace",
+    "leave_failed": "Falha ao sair do workspace",
+    "left": "Você saiu do workspace",
+    "invite_sent": "Convite enviado",
+    "invite_email_failed": "Convite criado mas email falhou; copie o link manualmente",
+    "invite_error": {
+      "duplicate_open_invite": "Já existe um convite aberto para este email",
+      "forbidden": "Apenas o dono do workspace pode convidar",
+      "unknown": "Falha ao enviar convite"
+    },
+    "viewer_readonly_tooltip": "Você é viewer; não pode editar"
   }
 }

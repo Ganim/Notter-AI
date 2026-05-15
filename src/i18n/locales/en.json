@@ -302,6 +302,28 @@
     "move_to": "Move to workspace…",
     "move_undo": "Undo",
     "moved_toast": "Moved {{project}} to {{ws}}",
-    "move_failed": "Failed to move project."
+    "move_failed": "Failed to move project.",
+    "members_title": "Members of {{name}}",
+    "members_entry": "Members & invites",
+    "members_short": "members",
+    "members_loading": "Loading…",
+    "you": "you",
+    "pending_invites": "Pending invites",
+    "invite_member": "Invite member",
+    "send_invite": "Send",
+    "email_placeholder": "email@example.com",
+    "revoke": "Revoke",
+    "revoke_failed": "Failed to revoke invite",
+    "leave_button": "Leave workspace",
+    "leave_failed": "Failed to leave workspace",
+    "left": "You left the workspace",
+    "invite_sent": "Invite sent",
+    "invite_email_failed": "Invite created but email failed; copy the link manually",
+    "invite_error": {
+      "duplicate_open_invite": "An open invite already exists for this email",
+      "forbidden": "Only the workspace owner can invite",
+      "unknown": "Failed to send invite"
+    },
+    "viewer_readonly_tooltip": "You're a viewer; cannot edit"
   }
 }
