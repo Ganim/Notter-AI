@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAppStore } from '@/stores/app-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
@@ -11,6 +12,18 @@ import {
 import { subscribeWorkspaceTable } from '@/lib/synced-store';
 
 let channel: RealtimeChannel | null = null;
+
+// Debounce membership rebuild — when the user accepts multiple invites in
+// rapid succession, naive per-event rebuilds tear down and recreate the
+// realtime channel N times. 300ms coalesces a burst into one rebuild.
+let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedRebuild(userId: string): void {
+  if (rebuildTimer) clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    rebuildTimer = null;
+    void rebuildRealtimeOnMembershipChange(userId);
+  }, 300);
+}
 
 export function startRealtimeSync(userId: string): void {
   if (!isSupabaseConfigured) return;
@@ -79,16 +92,35 @@ export function startRealtimeSync(userId: string): void {
   // Membership change listener: filter by user_id of the caller because
   // workspace_members rows for OTHER users in the same workspace are also
   // visible (RLS admits all rows where the caller is a member). We only need
-  // to react when the caller's own membership set changes.
+  // to react when the caller's own membership set changes. Debounced so a
+  // burst of invite-accepts doesn't thrash the channel.
   ch = ch.on(
     'postgres_changes',
     { event: '*', schema: 'public', table: 'workspace_members', filter: `user_id=eq.${userId}` },
     () => {
-      // The user joined or left a workspace. Rebuild the channel so the
-      // workspace_id=in.(...) filter list reflects the new set.
-      void rebuildRealtimeOnMembershipChange(userId);
+      debouncedRebuild(userId);
     },
   );
+
+  // Workspace invites for the caller's email. The invitee (who may not yet
+  // be a member of the inviting workspace) needs to see invites land in
+  // real time so they get a chance to redeem without restarting the app.
+  // The PostgREST realtime filter URL-encodes special chars; lowercase to
+  // match the column lowering done by the lower(email) index, but otherwise
+  // leave the address as-is — '+' aliases and '.' are accepted by Postgres.
+  const userEmail = useAuthStore.getState().user?.email?.toLowerCase();
+  if (userEmail) {
+    ch = ch.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'workspace_invites', filter: `email=eq.${userEmail}` },
+      () => {
+        // The invitee got/lost an invite. Surface the change to the dialog
+        // by triggering a workspaces refetch; the open dialog will re-fetch
+        // pendingInvites itself on next open. Cheap, no UI dependency here.
+        void refetchWorkspaces();
+      },
+    );
+  }
 
   channel = ch.subscribe();
 }
@@ -98,14 +130,17 @@ export function stopRealtimeSync(): void {
     supabase.removeChannel(channel);
     channel = null;
   }
+  if (rebuildTimer) {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = null;
+  }
 }
 
 /**
  * Re-fetch the caller's workspaces and rebuild the realtime channel so the
  * `workspace_id=in.(...)` filter list reflects newly-joined or left
  * workspaces. Triggered by a workspace_members change event scoped to the
- * caller. No-op for Plan 1 in practice (single-user accounts never receive
- * such events), but the wiring is in place for Plan 2's invites.
+ * caller, via the debouncedRebuild wrapper above.
  */
 async function rebuildRealtimeOnMembershipChange(userId: string): Promise<void> {
   try {
