@@ -11,20 +11,23 @@
 // a one-frame flicker after the await resolves).
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, ChevronDown, Plus, Settings } from 'lucide-react';
+import { Check, ChevronDown, Plus, Settings, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { getWorkspaceManager } from '@/lib/workspaces/workspace-manager';
 import { WorkspaceManagerDialog } from '@/components/WorkspaceManagerDialog';
+import { WorkspaceMembersDialog } from '@/components/WorkspaceMembersDialog';
 
 export function WorkspaceSwitcher() {
   const { t } = useTranslation();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const currentWorkspaceId = useWorkspacesStore((s) => s.currentWorkspaceId);
+  const memberCounts = useWorkspacesStore((s) => s.memberCounts);
 
   const [open, setOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [managerMode, setManagerMode] = useState<'manage' | 'create'>('manage');
+  const [membersOpen, setMembersOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,10 +108,26 @@ export function WorkspaceSwitcher() {
                         {t('workspaces.default_badge')}
                       </span>
                     )}
+                    {(memberCounts[ws.id] ?? 1) > 1 && (
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {memberCounts[ws.id]}{' '}
+                        {t('workspaces.members_short', { defaultValue: 'membros' })}
+                      </span>
+                    )}
                   </button>
                 );
               })}
               <div className="border-t my-1" />
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setMembersOpen(true);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted"
+              >
+                <Users size={12} />
+                {t('workspaces.members_entry', { defaultValue: 'Membros e convites' })}
+              </button>
               <button
                 onClick={() => openManager('create')}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -132,6 +151,10 @@ export function WorkspaceSwitcher() {
         open={managerOpen}
         onOpenChange={setManagerOpen}
         initialMode={managerMode}
+      />
+      <WorkspaceMembersDialog
+        open={membersOpen}
+        onOpenChange={setMembersOpen}
       />
     </>
   );
