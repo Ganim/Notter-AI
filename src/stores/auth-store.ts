@@ -95,6 +95,25 @@ async function syncOnLogin(userId: string) {
       await usePlannerStore.getState().pushAllSubjects(userId);
     }
 
+    // Workspace invite — redeem the link the user opened pre-signin, if any.
+    // Runs after workspaces have been hydrated so the switch-into-joined-ws
+    // step finds the right context.
+    try {
+      const { redeemPendingInviteAfterSignIn } = await import(
+        '@/lib/workspaces/invite-acceptor'
+      );
+      const r = await redeemPendingInviteAfterSignIn();
+      if (r.kind === 'redeemed') {
+        const { toast } = await import('sonner');
+        toast.success(`Você entrou no workspace ${r.workspaceName}`);
+      } else if (r.kind === 'error') {
+        const { toast } = await import('sonner');
+        toast.error(`Convite não pôde ser aceito: ${r.message}`);
+      }
+    } catch (e) {
+      console.error('[auth] redeem pending invite failed:', e);
+    }
+
   } catch (e) {
     console.error('Sync on login failed:', e);
   }

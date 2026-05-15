@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { clearPendingStorage } from '@/lib/accounts/supabase-storage-adapter';
+import { handleInviteDeepLink } from '@/lib/workspaces/invite-acceptor';
 
 function handleAuthUrl(url: string) {
   if (!url.startsWith('notterai://auth/')) return;
@@ -59,12 +60,37 @@ function handleAuthUrl(url: string) {
   });
 }
 
+async function handleInviteUrl(url: string) {
+  if (!url.startsWith('notterai://invite/')) return;
+  const token = url.slice('notterai://invite/'.length).split('?')[0].split('#')[0];
+  if (!token) {
+    toast.error('Link de convite inválido');
+    return;
+  }
+  const result = await handleInviteDeepLink(token);
+  if (result.kind === 'redeemed') {
+    toast.success(`Você entrou no workspace ${result.workspaceName}`);
+  } else if (result.kind === 'signin_required') {
+    toast(`Entre como ${result.preview.inviteeEmail} para aceitar o convite`);
+  } else {
+    toast.error(`Não foi possível aceitar o convite: ${result.message}`);
+  }
+}
+
+async function dispatch(url: string) {
+  if (url.startsWith('notterai://auth/')) {
+    handleAuthUrl(url);
+  } else if (url.startsWith('notterai://invite/')) {
+    await handleInviteUrl(url);
+  }
+}
+
 export async function initDeepLinkHandler() {
   // Handle URL the app was opened with (cold start)
   try {
     const initial = await getCurrent();
     if (initial && initial.length > 0) {
-      for (const url of initial) handleAuthUrl(url);
+      for (const url of initial) await dispatch(url);
     }
   } catch (e) {
     console.error('[deep-link] getCurrent failed:', e);
@@ -72,6 +98,8 @@ export async function initDeepLinkHandler() {
 
   // Handle URLs received while app is running
   await onOpenUrl((urls) => {
-    for (const url of urls) handleAuthUrl(url);
+    for (const url of urls) {
+      void dispatch(url);
+    }
   });
 }
