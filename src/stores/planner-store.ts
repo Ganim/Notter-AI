@@ -624,26 +624,29 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
   applyRemoteSubjects: async (subjects) => {
     // ──────────────────────────────────────────────────────────────────────
-    // Disk-write policy (2026-05-14 versioning overhaul):
-    //   The previous implementation unconditionally wrote every remote
-    //   subject's content to disk on every realtime event. That clobbered
-    //   the local file of the active subject during the 1s autosave debounce
-    //   window — the server still had stale content, applyRemoteSubjects
-    //   wrote it, then the debounce flushed and re-synced. Net effect: the
-    //   user occasionally saw "old version" when reloading or switching
-    //   subjects ("carrega uma versão antiga em vez da nova").
+    // Disk-write policy (2026-05-15 MCP-driven updates):
+    //   The 2026-05-14 overhaul (when the writer was strictly the local
+    //   editor) gated disk writes behind "file doesn't exist yet" so the
+    //   realtime echo back from supabase wouldn't clobber the user's
+    //   freshly-typed local content during the 1s autosave debounce
+    //   window. That broke when MCP started driving writes too: a stub
+    //   row (INSERT with content='') created an empty file; a later
+    //   UPDATE with the real content was then SKIPPED because the file
+    //   already existed.
     //
-    //   New policy:
+    //   Current policy:
     //     - Always update the in-memory slice (cheap, race-free).
     //     - Ensure project directories exist (idempotent mkdir).
-    //     - Disk writes are SKIPPED for the currently-open subject (its
-    //       editor + autosave own that file). For other subjects we only
-    //       write to disk when the file doesn't exist yet — i.e. first
-    //       hydration. Subsequent edits propagate through their own
-    //       autosave, not through here.
+    //     - Skip the active subject's file: the editor + autosave own it.
+    //     - For non-active subjects, write to disk when EITHER (a) the
+    //       file doesn't exist yet (first hydration) OR (b) the remote
+    //       content actually changed vs. our last seen state. Steady-
+    //       state echoes (where prior.content === s.content) are still
+    //       skipped, so this doesn't undo the 2026-05-14 fix.
     // ──────────────────────────────────────────────────────────────────────
     const selected = get().selectedProject;
     const selectedSubject = get().selectedSubject;
+    const priorById = new Map(get().subjectRows.map((r) => [r.id, r]));
 
     for (const s of subjects) {
       try {
@@ -656,8 +659,30 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         if (isActiveFile) continue;
         const filePath = subjectFsPath(s.projectName, s.fileName);
         const fileExists = await exists(filePath, { baseDir: BaseDirectory.AppLocalData });
-        if (fileExists) continue;
-        await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
+        const prior = priorById.get(s.id);
+        if (!fileExists) {
+          await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
+          continue;
+        }
+        // File exists. Three reasons we'd want to overwrite anyway:
+        //   1. Remote content changed since our prior in-memory snapshot
+        //      (MCP write, another device, etc.).
+        //   2. Cold start (prior === undefined) and disk is empty but
+        //      remote has content — repairs the "INSERT-with-empty,
+        //      UPDATE-skipped" stale stub from the previous policy.
+        const remoteChanged = prior !== undefined && prior.content !== s.content;
+        if (remoteChanged) {
+          await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
+          continue;
+        }
+        if (prior === undefined && s.content.length > 0) {
+          try {
+            const onDisk = await readTextFile(filePath, { baseDir: BaseDirectory.AppLocalData });
+            if (onDisk.length === 0) {
+              await writeTextFile(filePath, s.content, { baseDir: BaseDirectory.AppLocalData });
+            }
+          } catch { /* unreadable; leave it for the user/editor to handle */ }
+        }
       } catch (e) {
         console.error(`Failed to hydrate remote subject ${s.projectName}/${s.fileName}:`, e);
       }

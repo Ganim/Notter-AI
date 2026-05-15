@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Use vi.hoisted so factory-local refs survive vi.mock hoisting.
 const fs = vi.hoisted(() => ({
   writeTextFile: vi.fn().mockResolvedValue(undefined),
+  readTextFile: vi.fn().mockResolvedValue(''),
   exists: vi.fn().mockResolvedValue(true),
   rename: vi.fn().mockResolvedValue(undefined),
 }));
@@ -19,7 +20,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   BaseDirectory: { AppLocalData: 'AppLocalData' },
   readDir: vi.fn().mockResolvedValue([]),
   mkdir: vi.fn().mockResolvedValue(undefined),
-  readTextFile: vi.fn().mockResolvedValue(''),
+  readTextFile: fs.readTextFile,
   writeTextFile: fs.writeTextFile,
   exists: fs.exists,
   remove: vi.fn().mockResolvedValue(undefined),
@@ -108,23 +109,61 @@ describe('planner-store — versioning overhaul', () => {
     expect(usePlannerStore.getState().subjectRows[0].currentVersionId).toBe('v1');
   });
 
-  it('applyRemoteSubjects hydrates inactive subjects only when the file is missing', async () => {
+  it('applyRemoteSubjects writes missing files and skips up-to-date inactive ones', async () => {
     usePlannerStore.setState({
       selectedProject: { name: 'P', path: '', workspaceId: 'w1' } as any,
       selectedSubject: 'open.md',
+      // Prior in-memory state has hydrated.md with the SAME content the
+      // remote is reporting — steady-state echo, no write expected.
+      subjectRows: [
+        { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2' },
+      ],
     });
     fs.exists
       .mockResolvedValueOnce(false) // missing.md not on disk → write
-      .mockResolvedValueOnce(true); // hydrated.md already exists → skip
+      .mockResolvedValueOnce(true); // hydrated.md already exists, content unchanged → skip
     await usePlannerStore.getState().applyRemoteSubjects([
       { id: 's-missing', projectName: 'P', fileName: 'missing.md', content: 'fresh', currentVersionId: 'v1' },
       { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2' },
     ]);
-    // Exactly one write — for the missing file.
     expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
     const args = fs.writeTextFile.mock.calls[0];
     expect(String(args[0])).toContain('missing.md');
     expect(args[1]).toBe('fresh');
+  });
+
+  it('applyRemoteSubjects overwrites the disk file when remote content moved (e.g. MCP UPDATE)', async () => {
+    usePlannerStore.setState({
+      selectedProject: { name: 'P', path: '', workspaceId: 'w1' } as any,
+      selectedSubject: 'open.md',
+      subjectRows: [
+        // prior content was empty (the stub from save_subject's INSERT)
+        { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: '', currentVersionId: 'v0' },
+      ],
+    });
+    fs.exists.mockResolvedValueOnce(true); // stub file already on disk
+    await usePlannerStore.getState().applyRemoteSubjects([
+      // post_subject_revision pushed the real content — UPDATE event fires.
+      { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: 'real plan body', currentVersionId: 'v1' },
+    ]);
+    expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
+    expect(fs.writeTextFile.mock.calls[0][1]).toBe('real plan body');
+  });
+
+  it('applyRemoteSubjects repairs an empty stub on cold start when remote has content', async () => {
+    // No subjectRows → prior is undefined, mimicking app boot.
+    usePlannerStore.setState({
+      selectedProject: { name: 'P', path: '', workspaceId: 'w1' } as any,
+      selectedSubject: 'open.md',
+      subjectRows: [],
+    });
+    fs.exists.mockResolvedValueOnce(true);     // stub file present
+    fs.readTextFile.mockResolvedValueOnce(''); // disk is empty
+    await usePlannerStore.getState().applyRemoteSubjects([
+      { id: 's-stub', projectName: 'P', fileName: 'stub.md', content: 'recovered body', currentVersionId: 'v1' },
+    ]);
+    expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
+    expect(fs.writeTextFile.mock.calls[0][1]).toBe('recovered body');
   });
 
   // ── renameSubject ──────────────────────────────────────────────────────
