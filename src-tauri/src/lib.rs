@@ -12,8 +12,16 @@ pub fn run() {
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
-            // single-instance + deep-link feature: deep link event auto-fires on the existing instance
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // single-instance + deep-link feature: deep link event auto-fires
+            // on the existing instance. Bring the main window to the front so
+            // the user actually sees the toast/UI the deep-link triggered —
+            // otherwise the side-effect runs invisibly behind a minimized app.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
         }));
     }
 
