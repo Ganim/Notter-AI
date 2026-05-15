@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePlannerStore } from '@/stores/planner-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -93,6 +94,14 @@ export function PlannerTab() {
   const [renameProjectTarget, setRenameProjectTarget] = useState<string | null>(null);
   const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  // Role-aware UI gating. currentRole is null pre-bootstrap; treat as owner
+  // (the most permissive) so we don't flash a viewer-locked UI for the
+  // workspace owner during initial load. Once the store populates the row
+  // for the active workspace, the real role takes effect.
+  const currentRole = useWorkspacesStore((s) => s.currentRole);
+  const isViewer = currentRole === 'viewer';
+  const isOwner = currentRole === 'owner' || currentRole === null;
 
   // Sync
   const authUser = useAuthStore((s) => s.user);
@@ -580,9 +589,18 @@ export function PlannerTab() {
               </span>
             </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
-              <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
+              {!isViewer && (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
+                    disabled={!isOwner}
+                    title={isOwner ? undefined : t('planner.owner_only_delete_tooltip', { defaultValue: 'Apenas o dono do workspace pode excluir projetos' })}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
+                  ><Trash2 size={14} /></button>
+                  <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
+                </>
+              )}
             </div>
           </div>
           );
@@ -599,8 +617,12 @@ export function PlannerTab() {
           <div key={subject} onClick={() => onSelect(subject)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === subject ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
             <span className="truncate font-normal">{subject.replace('.md', '')}</span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button onClick={(e) => { e.stopPropagation(); setRenameValue(subject.replace('.md', '')); setRenameSubjectTarget(subject); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-              <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(subject); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+              {!isViewer && (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); setRenameValue(subject.replace('.md', '')); setRenameSubjectTarget(subject); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setDeleteSubjectTarget(subject); }} className="text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -836,7 +858,12 @@ export function PlannerTab() {
   // Monaco shows the historical version's markdown (read-only) and our
   // onChange handler short-circuits so we never persist preview content.
   const editorValue = previewVersion ? previewVersion.contentMarkdown : subjectContent;
+  // editorReadOnly drives Monaco AND the comment trigger. Preview always
+  // locks Monaco. Viewer role ALSO locks Monaco (no edits allowed), but
+  // the comment trigger stays enabled — viewers can still anchor comments
+  // (spec §3.2).
   const editorReadOnly = previewVersion !== null;
+  const monacoReadOnly = editorReadOnly || isViewer;
 
   const renderEditorContent = () => (
     <>
@@ -850,7 +877,7 @@ export function PlannerTab() {
             options={{
               minimap: { enabled: false }, wordWrap: 'on', fontSize: 13, padding: { top: 16 },
               autoSurround: 'languageDefined', autoClosingQuotes: 'languageDefined', autoClosingBrackets: 'languageDefined',
-              readOnly: editorReadOnly,
+              readOnly: monacoReadOnly,
             }}
             className="absolute inset-0"
           />
@@ -922,7 +949,7 @@ export function PlannerTab() {
                       <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
                   )}
-                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  {!isViewer && <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>}
                 </div>
               </div>
               {renderProjectsList(selectProjectMobile)}
@@ -939,7 +966,7 @@ export function PlannerTab() {
                   <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                     {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
-                  <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                  {!isViewer && <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>}
                 </div>
               </div>
               {renderSubjectsList(selectSubjectMobile)}
@@ -985,7 +1012,7 @@ export function PlannerTab() {
                       <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                     </button>
                   )}
-                  <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>
+                  {!isViewer && <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors"><Plus size={14} /></button>}
                   <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors"><PanelLeftClose size={14} /></button>
                 </div>
               </div>
@@ -1015,7 +1042,7 @@ export function PlannerTab() {
                   <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                     {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   </button>
-                  <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>
+                  {!isViewer && <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50"><Plus size={14} /></button>}
                 </div>
               </div>
               {renderSubjectsList((s) => setSelectedSubject(s))}
@@ -1070,7 +1097,7 @@ export function PlannerTab() {
                     <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
                   </button>
                 )}
-                <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_project')}><Plus size={14} /></button>
+                {!isViewer && <button onClick={triggerProjectDialog} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors" title={t('planner.create_project')}><Plus size={14} /></button>}
                 <button onClick={() => projectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>
             </div>
@@ -1093,7 +1120,7 @@ export function PlannerTab() {
                 <button onClick={handleImport} disabled={!selectedProject || isImporting} title={t('planner.import_subject')} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50">
                   {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 </button>
-                <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>
+                {!isViewer && <button onClick={triggerSubjectDialog} disabled={!selectedProject} className="hover:bg-muted p-1 rounded-sm text-foreground transition-colors disabled:opacity-50" title={t('planner.create_subject')}><Plus size={14} /></button>}
                 <button onClick={() => subjectsPanelRef.current?.collapse()} className="hover:bg-muted p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors" title="Collapse"><PanelLeftClose size={14} /></button>
               </div>
             </div>

@@ -30,6 +30,7 @@ import {
   Archive, ArchiveRestore,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { findAnchor, offsetToLine } from '@/lib/plans/anchor';
 import type { SubjectCommentRecord } from '@/lib/sync';
 
@@ -45,6 +46,10 @@ export function CommentsPanel() {
   const setActiveCommentId = useSubjectVersionsStore((s) => s.setActiveCommentId);
 
   const userId = useAuthStore((s) => s.user?.id);
+  // Spec §3.2: viewers CAN comment + edit/delete their own + resolve their
+  // own. Resolving SOMEONE ELSE's comment requires editor or owner.
+  const currentRole = useWorkspacesStore((s) => s.currentRole);
+  const isViewer = currentRole === 'viewer';
 
   const [showResolved, setShowResolved] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -107,20 +112,28 @@ export function CommentsPanel() {
         cancels the horizontal inset so the cards still span full width.
       */}
       <div className="flex-1 overflow-y-auto -mx-1 px-1 py-1 flex flex-col gap-2">
-        {visible.map((c) => (
-          <CommentCard
-            key={c.id}
-            comment={c}
-            isAuthor={c.authorUserId === userId}
-            isActive={c.id === activeCommentId}
-            onActivate={() => setActiveCommentId(c.id)}
-            onResolve={() => toggleResolveComment(c.id)}
-            onArchiveToggle={() => setCommentArchived(c.id, !c.archived)}
-            onDelete={() => deleteComment(c.id)}
-            onEdit={(body) => editComment(c.id, body)}
-            t={t}
-          />
-        ))}
+        {visible.map((c) => {
+          const isAuthor = c.authorUserId === userId;
+          // Resolve is available when the caller is NOT a viewer, OR when
+          // the viewer is the comment's author (own-comment resolve is
+          // allowed for viewers per spec §3.2).
+          const canResolve = !isViewer || isAuthor;
+          return (
+            <CommentCard
+              key={c.id}
+              comment={c}
+              isAuthor={isAuthor}
+              canResolve={canResolve}
+              isActive={c.id === activeCommentId}
+              onActivate={() => setActiveCommentId(c.id)}
+              onResolve={() => toggleResolveComment(c.id)}
+              onArchiveToggle={() => setCommentArchived(c.id, !c.archived)}
+              onDelete={() => deleteComment(c.id)}
+              onEdit={(body) => editComment(c.id, body)}
+              t={t}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -163,6 +176,7 @@ function ToggleChip({
 interface CommentCardProps {
   comment: SubjectCommentRecord;
   isAuthor: boolean;
+  canResolve: boolean;
   isActive: boolean;
   onActivate: () => void;
   onResolve: () => void;
@@ -175,6 +189,7 @@ interface CommentCardProps {
 function CommentCard({
   comment,
   isAuthor,
+  canResolve,
   isActive,
   onActivate,
   onResolve,
@@ -350,6 +365,7 @@ function CommentCard({
             <KebabMenu
               comment={comment}
               isAuthor={isAuthor}
+              canResolve={canResolve}
               onEdit={() => setEditing(true)}
               onResolve={onResolve}
               onArchiveToggle={onArchiveToggle}
@@ -368,6 +384,7 @@ function CommentCard({
 function KebabMenu({
   comment,
   isAuthor,
+  canResolve,
   onEdit,
   onResolve,
   onArchiveToggle,
@@ -376,6 +393,7 @@ function KebabMenu({
 }: {
   comment: SubjectCommentRecord;
   isAuthor: boolean;
+  canResolve: boolean;
   onEdit: () => void;
   onResolve: () => void;
   onArchiveToggle: () => void;
@@ -466,16 +484,18 @@ function KebabMenu({
               }}
             />
           )}
-          <MenuItem
-            icon={comment.resolved
-              ? <CheckCircle2 size={12} className="text-green-500" />
-              : <Circle size={12} />}
-            label={comment.resolved ? t('plans.unresolve') : t('plans.resolve')}
-            onClick={() => {
-              setOpen(false);
-              onResolve();
-            }}
-          />
+          {canResolve && (
+            <MenuItem
+              icon={comment.resolved
+                ? <CheckCircle2 size={12} className="text-green-500" />
+                : <Circle size={12} />}
+              label={comment.resolved ? t('plans.unresolve') : t('plans.resolve')}
+              onClick={() => {
+                setOpen(false);
+                onResolve();
+              }}
+            />
+          )}
           <MenuItem
             icon={comment.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
             label={comment.archived ? t('plans.unarchive') : t('plans.archive')}
