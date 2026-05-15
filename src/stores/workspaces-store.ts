@@ -13,7 +13,7 @@
 // postgres_changes events the same way. Keeping the dependency one-directional
 // avoids cycles between manager → mcp → sync → realtime → store → manager.
 import { create } from 'zustand';
-import type { WorkspaceRecord } from '@/lib/sync';
+import type { WorkspaceRecord, WorkspaceMember, WorkspaceInvite } from '@/lib/sync';
 import { registerResettableStore } from '@/lib/accounts/store-registry';
 
 type Role = 'owner' | 'editor' | 'viewer';
@@ -25,10 +25,16 @@ interface WorkspacesState {
   currentRole: Role | null;
   /** Map workspace id → total members. Always 1 in Plan 1. */
   memberCounts: Record<string, number>;
+  /** workspace id → full peer list, populated by fetchWorkspaceMembers. */
+  members: Record<string, WorkspaceMember[]>;
+  /** workspace id → open invites, populated by initial fetch + realtime. */
+  pendingInvites: Record<string, WorkspaceInvite[]>;
   loading: boolean;
 
   setCurrentWorkspaceId: (id: string | null) => void;
   applyRemoteWorkspaces: (rows: WorkspaceRecord[]) => void;
+  setWorkspaceMembers: (workspaceId: string, members: WorkspaceMember[]) => void;
+  setPendingInvites: (workspaceId: string, invites: WorkspaceInvite[]) => void;
   setLoading: (loading: boolean) => void;
   reset: () => void;
 }
@@ -38,6 +44,8 @@ const INITIAL = {
   currentWorkspaceId: null as string | null,
   currentRole: null as Role | null,
   memberCounts: {} as Record<string, number>,
+  members: {} as Record<string, WorkspaceMember[]>,
+  pendingInvites: {} as Record<string, WorkspaceInvite[]>,
   loading: false,
 };
 
@@ -66,6 +74,12 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       currentRole: deriveRole(rows, currentId),
       memberCounts: deriveCounts(rows),
     });
+  },
+  setWorkspaceMembers: (workspaceId, members) => {
+    set({ members: { ...get().members, [workspaceId]: members } });
+  },
+  setPendingInvites: (workspaceId, invites) => {
+    set({ pendingInvites: { ...get().pendingInvites, [workspaceId]: invites } });
   },
   setLoading: (loading) => set({ loading }),
   reset: () => set(INITIAL),
