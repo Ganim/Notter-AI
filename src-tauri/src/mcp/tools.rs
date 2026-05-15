@@ -336,7 +336,8 @@ async fn list_projects(
             .map_err(|e| McpError::InvalidParams(format!("list_projects: {e}")))?
     };
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
-    let mut q = String::from("select=id,name,workspace_id,archived_at,created_at,updated_at&order=updated_at.desc");
+    // NOTE: `projects` schema has no `created_at` — only `updated_at` (see migrations).
+    let mut q = String::from("select=id,name,workspace_id,archived_at,updated_at&order=updated_at.desc");
     if let Some(w) = &p.workspace_id {
         q.push_str(&format!("&workspace_id=eq.{}", url_encode(w)));
     }
@@ -389,7 +390,7 @@ async fn save_project(
                 }
             }
             let q = format!(
-                "select=id,name,workspace_id,archived_at,created_at,updated_at&workspace_id=eq.{}&name=eq.{}&limit=1",
+                "select=id,name,workspace_id,archived_at,updated_at&workspace_id=eq.{}&name=eq.{}&limit=1",
                 url_encode(&p.workspace_id), url_encode(&p.name)
             );
             let body = sb.get("projects", &q, &token).await?;
