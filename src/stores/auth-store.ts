@@ -145,7 +145,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
         if (session) {
           set({ session, user: session.user, loading: false });
-          syncOnLogin(session.user.id);
+          // Awaiting matters: syncOnLogin hydrates the workspaces store via
+          // WorkspaceManager.bootstrap, and startRealtimeSync snapshots
+          // memberWsIds from that store at call time. Without the await the
+          // realtime channel subscribes with workspace_id=in.() and never
+          // sees external INSERTs (MCP, multi-device) for the whole session.
+          await syncOnLogin(session.user.id);
           startRealtimeSync(session.user.id);
           // Push the just-hydrated access token to the Rust MCP server.
           // onAuthStateChange does NOT fire for the initial getSession() result,
@@ -171,7 +176,7 @@ export const useAuthStore = create<AuthState>((set) => ({
               loading: false,
             });
             if (refreshed?.user) {
-              syncOnLogin(refreshed.user.id);
+              await syncOnLogin(refreshed.user.id);
               startRealtimeSync(refreshed.user.id);
               if (refreshed.access_token) {
                 void notifyMcpAccountTokenChanged(
@@ -189,13 +194,13 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ loading: false });
       }
 
-      supabase.auth.onAuthStateChange((event, session) => {
+      supabase.auth.onAuthStateChange(async (event, session) => {
         set({
           session,
           user: session?.user ?? null,
         });
         if (event === 'SIGNED_IN' && session?.user) {
-          syncOnLogin(session.user.id);
+          await syncOnLogin(session.user.id);
           startRealtimeSync(session.user.id);
           // M6: one-shot localStorage → user_metadata migration
           import('@/lib/account-settings').then(({ migrateFromLocalStorageOnce }) => {
