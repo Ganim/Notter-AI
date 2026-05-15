@@ -65,6 +65,7 @@
     "no_url": "MCP server not yet ready — wait a moment and try again.",
     "providers": {
       "title": "Connect to AI clients",
+      "checking": "Checking…",
       "detected": "Detected",
       "not_detected": "Not detected",
       "connect": "Connect",

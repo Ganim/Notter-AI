@@ -65,6 +65,7 @@
     "no_url": "Servidor MCP ainda não pronto — aguarde um momento e tente de novo.",
     "providers": {
       "title": "Conectar a clientes IA",
+      "checking": "Verificando…",
       "detected": "Detectado",
       "not_detected": "Não detectado",
       "connect": "Conectar",

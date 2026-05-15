@@ -15,13 +15,22 @@ export function McpProviderCard({ provider, accountSlug, mcpUrl }: Props) {
   const [status, setStatus] = useState<DetectStatus>('unknown');
   const [linked, setLinked] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Card is local-state only; opening Settings or switching tabs unmounts and
+  // remounts each card, which would otherwise flicker "Connect" → real state.
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setChecking(true);
     (async () => {
-      const s = await provider.detect();
-      const l = await provider.isLinked(accountSlug);
-      if (!cancelled) { setStatus(s); setLinked(l); }
+      // Each lookup is independent: a thrown detect (e.g. shell-out failure on
+      // an OS where the CLI isn't installed) shouldn't block the linked check
+      // and vice versa. `finally` guarantees the spinner clears either way.
+      let s: DetectStatus = 'unknown';
+      let l = false;
+      try { s = await provider.detect(); } catch { s = 'unknown'; }
+      try { l = await provider.isLinked(accountSlug); } catch { l = false; }
+      if (!cancelled) { setStatus(s); setLinked(l); setChecking(false); }
     })();
     return () => { cancelled = true; };
   }, [provider, accountSlug]);
@@ -49,10 +58,11 @@ export function McpProviderCard({ provider, accountSlug, mcpUrl }: Props) {
     } finally { setBusy(false); }
   };
 
-  const badge =
-    status === 'installed' ? t('mcp.providers.detected') :
-    status === 'missing'   ? t('mcp.providers.not_detected') :
-                              '';
+  const badge = checking
+    ? t('mcp.providers.checking')
+    : status === 'installed' ? t('mcp.providers.detected')
+    : status === 'missing'   ? t('mcp.providers.not_detected')
+    : '';
 
   return (
     <div className="flex items-center justify-between gap-4 py-3 border-b last:border-b-0">
@@ -60,7 +70,14 @@ export function McpProviderCard({ provider, accountSlug, mcpUrl }: Props) {
         <div className="text-sm font-medium text-foreground">{provider.label}</div>
         <div className="text-xs text-muted-foreground">{badge}</div>
       </div>
-      {linked ? (
+      {checking ? (
+        <button
+          disabled
+          className="px-3 py-1.5 text-sm rounded-md border border-border opacity-50 cursor-default"
+        >
+          {t('mcp.providers.checking')}
+        </button>
+      ) : linked ? (
         <button
           onClick={onDisconnect}
           disabled={busy}
