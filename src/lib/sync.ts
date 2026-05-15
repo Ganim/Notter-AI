@@ -663,3 +663,285 @@ export async function deleteSubjectComment(commentId: string, userId: string): P
     console.error('[sync] deleteSubjectComment threw:', e);
   }
 }
+
+// ── Workspace invites + members ───────────────────────────────────────
+
+export interface WorkspaceInvite {
+  id: string;
+  workspaceId: string;
+  email: string;
+  invitedBy: string;
+  role: 'editor' | 'viewer';
+  expiresAt: string;
+  revokedAt: string | null;
+  acceptedAt: string | null;
+  acceptedBy: string | null;
+  createdAt: string;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  role: 'owner' | 'editor' | 'viewer';
+  joinedAt: string;
+  invitedAt: string | null;
+  email: string;
+  displayName: string;
+}
+
+/**
+ * Generate a 32-byte URL-safe token + its SHA-256 hash. Token goes in the
+ * invite URL + email; hash is what's stored in workspace_invites.token_hash.
+ * The Postgres side uses `encode(digest(token, 'sha256'), 'hex')` which
+ * produces the same hex string for the same UTF-8 token.
+ */
+export async function generateInviteToken(): Promise<{ token: string; tokenHash: string }> {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const token = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  const tokenHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
+  return { token, tokenHash };
+}
+
+/**
+ * INSERT into workspace_invites under the caller's RLS (owner-only). Returns
+ * the row id on success. The CALLER is responsible for then invoking the
+ * send-workspace-invite Edge Function with the raw token.
+ */
+export async function createWorkspaceInvite(args: {
+  workspaceId: string;
+  email: string;
+  role: 'editor' | 'viewer';
+  tokenHash: string;
+  expiresAtIso: string;
+}): Promise<
+  | { ok: true; id: string }
+  | { ok: false; code: 'duplicate_open_invite' | 'forbidden' | 'unknown'; message: string }
+> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    const { data, error } = await supabase
+      .from('workspace_invites')
+      .insert({
+        workspace_id: args.workspaceId,
+        email: args.email.trim().toLowerCase(),
+        role: args.role,
+        token_hash: args.tokenHash,
+        expires_at: args.expiresAtIso,
+        invited_by: userId,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if ((error as any).code === '23505') {
+        return { ok: false, code: 'duplicate_open_invite', message: error.message };
+      }
+      if ((error as any).code === '42501') {
+        return { ok: false, code: 'forbidden', message: error.message };
+      }
+      console.error('[sync] createWorkspaceInvite failed:', error);
+      return { ok: false, code: 'unknown', message: error.message };
+    }
+    return { ok: true, id: data.id };
+  } catch (e: any) {
+    console.error('[sync] createWorkspaceInvite threw:', e);
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Soft-delete an open invite via UPDATE workspace_invites SET revoked_at = now().
+ * Owner-only (RLS-policed).
+ */
+export async function revokeWorkspaceInvite(inviteId: string): Promise<{ ok: boolean; message?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, message: 'supabase not configured' };
+  try {
+    const { error } = await supabase
+      .from('workspace_invites')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', inviteId);
+    if (error) return { ok: false, message: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Call the accept_workspace_invite(token) RPC. Returns the workspace_id of
+ * the newly-joined workspace on success, or a structured error.
+ */
+export async function acceptWorkspaceInvite(token: string): Promise<
+  | { ok: true; workspaceId: string }
+  | {
+      ok: false;
+      code:
+        | 'not_authenticated' | 'invite_not_found' | 'invite_revoked'
+        | 'invite_already_accepted' | 'invite_expired' | 'invite_email_mismatch'
+        | 'unknown';
+      message: string;
+    }
+> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase not configured' };
+  try {
+    const { data, error } = await supabase.rpc('accept_workspace_invite', { token });
+    if (error) {
+      const msg = error.message ?? '';
+      const code: 'not_authenticated' | 'invite_not_found' | 'invite_revoked'
+        | 'invite_already_accepted' | 'invite_expired' | 'invite_email_mismatch'
+        | 'unknown' =
+        msg.includes('not_authenticated')       ? 'not_authenticated' :
+        msg.includes('invite_not_found')        ? 'invite_not_found' :
+        msg.includes('invite_revoked')          ? 'invite_revoked' :
+        msg.includes('invite_already_accepted') ? 'invite_already_accepted' :
+        msg.includes('invite_expired')          ? 'invite_expired' :
+        msg.includes('invite_email_mismatch')   ? 'invite_email_mismatch' :
+        'unknown';
+      return { ok: false, code, message: msg };
+    }
+    return { ok: true, workspaceId: data as string };
+  } catch (e: any) {
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Call fetch_invite_preview before sign-in. Returns workspace name + invitee
+ * email (the address the invite was sent to) so the auth screen can pre-fill.
+ */
+export async function fetchInvitePreview(tokenHash: string): Promise<
+  | { ok: true; workspaceName: string; inviteeEmail: string }
+  | { ok: false; message: string }
+> {
+  if (!isSupabaseConfigured) return { ok: false, message: 'supabase not configured' };
+  try {
+    const { data, error } = await supabase.rpc('fetch_invite_preview', { token_hash_input: tokenHash });
+    if (error) return { ok: false, message: error.message };
+    const row = (data as Array<{ workspace_name: string; invitee_email: string }>)?.[0];
+    if (!row) return { ok: false, message: 'invite_not_found' };
+    return { ok: true, workspaceName: row.workspace_name, inviteeEmail: row.invitee_email };
+  } catch (e: any) {
+    return { ok: false, message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Call get_workspace_members(ws_id). Returns the full peer-member list via
+ * SECURITY DEFINER RPC (Plan 1's self-row RLS would otherwise hide peers).
+ */
+export async function fetchWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.rpc('get_workspace_members', { ws_id: workspaceId });
+    if (error) {
+      console.error('[sync] fetchWorkspaceMembers failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      userId: row.user_id,
+      role: row.role,
+      joinedAt: row.joined_at,
+      invitedAt: row.invited_at,
+      email: row.email,
+      displayName: row.display_name,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchWorkspaceMembers threw:', e);
+    return null;
+  }
+}
+
+/**
+ * Fetch the pending (open) invites for a workspace. Owner-callable via the
+ * existing RLS (`invites_select_members_or_invitee` covers it via membership).
+ */
+export async function fetchPendingInvites(workspaceId: string): Promise<WorkspaceInvite[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('workspace_invites')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .is('accepted_at', null)
+      .is('revoked_at', null)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[sync] fetchPendingInvites failed:', error);
+      return null;
+    }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      email: row.email,
+      invitedBy: row.invited_by,
+      role: row.role,
+      expiresAt: row.expires_at,
+      revokedAt: row.revoked_at,
+      acceptedAt: row.accepted_at,
+      acceptedBy: row.accepted_by,
+      createdAt: row.created_at,
+    }));
+  } catch (e) {
+    console.error('[sync] fetchPendingInvites threw:', e);
+    return null;
+  }
+}
+
+/**
+ * The caller leaves a workspace. RLS policy admits the caller deleting their
+ * own row; the last-owner trigger prevents an owner from doing this (owners
+ * must transfer first, not yet supported in v1).
+ */
+export async function leaveWorkspace(workspaceId: string): Promise<{ ok: boolean; message?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, message: 'supabase not configured' };
+  try {
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId) return { ok: false, message: 'not_authenticated' };
+    const { error } = await supabase
+      .from('workspace_members')
+      .delete()
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId);
+    if (error) return { ok: false, message: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, message: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Trigger the send-workspace-invite Edge Function. Called immediately after
+ * a successful createWorkspaceInvite. The Edge Function re-validates every
+ * payload field against the DB before sending the email (Codex Finding #2).
+ */
+export async function sendInviteEmail(args: {
+  inviteId: string;
+  workspaceId: string;
+  workspaceName: string;
+  inviteeEmail: string;
+  role: 'editor' | 'viewer';
+  token: string;
+  inviterDisplayName: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, message: 'supabase not configured' };
+  try {
+    const { error } = await supabase.functions.invoke('send-workspace-invite', {
+      body: {
+        invite_id: args.inviteId,
+        workspace_id: args.workspaceId,
+        workspace_name: args.workspaceName,
+        invitee_email: args.inviteeEmail,
+        role: args.role,
+        token: args.token,
+        inviter_display_name: args.inviterDisplayName,
+      },
+    });
+    if (error) return { ok: false, message: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, message: e?.message ?? String(e) };
+  }
+}
