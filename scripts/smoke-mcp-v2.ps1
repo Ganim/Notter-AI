@@ -118,15 +118,66 @@ if ($settings) { Write-Host "  settings: $($settings | ConvertTo-Json -Compress)
 $wsList = Call-Mcp 'list_workspaces' @{}
 $projList = Call-Mcp 'list_projects' @{}
 
-# Create-update-archive-restore round-trip on a workspace
-Write-Host "`n  --- workspace round-trip ---" -ForegroundColor DarkGray
-$ws = Call-Mcp 'save_workspace' @{ name = "smoke-$(Get-Random)" }
-if ($ws -and $ws.id) {
+# update_account_settings round-trip (toggle theme then restore)
+Write-Host "`n  --- account_settings round-trip ---" -ForegroundColor DarkGray
+$origTheme = if ($settings -and $settings.theme) { $settings.theme } else { 'system' }
+$newTheme = if ($origTheme -eq 'dark') { 'light' } else { 'dark' }
+$flipped = Call-Mcp 'update_account_settings' @{ theme = $newTheme }
+if ($flipped -and $flipped.theme -eq $newTheme) { OK "theme flip $origTheme -> $newTheme persisted" }
+else { Fail "theme flip did not persist (got: $($flipped | ConvertTo-Json -Compress))" }
+$restored = Call-Mcp 'update_account_settings' @{ theme = $origTheme }
+if ($restored -and $restored.theme -eq $origTheme) { OK "theme restored to $origTheme" }
+else { Fail "theme restore failed (got: $($restored | ConvertTo-Json -Compress))" }
+
+# Full lifecycle round-trip: workspace -> project -> subject -> revision -> comment -> cleanup
+Write-Host "`n  --- workspace/project/subject round-trip ---" -ForegroundColor DarkGray
+$stamp = Get-Random
+$ws = Call-Mcp 'save_workspace' @{ name = "smoke-ws-$stamp" }
+if (-not ($ws -and $ws.id)) { Fail "save_workspace did not return id; aborting round-trip"; }
+else {
     $wsId = $ws.id
+    $proj = Call-Mcp 'save_project' @{ name = "smoke-proj-$stamp"; workspace_id = $wsId }
+    if (-not ($proj -and $proj.name)) { Fail "save_project did not return name" }
+    else {
+        $projName = $proj.name
+        $subj = Call-Mcp 'save_subject' @{ project_name = $projName; file_name = "smoke-$stamp.md" }
+        if (-not ($subj -and $subj.id)) { Fail "save_subject did not return id" }
+        else {
+            $subjId = $subj.id
+            $fetched = Call-Mcp 'get_subject' @{ subject_id = $subjId }
+            if (-not ($fetched -and $fetched.id -eq $subjId)) { Fail "get_subject mismatch" }
+            $v2Body = "anchor-target $stamp middle-text trailing-words"
+            $rev = Call-Mcp 'post_subject_revision' @{ subject_id = $subjId; content_markdown = $v2Body; source_actor = 'smoke-mcp-v2'; label = 'smoke v2' }
+            if (-not ($rev -and $rev.version_id)) { Fail "post_subject_revision did not return version_id" }
+            else {
+                $v2Id = $rev.version_id
+                $ver = Call-Mcp 'get_version' @{ version_id = $v2Id }
+                if (-not ($ver -and $ver.content_markdown -eq $v2Body)) { Fail "get_version content mismatch" }
+                $cmt = Call-Mcp 'save_comment' @{
+                    subject_id    = $subjId
+                    version_id    = $v2Id
+                    body          = "smoke comment $stamp"
+                    anchor_quote  = "middle-text"
+                    anchor_prefix = "anchor-target $stamp "
+                    anchor_suffix = " trailing-words"
+                }
+                if (-not ($cmt -and $cmt.id)) { Fail "save_comment did not return id" }
+                else {
+                    $del = Call-Mcp 'delete_comment' @{ id = $cmt.id }
+                    if (-not ($del -and $del.deleted -eq $cmt.id)) { Fail "delete_comment did not echo id" }
+                }
+            }
+            $null = Call-Mcp 'archive_resource' @{ type = 'subject'; id = $subjId }
+        }
+        # archive project + workspace once their children are gone (cascade is manual)
+        # Re-fetch projects list to obtain the project id (save_project returns name+id; capture id).
+        if ($proj.id) { $null = Call-Mcp 'archive_resource' @{ type = 'project'; id = $proj.id } }
+    }
+    # archive_resource then restore_resource on the workspace (parity with the original smoke)
     $null = Call-Mcp 'archive_resource' @{ type = 'workspace'; id = $wsId }
     $null = Call-Mcp 'restore_resource' @{ type = 'workspace'; id = $wsId }
-} else {
-    Write-Host "  (skipped archive/restore — save_workspace did not return id)" -ForegroundColor DarkYellow
+    # final archive so cleanup leaves no live workspace
+    $null = Call-Mcp 'archive_resource' @{ type = 'workspace'; id = $wsId }
 }
 
 # Step 5 — revoke

@@ -99,9 +99,12 @@ impl SupabaseClient {
         Ok(body)
     }
 
-    /// PATCH /auth/v1/user — used to update auth.users.raw_user_meta_data.
-    /// This is the Supabase Auth API, NOT PostgREST. The same access_token
-    /// the MCP server already holds for the account authorizes this call.
+    /// PUT /auth/v1/user — used to update auth.users.raw_user_meta_data.
+    /// This is the Supabase Auth API (GoTrue), NOT PostgREST. GoTrue rejects
+    /// PATCH on /user with 405 Method Not Allowed; supabase-js's
+    /// `auth.updateUser` is implemented as PUT under the hood. The function
+    /// name is kept as `auth_patch_user` for the "patch semantics" it
+    /// expresses (partial update of user_metadata).
     pub async fn auth_patch_user(
         &self,
         body: &Value,
@@ -110,7 +113,7 @@ impl SupabaseClient {
         let url = format!("{}/auth/v1/user", self.base_url);
         let res = self
             .http
-            .patch(&url)
+            .put(&url)
             .header("Authorization", format!("Bearer {access_token}"))
             .header("apikey", &self.anon_key)
             .header("Content-Type", "application/json")
@@ -196,7 +199,7 @@ mod tests {
     async fn auth_patch_user_hits_auth_v1_user() {
         let server = MockServer::start_async().await;
         let m = server.mock_async(|when, then| {
-            when.method(Method::PATCH)
+            when.method(Method::PUT)
                 .path("/auth/v1/user")
                 .header("authorization", "Bearer access-tok")
                 .header("apikey", "anon");

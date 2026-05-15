@@ -370,7 +370,13 @@ async fn save_project(
 
     match &p.id {
         None => {
+            // `projects` PK is (user_id, name); `id` is a separate text NOT
+            // NULL column with no default. Convention from sync.ts: id == name.
+            // user_id is the Supabase user id (== auth.account_id == OAuth JWT
+            // `sub`); RLS enforces the same on insert.
             let body = serde_json::json!({
+                "id": p.name,
+                "user_id": auth.account_id,
                 "name": p.name,
                 "workspace_id": p.workspace_id,
             });
@@ -676,9 +682,13 @@ async fn save_comment(
                 .ok_or_else(|| McpError::InvalidParams("anchor_prefix required on create".into()))?;
             let asuf = p.anchor_suffix.as_ref()
                 .ok_or_else(|| McpError::InvalidParams("anchor_suffix required on create".into()))?;
+            // `author_user_id` is NOT NULL and the RLS insert policy requires
+            // `author_user_id = auth.uid()`. `user_id` and `workspace_id` are
+            // filled by triggers from the parent subject row.
             let payload = serde_json::json!({
                 "subject_id": subject_id,
                 "version_id": version_id,
+                "author_user_id": auth.account_id,
                 "body": body_text,
                 "anchor_quote": aq,
                 "anchor_prefix": ap,
