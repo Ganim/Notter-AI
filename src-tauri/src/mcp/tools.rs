@@ -440,12 +440,27 @@ async fn save_workspace(
     }
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
 
-    let body = match &p.id {
+    match &p.id {
         None => {
-            let mut obj = serde_json::Map::new();
-            obj.insert("name".into(), Value::String(p.name.clone()));
-            if let Some(d) = p.is_default { obj.insert("is_default".into(), Value::Bool(d)); }
-            sb.post("workspaces", &Value::Object(obj), &token, true).await?
+            // Multi-user RLS requires the workspace owner row in
+            // `workspace_members` alongside the `workspaces` insert. The
+            // `create_workspace_with_owner(ws_id, ws_name, ws_is_default)`
+            // RPC handles both atomically. We generate the UUID client-side
+            // so the front-end and the MCP path stay consistent.
+            let ws_id = uuid::Uuid::new_v4().to_string();
+            let args = serde_json::json!({
+                "ws_id": ws_id,
+                "ws_name": p.name,
+                "ws_is_default": p.is_default.unwrap_or(false),
+            });
+            sb.rpc("create_workspace_with_owner", &args, &token).await?;
+            let q = format!(
+                "select=id,name,is_default,archived_at,created_at,updated_at&id=eq.{}&limit=1",
+                url_encode(&ws_id)
+            );
+            let body = sb.get("workspaces", &q, &token).await?;
+            body.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::SupabaseError("save_workspace: refetch returned empty".into()))
         }
         Some(id) => {
             let mut obj = serde_json::Map::new();
@@ -470,12 +485,11 @@ async fn save_workspace(
                 }
                 return Err(McpError::SupabaseError(format!("patch workspaces: HTTP {s} body={b}")));
             }
-            res.json::<Value>().await.unwrap_or(Value::Null)
+            let body = res.json::<Value>().await.unwrap_or(Value::Null);
+            body.as_array().and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::SupabaseError("save_workspace: empty response".into()))
         }
-    };
-
-    body.as_array().and_then(|a| a.first().cloned())
-        .ok_or_else(|| McpError::SupabaseError("save_workspace: empty response".into()))
+    }
 }
 
 async fn get_account_settings(
