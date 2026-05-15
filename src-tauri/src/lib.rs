@@ -30,6 +30,22 @@ pub fn run() {
             known_keys: std::sync::Mutex::new(Vec::new()),
         })
         .setup(|app| {
+            // Deep-link: register `notterai://` as the URL scheme handler at
+            // runtime. In production the installer (WiX/MSI on Windows, .app
+            // bundle on macOS, .desktop on Linux) handles this via tauri.conf
+            // → plugins.deep-link.desktop.schemes. In dev mode the exe path
+            // changes per build and no installer runs, so we MUST call
+            // register_all() ourselves — otherwise Windows hits the Store
+            // ("can't find an app for notterai://"). macOS reads the scheme
+            // from the dev bundle's Info.plist and doesn't need this.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("[deep-link] register_all failed: {e}");
+                }
+            }
+
             // Bootstrap the OAuth 2.1 state (JWT signing key, client registry, grant
             // store). We use Tauri's official cross-platform resolver so the data dir
             // is correct on all three platforms:
