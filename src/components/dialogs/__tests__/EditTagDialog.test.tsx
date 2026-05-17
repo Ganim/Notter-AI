@@ -28,8 +28,12 @@ describe('EditTagDialog', () => {
   });
 
   it('shows current tag when open', () => {
-    render(<EditTagDialog open project={{ name: 'Flow', tag: 'flow' } as any} onClose={() => {}} />);
-    expect(screen.getByText(/flow/, { exact: false })).toBeInTheDocument();
+    const { container } = render(
+      <EditTagDialog open project={{ name: 'Flow', tag: 'flow' } as any} onClose={() => {}} />
+    );
+    // Current tag is rendered inside a <code> element next to the "current" label
+    const code = container.querySelector('code');
+    expect(code?.textContent).toBe('flow');
   });
 
   it('rejects invalid shape', () => {
