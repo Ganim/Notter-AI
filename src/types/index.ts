@@ -2,6 +2,9 @@ export interface Project {
   name: string;
   path: string;
   workspaceId: string;
+  tag: string;
+  nextSubjectSeq: number;
+  archivedAt: string | null;
 }
 
 export interface EditorTheme {

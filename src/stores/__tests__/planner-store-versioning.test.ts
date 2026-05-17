@@ -101,7 +101,7 @@ describe('planner-store — versioning overhaul', () => {
     // keystroke yet). We must NOT overwrite the user's in-flight edits.
     fs.exists.mockResolvedValue(true);
     await usePlannerStore.getState().applyRemoteSubjects([
-      { id: 's1', projectName: 'P', fileName: 'open.md', content: 'STALE', currentVersionId: 'v1' },
+      { id: 's1', projectName: 'P', fileName: 'open.md', content: 'STALE', currentVersionId: 'v1', seq: 1, archivedAt: null },
     ]);
     expect(fs.writeTextFile).not.toHaveBeenCalled();
     // Slice is still updated so SnapshotPanel sees the new currentVersionId.
@@ -116,15 +116,15 @@ describe('planner-store — versioning overhaul', () => {
       // Prior in-memory state has hydrated.md with the SAME content the
       // remote is reporting — steady-state echo, no write expected.
       subjectRows: [
-        { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2' },
+        { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2', seq: 1, archivedAt: null },
       ],
     });
     fs.exists
       .mockResolvedValueOnce(false) // missing.md not on disk → write
       .mockResolvedValueOnce(true); // hydrated.md already exists, content unchanged → skip
     await usePlannerStore.getState().applyRemoteSubjects([
-      { id: 's-missing', projectName: 'P', fileName: 'missing.md', content: 'fresh', currentVersionId: 'v1' },
-      { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2' },
+      { id: 's-missing', projectName: 'P', fileName: 'missing.md', content: 'fresh', currentVersionId: 'v1', seq: 2, archivedAt: null },
+      { id: 's-hydrated', projectName: 'P', fileName: 'hydrated.md', content: 'older', currentVersionId: 'v2', seq: 1, archivedAt: null },
     ]);
     expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
     const args = fs.writeTextFile.mock.calls[0];
@@ -138,13 +138,13 @@ describe('planner-store — versioning overhaul', () => {
       selectedSubject: 'open.md',
       subjectRows: [
         // prior content was empty (the stub from save_subject's INSERT)
-        { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: '', currentVersionId: 'v0' },
+        { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: '', currentVersionId: 'v0', seq: 1, archivedAt: null },
       ],
     });
     fs.exists.mockResolvedValueOnce(true); // stub file already on disk
     await usePlannerStore.getState().applyRemoteSubjects([
       // post_subject_revision pushed the real content — UPDATE event fires.
-      { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: 'real plan body', currentVersionId: 'v1' },
+      { id: 's-mcp', projectName: 'P', fileName: 'mcp.md', content: 'real plan body', currentVersionId: 'v1', seq: 1, archivedAt: null },
     ]);
     expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
     expect(fs.writeTextFile.mock.calls[0][1]).toBe('real plan body');
@@ -160,7 +160,7 @@ describe('planner-store — versioning overhaul', () => {
     fs.exists.mockResolvedValueOnce(true);     // stub file present
     fs.readTextFile.mockResolvedValueOnce(''); // disk is empty
     await usePlannerStore.getState().applyRemoteSubjects([
-      { id: 's-stub', projectName: 'P', fileName: 'stub.md', content: 'recovered body', currentVersionId: 'v1' },
+      { id: 's-stub', projectName: 'P', fileName: 'stub.md', content: 'recovered body', currentVersionId: 'v1', seq: 1, archivedAt: null },
     ]);
     expect(fs.writeTextFile).toHaveBeenCalledTimes(1);
     expect(fs.writeTextFile.mock.calls[0][1]).toBe('recovered body');
@@ -173,7 +173,7 @@ describe('planner-store — versioning overhaul', () => {
       selectedProject: { name: 'P', path: '', workspaceId: 'w1' } as any,
       selectedSubject: 'old.md',
       subjectRows: [
-        { id: 'subj-1', projectName: 'P', fileName: 'old.md', content: '', currentVersionId: 'v1' },
+        { id: 'subj-1', projectName: 'P', fileName: 'old.md', content: '', currentVersionId: 'v1', seq: 1, archivedAt: null },
       ],
       subjects: ['old.md'],
     });
@@ -198,7 +198,7 @@ describe('planner-store — versioning overhaul', () => {
       selectedProject: { name: 'P', path: '', workspaceId: 'w1' } as any,
       selectedSubject: 'old.md',
       subjectRows: [
-        { id: 'subj-1', projectName: 'P', fileName: 'old.md', content: '', currentVersionId: 'v1' },
+        { id: 'subj-1', projectName: 'P', fileName: 'old.md', content: '', currentVersionId: 'v1', seq: 1, archivedAt: null },
       ],
       subjects: ['old.md'],
     });
@@ -252,7 +252,7 @@ describe('planner-store — versioning overhaul', () => {
   it('saveSubjectContent commits a coalescing version when a remote row exists', async () => {
     usePlannerStore.setState({
       subjectRows: [
-        { id: 'subj-1', projectName: 'P', fileName: 'doc.md', content: '', currentVersionId: 'v-parent' },
+        { id: 'subj-1', projectName: 'P', fileName: 'doc.md', content: '', currentVersionId: 'v-parent', seq: 1, archivedAt: null },
       ],
     });
     await usePlannerStore.getState().saveSubjectContent('P', 'doc.md', 'typed something');

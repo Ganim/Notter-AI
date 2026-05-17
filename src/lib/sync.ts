@@ -83,7 +83,14 @@ export async function fetchProjects(userId: string, workspaceId?: string): Promi
     if (workspaceId) q = q.eq('workspace_id', workspaceId);
     const { data, error } = await q;
     if (error || !data || data.length === 0) return null;
-    return data.map((row: any) => ({ name: row.name, path: row.path, workspaceId: row.workspace_id }));
+    return data.map((row: any) => ({
+      name: row.name,
+      path: row.path,
+      workspaceId: row.workspace_id,
+      tag: row.tag,
+      nextSubjectSeq: row.next_subject_seq,
+      archivedAt: row.archived_at,
+    }));
   } catch {
     return null;
   }
@@ -96,6 +103,8 @@ export async function pushProjects(userId: string, projects: Project[]): Promise
     name: p.name,
     path: p.path,
     workspace_id: p.workspaceId,
+    tag: p.tag,
+    archived_at: p.archivedAt,
     updated_at: new Date().toISOString(),
   }));
 }
@@ -108,6 +117,8 @@ export interface SubjectRecord {
   fileName: string;
   content: string;
   currentVersionId: string | null;
+  seq: number;
+  archivedAt: string | null;
 }
 
 export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | null> {
@@ -124,6 +135,8 @@ export async function fetchSubjects(userId: string): Promise<SubjectRecord[] | n
       fileName: row.file_name,
       content: row.content,
       currentVersionId: row.current_version_id ?? null,
+      seq: row.seq,
+      archivedAt: row.archived_at,
     }));
   } catch {
     return null;
@@ -230,6 +243,127 @@ export async function pushSubject(
     await supabase.from('subjects').upsert(row);
   } catch (e) {
     console.error('Failed to push subject:', e);
+  }
+}
+
+export interface CreateSubjectResult {
+  ok: boolean;
+  subject?: SubjectRecord;
+  code?: 'forbidden' | 'project_not_found' | 'project_archived' | 'unknown';
+  message?: string;
+}
+
+/**
+ * Atomic subject creation via the `create_subject` RPC. The RPC owns `seq`
+ * emission and bumps `projects.next_subject_seq` in the same transaction —
+ * direct INSERT would race on the unique (project, seq) index.
+ *
+ * `projectId` here is the project's NAME (Notter projects.id is text and
+ * conventionally equals name). The RPC expects text in the same column.
+ */
+export async function createSubjectViaRpc(
+  projectId: string,
+  fileName: string,
+  content = '',
+): Promise<CreateSubjectResult> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase_not_configured' };
+  try {
+    const { data, error } = await supabase.rpc('create_subject', {
+      p_project_id: projectId,
+      p_file_name: fileName,
+      p_content: content,
+    });
+    if (error) {
+      const msg = error.message || '';
+      if (msg.includes('project_archived')) return { ok: false, code: 'project_archived', message: msg };
+      if (msg.includes('project_not_found')) return { ok: false, code: 'project_not_found', message: msg };
+      if (msg.includes('forbidden') || msg.includes('not_authenticated')) {
+        return { ok: false, code: 'forbidden', message: msg };
+      }
+      return { ok: false, code: 'unknown', message: msg };
+    }
+    // RPC returns the inserted subjects row. Map snake_case to the
+    // existing SubjectRecord shape.
+    return {
+      ok: true,
+      subject: {
+        id: data.id,
+        user_id: data.user_id,
+        project_name: data.project_name,
+        file_name: data.file_name,
+        content: data.content,
+        seq: data.seq,
+        workspace_id: data.workspace_id,
+        archivedAt: data.archived_at,
+      } as any,
+    };
+  } catch (e: any) {
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+export async function genUniqueTag(name: string, workspaceId: string): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase.rpc('gen_unique_tag', {
+      p_name: name,
+      p_workspace_id: workspaceId,
+    });
+    if (error || typeof data !== 'string') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export interface UpdateResult {
+  ok: boolean;
+  code?: 'duplicate_tag' | 'invalid_shape' | 'forbidden' | 'unknown';
+  message?: string;
+}
+
+export async function updateProjectTag(projectId: string, newTag: string): Promise<UpdateResult> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase_not_configured' };
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({ tag: newTag, updated_at: new Date().toISOString() })
+      .eq('id', projectId);
+    if (error) {
+      const msg = error.message || '';
+      if (msg.includes('projects_workspace_tag_uniq') || msg.includes('duplicate key')) {
+        return { ok: false, code: 'duplicate_tag', message: msg };
+      }
+      if (msg.includes('projects_tag_shape')) {
+        return { ok: false, code: 'invalid_shape', message: msg };
+      }
+      return { ok: false, code: 'unknown', message: msg };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
+  }
+}
+
+export async function archiveProject(projectId: string): Promise<UpdateResult> {
+  return setProjectArchived(projectId, new Date().toISOString());
+}
+
+export async function unarchiveProject(projectId: string): Promise<UpdateResult> {
+  return setProjectArchived(projectId, null);
+}
+
+async function setProjectArchived(projectId: string, archivedAt: string | null): Promise<UpdateResult> {
+  if (!isSupabaseConfigured) return { ok: false, code: 'unknown', message: 'supabase_not_configured' };
+  try {
+    const { error } = await supabase
+      .from('projects')
+      .update({ archived_at: archivedAt, updated_at: new Date().toISOString() })
+      .eq('id', projectId);
+    if (error) return { ok: false, code: 'unknown', message: error.message };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
   }
 }
 

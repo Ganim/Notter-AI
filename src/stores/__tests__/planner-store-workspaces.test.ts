@@ -64,7 +64,7 @@ vi.mock('@/lib/accounts/account-paths', () => ({
 import { usePlannerStore } from '@/stores/planner-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 
-const P = (name: string, workspaceId: string) => ({ name, path: '', workspaceId });
+const P = (name: string, workspaceId: string) => ({ name, path: '', workspaceId, tag: '', nextSubjectSeq: 1, archivedAt: null });
 
 describe('usePlannerStore — workspaces refactor (Phase E)', () => {
   beforeEach(() => {

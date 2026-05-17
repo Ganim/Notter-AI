@@ -274,7 +274,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       return;
     }
     await mkdir(projectFsPath(name), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    const newProject: Project = { name, path, workspaceId: wsId };
+    const newProject: Project = { name, path, workspaceId: wsId, tag: '', nextSubjectSeq: 1, archivedAt: null };
     const newAll = [...get().allProjects, newProject];
     set({ allProjects: newAll, projects: recomputeProjects(newAll) });
     await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });
@@ -513,6 +513,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             fileName,
             content,
             currentVersionId: newVersionId,
+            seq: 1,
+            archivedAt: null,
           },
         ],
       }));
