@@ -282,20 +282,19 @@ export async function createSubjectViaRpc(
       }
       return { ok: false, code: 'unknown', message: msg };
     }
-    // RPC returns the inserted subjects row. Map snake_case to the
-    // existing SubjectRecord shape.
+    // RPC returns the inserted subjects row (snake_case from Postgres).
+    // Map to the camelCase SubjectRecord shape used throughout the app.
     return {
       ok: true,
       subject: {
         id: data.id,
-        user_id: data.user_id,
-        project_name: data.project_name,
-        file_name: data.file_name,
+        projectName: data.project_name,
+        fileName: data.file_name,
         content: data.content,
+        currentVersionId: data.current_version_id ?? null,
         seq: data.seq,
-        workspace_id: data.workspace_id,
         archivedAt: data.archived_at,
-      } as any,
+      },
     };
   } catch (e: any) {
     return { ok: false, code: 'unknown', message: e?.message ?? String(e) };
