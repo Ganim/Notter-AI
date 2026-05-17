@@ -1159,7 +1159,9 @@ export function PlannerTab() {
                     {visibleProjects.map((p) => (
                       <div key={p.name} onClick={() => setSelectedProject(p)} className={`group flex items-center justify-between px-2 py-1.5 text-xs rounded cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-muted text-foreground'}`}>
                         <div className="flex items-center gap-1.5 truncate">
-                          <FolderOpen size={12} className="shrink-0 opacity-50" />
+                          {p.tag
+                            ? <TagChip tag={p.tag} className="shrink-0" />
+                            : <FolderOpen size={12} className="shrink-0 opacity-50" />}
                           <span className="truncate">{p.name}</span>
                         </div>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
