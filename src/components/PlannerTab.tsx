@@ -30,11 +30,12 @@ import { formatRelativeTime } from '@/lib/plans/format';
 import { Loader2, History, RefreshCw, MessageSquare, Upload, Download, Copy, Check } from 'lucide-react';
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
-  Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus,
+  Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus, Tag,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
 import { TagChip } from '@/components/sidebar/TagChip';
+import { EditTagDialog } from '@/components/dialogs/EditTagDialog';
 import { subjectIdentifier, isValidTagShape, isReservedTag } from '@/lib/identifiers';
 import { genUniqueTag } from '@/lib/sync';
 
@@ -99,6 +100,7 @@ export function PlannerTab() {
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
   const [renameProjectTarget, setRenameProjectTarget] = useState<string | null>(null);
   const [renameSubjectTarget, setRenameSubjectTarget] = useState<string | null>(null);
+  const [editTagFor, setEditTagFor] = useState<Project | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
   // Role-aware UI gating. currentRole is null pre-bootstrap; treat as owner
@@ -627,6 +629,7 @@ export function PlannerTab() {
               {!isViewer && (
                 <>
                   <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground" title={t('tags.edit_title')}><Tag size={14} /></button>
                   <button
                     onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
                     disabled={!isOwner}
@@ -1076,6 +1079,7 @@ export function PlannerTab() {
                         </div>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground p-0.5" title={t('tags.edit_title')}><Tag size={12} /></button>
                           <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
                           <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={12} />
                         </div>
@@ -1327,6 +1331,15 @@ export function PlannerTab() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Edit Tag */}
+        {editTagFor && (
+          <EditTagDialog
+            open={editTagFor !== null}
+            project={editTagFor}
+            onClose={() => setEditTagFor(null)}
+          />
+        )}
 
       </>
     );
