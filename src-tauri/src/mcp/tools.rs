@@ -20,6 +20,25 @@ use crate::mcp::auth::AuthContext;
 use crate::mcp::error::McpError;
 use crate::mcp::server::McpState;
 
+// ── identifier enrichment ────────────────────────────────────────────────────
+
+/// Compute the Linear-style identifier "tag-seq" for a subject row.
+/// Mutates the row in-place by inserting an "identifier" field at the top
+/// level when both project_tag and subject.seq are present. Used by
+/// list_subjects / get_subject / post_subject_revision / save_subject when
+/// shaping responses for the CLI.
+fn enrich_with_identifier(subject: &mut serde_json::Value, project_tag: Option<&str>) {
+    let seq = subject.get("seq").and_then(|v| v.as_i64());
+    if let (Some(tag), Some(seq)) = (project_tag, seq) {
+        if let Some(obj) = subject.as_object_mut() {
+            obj.insert(
+                "identifier".into(),
+                serde_json::Value::String(format!("{tag}-{seq}")),
+            );
+        }
+    }
+}
+
 /// Top-level tool dispatch. Each method name routes to a handler.
 pub async fn dispatch(
     method: &str,
@@ -79,17 +98,17 @@ async fn list_subjects(
 
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
 
-    // Fetch the user's project → workspace map. Used for both the optional
-    // workspace_id filter and the row-by-row enrichment.
-    let name_to_workspace = fetch_project_workspace_map(&sb, &token).await?;
+    // Fetch the user's project → (workspace_id, tag) map. Used for both the
+    // optional workspace_id filter and the row-by-row enrichment.
+    let name_to_project_info = fetch_project_info_map(&sb, &token).await?;
 
     let mut query = String::from(
-        "select=id,project_name,file_name,current_version_id,updated_at&order=updated_at.desc",
+        "select=id,project_name,file_name,seq,current_version_id,updated_at&order=updated_at.desc",
     );
     if let Some(ref ws) = p.workspace_id {
-        let names_in_ws: Vec<String> = name_to_workspace
+        let names_in_ws: Vec<String> = name_to_project_info
             .iter()
-            .filter_map(|(name, w)| if w == ws { Some(name.clone()) } else { None })
+            .filter_map(|(name, info)| if info.workspace_id == *ws { Some(name.clone()) } else { None })
             .collect();
         if names_in_ws.is_empty() {
             return Ok(serde_json::json!([]));
@@ -107,20 +126,29 @@ async fn list_subjects(
         _ => return Ok(serde_json::json!([])),
     };
 
-    // Enrich each row with workspace_id derived from its project_name.
+    // Enrich each row with workspace_id and identifier derived from project info.
     for row in rows.iter_mut() {
-        if let Some(obj) = row.as_object_mut() {
-            let project_name = obj
-                .get("project_name")
+        // Extract project_name and project info first, then insert fields.
+        // Two separate borrows are needed because `enrich_with_identifier`
+        // needs `&mut row` while we already hold `obj = row.as_object_mut()`.
+        // We collect what we need, drop the borrow, then call the helper.
+        let (ws_val, tag_owned) = {
+            let obj = row.as_object_mut();
+            let project_name = obj.as_deref()
+                .and_then(|o| o.get("project_name"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let ws = name_to_workspace
-                .get(project_name)
-                .cloned()
-                .map(Value::String)
+            let info = name_to_project_info.get(project_name);
+            let ws = info
+                .map(|i| Value::String(i.workspace_id.clone()))
                 .unwrap_or(Value::Null);
-            obj.insert("workspace_id".to_string(), ws);
+            let tag = info.map(|i| i.tag.clone());
+            (ws, tag)
+        };
+        if let Some(obj) = row.as_object_mut() {
+            obj.insert("workspace_id".to_string(), ws_val);
         }
+        enrich_with_identifier(row, tag_owned.as_deref());
     }
 
     Ok(Value::Array(rows))
@@ -143,7 +171,7 @@ async fn get_subject(
         .get(
             "subjects",
             &format!(
-                "select=id,project_name,file_name,content,current_version_id,updated_at&id=eq.{}&limit=1",
+                "select=id,project_name,file_name,seq,content,current_version_id,updated_at&id=eq.{}&limit=1",
                 url_encode(&p.subject_id)
             ),
             &token,
@@ -154,21 +182,27 @@ async fn get_subject(
         .and_then(|a| a.first().cloned())
         .ok_or_else(|| McpError::NotFound(format!("subject {} not found", p.subject_id)))?;
 
-    // Enrich with workspace_id via the projects map.
-    let name_to_workspace = fetch_project_workspace_map(&sb, &token).await?;
+    // Enrich with workspace_id and identifier via the projects info map.
+    let name_to_project_info = fetch_project_info_map(&sb, &token).await?;
     let mut row = row;
-    if let Some(obj) = row.as_object_mut() {
-        let project_name = obj
+    // Extract project info before mutably borrowing `row` a second time in
+    // enrich_with_identifier (can't hold obj + row borrows simultaneously).
+    let (ws_val, tag_owned) = {
+        let project_name = row
             .get("project_name")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let ws = name_to_workspace
-            .get(project_name)
-            .cloned()
-            .map(Value::String)
+        let info = name_to_project_info.get(project_name);
+        let ws = info
+            .map(|i| Value::String(i.workspace_id.clone()))
             .unwrap_or(Value::Null);
-        obj.insert("workspace_id".to_string(), ws);
+        let tag = info.map(|i| i.tag.clone());
+        (ws, tag)
+    };
+    if let Some(obj) = row.as_object_mut() {
+        obj.insert("workspace_id".to_string(), ws_val);
     }
+    enrich_with_identifier(&mut row, tag_owned.as_deref());
     Ok(row)
 }
 
@@ -315,7 +349,49 @@ async fn post_subject_revision(
                 "post_subject_revision: rpc returned non-string body={response}"
             ))
         })?;
-    Ok(serde_json::json!({ "version_id": id }))
+
+    // Enrich the response with the subject's identifier (tag-seq) so callers
+    // can display e.g. "revised FLOW-3" without a follow-up get_subject call.
+    let subject_body = sb
+        .get(
+            "subjects",
+            &format!(
+                "select=project_name,seq&id=eq.{}&limit=1",
+                url_encode(&p.subject_id)
+            ),
+            &token,
+        )
+        .await
+        .ok()
+        .and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
+
+    let identifier: Option<String> = if let Some(subj) = subject_body {
+        let project_name = subj.get("project_name").and_then(|v| v.as_str()).unwrap_or("");
+        let seq = subj.get("seq").and_then(|v| v.as_i64());
+        let tag_body = sb
+            .get(
+                "projects",
+                &format!("select=tag&name=eq.{}&limit=1", url_encode(project_name)),
+                &token,
+            )
+            .await
+            .ok()
+            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
+        let tag = tag_body.as_ref().and_then(|t| t.get("tag")).and_then(|v| v.as_str()).map(String::from);
+        if let (Some(t), Some(s)) = (tag, seq) {
+            Some(format!("{t}-{s}"))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut out = serde_json::json!({ "version_id": id });
+    if let Some(ident) = identifier {
+        out.as_object_mut().unwrap().insert("identifier".into(), Value::String(ident));
+    }
+    Ok(out)
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -337,7 +413,7 @@ async fn list_projects(
     };
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
     // NOTE: `projects` schema has no `created_at` — only `updated_at` (see migrations).
-    let mut q = String::from("select=id,name,workspace_id,archived_at,updated_at&order=updated_at.desc");
+    let mut q = String::from("select=id,name,workspace_id,tag,next_subject_seq,archived_at,updated_at&order=updated_at.desc");
     if let Some(w) = &p.workspace_id {
         q.push_str(&format!("&workspace_id=eq.{}", url_encode(w)));
     }
@@ -578,10 +654,16 @@ async fn update_account_settings(
 
 #[derive(serde::Deserialize)]
 struct SaveSubjectParams {
+    /// If present, the caller wanted an UPDATE — save_subject is INSERT-only
+    /// since the create_subject RPC handles seq emission. Direct callers
+    /// should use post_subject_revision for content updates.
     #[serde(default)]
     id: Option<String>,
     project_name: String,
     file_name: String,
+    /// Optional initial content. Defaults to empty string if omitted.
+    #[serde(default)]
+    content: Option<String>,
 }
 
 async fn save_subject(
@@ -592,49 +674,63 @@ async fn save_subject(
     if p.project_name.trim().is_empty() || p.file_name.trim().is_empty() {
         return Err(McpError::InvalidParams("project_name and file_name required".into()));
     }
+
+    // save_subject is INSERT-only via the create_subject RPC (which handles
+    // atomic seq emission + next_subject_seq bump). For content updates on an
+    // existing subject, callers must use post_subject_revision.
+    if p.id.is_some() {
+        return Err(McpError::InvalidParams(
+            "save_subject only creates new subjects; use post_subject_revision to update an existing one".into()
+        ));
+    }
+
     let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
 
-    match &p.id {
-        None => {
-            let args = serde_json::json!({
-                "p_project_name": p.project_name,
-                "p_file_name": p.file_name,
-            });
-            let row = sb.rpc("create_subject_with_v0", &args, &token).await?;
-            // RPC returns a single subjects row (object, not array). If it
-            // returns an array (some PostgREST configs), unwrap.
-            if let Some(arr) = row.as_array() {
-                return arr.first().cloned()
-                    .ok_or_else(|| McpError::SupabaseError("create_subject_with_v0 returned empty array".into()));
-            }
-            Ok(row)
-        }
-        Some(id) => {
-            let body = serde_json::json!({
-                "project_name": p.project_name,
-                "file_name": p.file_name,
-                "updated_at": crate::mcp::endpoint::now_rfc3339(),
-            });
-            let url = format!("{}/rest/v1/subjects?id=eq.{}", sb.base_url, url_encode(id));
-            let res = reqwest::Client::new()
-                .patch(&url)
-                .header("Authorization", format!("Bearer {token}"))
-                .header("apikey", &sb.anon_key)
-                .header("Content-Type", "application/json")
-                .header("Prefer", "return=representation")
-                .json(&body)
-                .send().await
-                .map_err(|e| McpError::SupabaseError(format!("patch subjects: {e}")))?;
-            if !res.status().is_success() {
-                let s = res.status().as_u16();
-                let b: Value = res.json().await.unwrap_or(Value::Null);
-                return Err(McpError::SupabaseError(format!("patch subjects: HTTP {s} body={b}")));
-            }
-            let body: Value = res.json().await.unwrap_or(Value::Null);
-            body.as_array().and_then(|a| a.first().cloned())
-                .ok_or_else(|| McpError::NotFound(format!("subject {id} not found")))
-        }
+    // Resolve the project to confirm it exists in this account, and fetch its
+    // tag in the same call so we can enrich the response below without a
+    // second roundtrip. Notter's projects.id == name (text), so we filter on
+    // name. Workspace scoping happens via RLS.
+    let projects_url = format!(
+        "select=id,tag&name=eq.{}&limit=1",
+        url_encode(&p.project_name),
+    );
+    let projects: Value = sb.get("projects", &projects_url, &token).await?;
+    let project = projects
+        .as_array()
+        .and_then(|a| a.first().cloned())
+        .ok_or_else(|| McpError::NotFound(format!("project '{}' not found", p.project_name)))?;
+    let project_id = project.get("id").and_then(|v| v.as_str())
+        .ok_or_else(|| McpError::SupabaseError("projects row missing id".into()))?
+        .to_string();
+    let project_tag = project.get("tag").and_then(|v| v.as_str()).map(String::from);
+
+    // Call create_subject RPC — atomic seq emission + projects.next_subject_seq bump.
+    let rpc_args = serde_json::json!({
+        "p_project_id": project_id,
+        "p_file_name": p.file_name,
+        "p_content": p.content.clone().unwrap_or_default(),
+    });
+    let mut row = sb.rpc("create_subject", &rpc_args, &token).await
+        .map_err(|e| match e {
+            McpError::SupabaseError(ref msg) if msg.contains("project_archived") =>
+                McpError::InvalidParams("project is archived — restore it first".into()),
+            McpError::SupabaseError(ref msg) if msg.contains("project_not_found") =>
+                McpError::NotFound(format!("project '{}' not found", p.project_name)),
+            McpError::SupabaseError(ref msg) if msg.contains("forbidden") || msg.contains("not_authenticated") =>
+                McpError::Forbidden("not a member of this workspace, or viewer role".into()),
+            other => other,
+        })?;
+
+    // RPC declares `returns subjects` (single row). PostgREST may wrap it as
+    // [{...}] — match the same pattern used elsewhere (create_subject_with_v0).
+    if let Some(arr) = row.as_array() {
+        row = arr.first().cloned()
+            .ok_or_else(|| McpError::SupabaseError("create_subject returned empty array".into()))?;
     }
+
+    // Enrich with identifier before returning.
+    enrich_with_identifier(&mut row, project_tag.as_deref());
+    Ok(row)
 }
 
 // ── M3.6: save_comment + delete_comment ──────────────────────────────────
@@ -849,14 +945,20 @@ async fn restore_resource(
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-/// Fetch every project the user can see and build a `project_name -> workspace_id`
+/// Combined project info used by subject enrichment.
+struct ProjectInfo {
+    workspace_id: String,
+    tag: String,
+}
+
+/// Fetch every project the user can see and build a `project_name -> ProjectInfo`
 /// map. One Supabase round-trip per call; acceptable for Phase 1 traffic.
-async fn fetch_project_workspace_map(
+async fn fetch_project_info_map(
     sb: &crate::mcp::supabase::SupabaseClient,
     token: &str,
-) -> Result<HashMap<String, String>, McpError> {
+) -> Result<HashMap<String, ProjectInfo>, McpError> {
     let body = sb
-        .get("projects", "select=name,workspace_id", token)
+        .get("projects", "select=name,workspace_id,tag", token)
         .await?;
     let mut map = HashMap::new();
     if let Some(rows) = body.as_array() {
@@ -866,8 +968,13 @@ async fn fetch_project_workspace_map(
                 .get("workspace_id")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let tag = row
+                .get("tag")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_default();
             if let (Some(n), Some(w)) = (name, ws) {
-                map.insert(n, w);
+                map.insert(n, ProjectInfo { workspace_id: w, tag });
             }
         }
     }
@@ -929,5 +1036,26 @@ mod tests {
         for m in methods {
             assert!(src.contains(&format!("\"{}\"", m)), "method {} missing from dispatch", m);
         }
+    }
+
+    #[test]
+    fn enrich_with_identifier_adds_when_both_present() {
+        let mut row = serde_json::json!({ "seq": 3 });
+        enrich_with_identifier(&mut row, Some("flow"));
+        assert_eq!(row["identifier"], "flow-3");
+    }
+
+    #[test]
+    fn enrich_with_identifier_noop_when_tag_missing() {
+        let mut row = serde_json::json!({ "seq": 3 });
+        enrich_with_identifier(&mut row, None);
+        assert!(row.get("identifier").is_none());
+    }
+
+    #[test]
+    fn enrich_with_identifier_noop_when_seq_missing() {
+        let mut row = serde_json::json!({});
+        enrich_with_identifier(&mut row, Some("flow"));
+        assert!(row.get("identifier").is_none());
     }
 }
