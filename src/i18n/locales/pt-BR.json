@@ -266,6 +266,8 @@
     "switch_tooltip": "Trocar workspace",
     "switcher_label": "Trocar workspace",
     "switch_failed": "Falha ao trocar de workspace",
+    "switched_via_mcp": "Workspace alterada para “{{name}}” via MCP",
+    "switch_via_mcp_failed": "MCP solicitou troca de workspace, mas a operação falhou",
     "only_one": "Apenas uma workspace — adicione outra para trocar.",
     "default_badge": "Padrão",
     "add": "Adicionar workspace",

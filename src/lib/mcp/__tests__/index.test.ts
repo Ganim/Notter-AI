@@ -1,16 +1,68 @@
 // src/lib/mcp/__tests__/index.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { invokeMock, listenMock, refreshSessionMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn(),
-  listenMock: vi.fn(),
-  refreshSessionMock: vi.fn(),
-}));
+const {
+  invokeMock,
+  listenMock,
+  refreshSessionMock,
+  activeAccountIdMock,
+  switchWorkspaceMock,
+  workspaceGetMock,
+  setCurrentWorkspaceIdMock,
+  workspaceStoreState,
+  currentWorkspaceIdGetter,
+  toastSuccessMock,
+  toastErrorMock,
+  i18nTMock,
+} = vi.hoisted(() => {
+  const setCurrentWorkspaceIdMock = vi.fn();
+  const workspaceStoreState = { setCurrentWorkspaceId: setCurrentWorkspaceIdMock };
+  return {
+    invokeMock: vi.fn(),
+    listenMock: vi.fn(),
+    refreshSessionMock: vi.fn(),
+    activeAccountIdMock: vi.fn(),
+    switchWorkspaceMock: vi.fn(),
+    workspaceGetMock: vi.fn(),
+    setCurrentWorkspaceIdMock,
+    workspaceStoreState,
+    currentWorkspaceIdGetter: vi.fn(),
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    i18nTMock: vi.fn(
+      (key: string, opts?: Record<string, unknown>) =>
+        opts?.name ? `${key}:${opts.name}` : key,
+    ),
+  };
+});
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: listenMock }));
 vi.mock('@/lib/supabase', () => ({
   supabase: { auth: { refreshSession: refreshSessionMock } },
 }));
+vi.mock('@/lib/accounts/account-manager', () => ({
+  getAccountManager: () => ({
+    get activeAccountId() {
+      return activeAccountIdMock();
+    },
+  }),
+}));
+vi.mock('@/lib/workspaces/workspace-manager', () => ({
+  getWorkspaceManager: () => ({
+    get currentWorkspaceId() {
+      return currentWorkspaceIdGetter();
+    },
+    get: workspaceGetMock,
+    switchWorkspace: switchWorkspaceMock,
+  }),
+}));
+vi.mock('@/stores/workspaces-store', () => ({
+  useWorkspacesStore: { getState: () => workspaceStoreState },
+}));
+vi.mock('sonner', () => ({
+  toast: { success: toastSuccessMock, error: toastErrorMock },
+}));
+vi.mock('@/i18n', () => ({ default: { t: i18nTMock } }));
 
 import {
   notifyMcpAccountTokenChanged,
@@ -21,17 +73,28 @@ import {
   readMcpConfigForAccount,
   setupMcpAuthListener,
   teardownMcpAuthListener,
+  setupMcpWorkspaceSwitchListener,
+  teardownMcpWorkspaceSwitchListener,
 } from '@/lib/mcp';
 
 beforeEach(() => {
   invokeMock.mockReset();
   listenMock.mockReset();
   refreshSessionMock.mockReset();
+  activeAccountIdMock.mockReset();
+  switchWorkspaceMock.mockReset();
+  workspaceGetMock.mockReset();
+  setCurrentWorkspaceIdMock.mockReset();
+  currentWorkspaceIdGetter.mockReset();
+  toastSuccessMock.mockReset();
+  toastErrorMock.mockReset();
   teardownMcpAuthListener();
+  teardownMcpWorkspaceSwitchListener();
   // Silence the console.warn / console.info calls from the swallow-error paths
   // so vitest 4's stderr capture doesn't mark those tests as failed.
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 describe('mcp glue', () => {
@@ -151,5 +214,105 @@ describe('mcp:auth-needed listener', () => {
     await setupMcpAuthListener();
     await setupMcpAuthListener();
     expect(listenMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mcp:workspace-switch listener', () => {
+  type SwitchPayload = { accountId: string; workspaceId: string };
+  type SwitchHandler = (e: { payload: SwitchPayload }) => Promise<void> | void;
+
+  async function captureHandler(): Promise<SwitchHandler> {
+    let registered: SwitchHandler | null = null;
+    listenMock.mockImplementation(async (evt: string, handler: SwitchHandler) => {
+      if (evt === 'mcp:workspace-switch') registered = handler;
+      return () => {};
+    });
+    await setupMcpWorkspaceSwitchListener();
+    expect(listenMock).toHaveBeenCalledWith(
+      'mcp:workspace-switch',
+      expect.any(Function),
+    );
+    expect(registered).toBeTruthy();
+    return registered!;
+  }
+
+  it('switches workspace + toasts when event accountId matches active account', async () => {
+    activeAccountIdMock.mockReturnValue('acc1');
+    currentWorkspaceIdGetter.mockReturnValue('ws-current');
+    workspaceGetMock.mockReturnValue({ id: 'ws-target', name: 'Target', isDefault: false });
+    switchWorkspaceMock.mockResolvedValue(undefined);
+
+    const handler = await captureHandler();
+    await handler({ payload: { accountId: 'acc1', workspaceId: 'ws-target' } });
+
+    expect(switchWorkspaceMock).toHaveBeenCalledWith('ws-target');
+    expect(setCurrentWorkspaceIdMock).toHaveBeenCalledWith('ws-target');
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('drops cross-account events (background account stays untouched)', async () => {
+    activeAccountIdMock.mockReturnValue('acc-foreground');
+    currentWorkspaceIdGetter.mockReturnValue('ws-current');
+
+    const handler = await captureHandler();
+    await handler({
+      payload: { accountId: 'acc-background', workspaceId: 'ws-target' },
+    });
+
+    expect(switchWorkspaceMock).not.toHaveBeenCalled();
+    expect(setCurrentWorkspaceIdMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the requested workspace is already active', async () => {
+    activeAccountIdMock.mockReturnValue('acc1');
+    currentWorkspaceIdGetter.mockReturnValue('ws-target');
+
+    const handler = await captureHandler();
+    await handler({ payload: { accountId: 'acc1', workspaceId: 'ws-target' } });
+
+    expect(switchWorkspaceMock).not.toHaveBeenCalled();
+    expect(setCurrentWorkspaceIdMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it('toasts error + skips state update when workspace is unknown', async () => {
+    activeAccountIdMock.mockReturnValue('acc1');
+    currentWorkspaceIdGetter.mockReturnValue('ws-current');
+    workspaceGetMock.mockReturnValue(null);
+
+    const handler = await captureHandler();
+    await handler({ payload: { accountId: 'acc1', workspaceId: 'ws-gone' } });
+
+    expect(switchWorkspaceMock).not.toHaveBeenCalled();
+    expect(setCurrentWorkspaceIdMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('toasts error when switchWorkspace throws', async () => {
+    activeAccountIdMock.mockReturnValue('acc1');
+    currentWorkspaceIdGetter.mockReturnValue('ws-current');
+    workspaceGetMock.mockReturnValue({ id: 'ws-target', name: 'Target', isDefault: false });
+    switchWorkspaceMock.mockRejectedValue(new Error('boom'));
+
+    const handler = await captureHandler();
+    await handler({ payload: { accountId: 'acc1', workspaceId: 'ws-target' } });
+
+    expect(switchWorkspaceMock).toHaveBeenCalled();
+    expect(setCurrentWorkspaceIdMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent — second setup call does not double-attach', async () => {
+    listenMock.mockResolvedValue(() => {});
+    await setupMcpWorkspaceSwitchListener();
+    await setupMcpWorkspaceSwitchListener();
+    const wsCalls = listenMock.mock.calls.filter(
+      ([evt]) => evt === 'mcp:workspace-switch',
+    );
+    expect(wsCalls).toHaveLength(1);
   });
 });

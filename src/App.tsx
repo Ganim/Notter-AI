@@ -9,7 +9,7 @@ import { initDeepLinkHandler } from '@/lib/deep-link';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getAccountManager } from '@/lib/accounts/account-manager';
 import { migrateLegacyLayoutIfNeeded } from '@/lib/accounts/fs-migration';
-import { setupMcpAuthListener } from '@/lib/mcp';
+import { setupMcpAuthListener, setupMcpWorkspaceSwitchListener } from '@/lib/mcp';
 import { toast } from 'sonner';
 import './App.css';
 
@@ -44,6 +44,11 @@ function App() {
       // session reactively so CLIs recover from a stale access_token slice.
       setupMcpAuthListener().catch((e) =>
         console.error('[App] setupMcpAuthListener failed', e),
+      );
+      // Listen for `mcp:workspace-switch` so update_account_settings calls
+      // with default_workspace_id flip the active workspace in the UI.
+      setupMcpWorkspaceSwitchListener().catch((e) =>
+        console.error('[App] setupMcpWorkspaceSwitchListener failed', e),
       );
     })();
 

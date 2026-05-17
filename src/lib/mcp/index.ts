@@ -156,6 +156,79 @@ export function teardownMcpAuthListener(): void {
   mcpAuthInFlight = false;
 }
 
+// ─── Reactive workspace switch ───────────────────────────────────────────
+//
+// Rust emits `mcp:workspace-switch` whenever update_account_settings was
+// called with default_workspace_id. The listener below flips the UI's active
+// workspace via WorkspaceManager, but only if the event's accountId is the
+// foreground one — switching workspaces inside a background account would
+// silently corrupt that account's state on the next user-initiated switch.
+// Cross-account events are dropped (the persisted server-side preference
+// remains valid; bootstrap will pick it up if the account is ever activated).
+
+let mcpWorkspaceSwitchUnlisten: UnlistenFn | null = null;
+
+/**
+ * Setup the `mcp:workspace-switch` listener. Idempotent — safe to call
+ * multiple times; only the first call attaches.
+ */
+export async function setupMcpWorkspaceSwitchListener(): Promise<void> {
+  if (mcpWorkspaceSwitchUnlisten) return;
+  const [
+    { getAccountManager },
+    { getWorkspaceManager },
+    { useWorkspacesStore },
+    { toast },
+    { default: i18n },
+  ] = await Promise.all([
+    import('@/lib/accounts/account-manager'),
+    import('@/lib/workspaces/workspace-manager'),
+    import('@/stores/workspaces-store'),
+    import('sonner'),
+    import('@/i18n'),
+  ]);
+  mcpWorkspaceSwitchUnlisten = await listen<{
+    accountId: string;
+    workspaceId: string;
+  }>('mcp:workspace-switch', async (event) => {
+    const { accountId, workspaceId } = event.payload;
+    const activeAccountId = getAccountManager().activeAccountId;
+    if (activeAccountId !== accountId) {
+      console.info(
+        '[mcp] workspace-switch dropped — event for', accountId,
+        'but active account is', activeAccountId,
+      );
+      return;
+    }
+    const manager = getWorkspaceManager();
+    if (manager.currentWorkspaceId === workspaceId) return;
+    const target = manager.get(workspaceId);
+    if (!target) {
+      console.warn('[mcp] workspace-switch: unknown workspace', workspaceId);
+      toast.error(i18n.t('workspaces.switch_via_mcp_failed'));
+      return;
+    }
+    try {
+      await manager.switchWorkspace(workspaceId);
+      useWorkspacesStore.getState().setCurrentWorkspaceId(workspaceId);
+      toast.success(
+        i18n.t('workspaces.switched_via_mcp', { name: target.name }),
+      );
+    } catch (e) {
+      console.error('[mcp] workspace-switch failed:', e);
+      toast.error(i18n.t('workspaces.switch_via_mcp_failed'));
+    }
+  });
+}
+
+/** Teardown — currently used only in tests. */
+export function teardownMcpWorkspaceSwitchListener(): void {
+  if (mcpWorkspaceSwitchUnlisten) {
+    mcpWorkspaceSwitchUnlisten();
+    mcpWorkspaceSwitchUnlisten = null;
+  }
+}
+
 // ─── OAuth account summaries ──────────────────────────────────────────────
 
 export interface AccountSummary {

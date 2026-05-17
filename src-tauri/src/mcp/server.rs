@@ -250,6 +250,27 @@ async fn mcp_handler(
         );
     }
 
+    // Reactive workspace switch: update_account_settings.default_workspace_id
+    // persists the preference server-side via auth_patch_user, but the running
+    // UI subscribes to WorkspaceManager state, not user_metadata. Emit so the
+    // front-end can call workspaceManager.switchWorkspace(id) and the active
+    // workspace flips without the user re-opening the switcher.
+    if result.is_ok() && req.method == "update_account_settings" {
+        if let Some(ws_id) = req
+            .params
+            .get("default_workspace_id")
+            .and_then(|v| v.as_str())
+        {
+            let _ = app.emit(
+                "mcp:workspace-switch",
+                serde_json::json!({
+                    "accountId": auth.account_id,
+                    "workspaceId": ws_id,
+                }),
+            );
+        }
+    }
+
     match result {
         Ok(r) => Json(JsonRpcResponse::ok(id, r)),
         Err(e) => Json(JsonRpcResponse::err(id, e.code(), e.message())),
