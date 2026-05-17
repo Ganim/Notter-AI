@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usePlannerStore } from '@/stores/planner-store';
+import { usePlannerStore, selectVisibleProjects } from '@/stores/planner-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -35,6 +35,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
 import { TagChip } from '@/components/sidebar/TagChip';
+import { SidebarSearch } from '@/components/sidebar/SidebarSearch';
 import { EditTagDialog } from '@/components/dialogs/EditTagDialog';
 import { subjectIdentifier, isValidTagShape, isReservedTag } from '@/lib/identifiers';
 import { genUniqueTag } from '@/lib/sync';
@@ -87,6 +88,21 @@ export function PlannerTab() {
   // (cross-project, cross-workspace). Subscribed via a selector so the count
   // updates reactively when subjects are added/removed/synced.
   const subjectRows = usePlannerStore((s) => s.subjectRows);
+
+  // Visible projects after search/archive filter — used in sidebar project lists.
+  const visibleProjects = usePlannerStore(selectVisibleProjects);
+
+  // Jump to a subject from SidebarSearch: select the project, then select the subject.
+  const handleJumpSubject = (projectName: string, fileName: string) => {
+    const project = projects.find((p) => p.name === projectName);
+    if (project) {
+      setSelectedProject(project);
+      // Use a microtask so the subjects list has time to populate before we select.
+      queueMicrotask(() => {
+        usePlannerStore.getState().setSelectedSubject(fileName);
+      });
+    }
+  };
 
   // Dialog states
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
@@ -610,42 +626,45 @@ export function PlannerTab() {
   const tbBtn = 'p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors';
 
   const renderProjectsList = (onSelect: (p: Project) => void) => (
-    <ScrollArea className="flex-1">
-      <div className="p-2 space-y-1">
-        {projects.map((p) => {
-          const subjectCount = subjectRows.filter((s) => s.projectName === p.name).length;
-          return (
-          <div key={p.name} onClick={() => onSelect(p)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
-            <div className="flex flex-col gap-0.5 truncate">
-              <span className="flex items-center gap-2 min-w-0">
-                {p.tag && <TagChip tag={p.tag} />}
-                <span className="truncate">{p.name}</span>
-              </span>
-              <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">
-                {t('planner.subject_count', { count: subjectCount })}
-              </span>
+    <>
+      <SidebarSearch onJumpSubject={handleJumpSubject} />
+      <ScrollArea className="flex-1">
+        <div className="p-2 space-y-1">
+          {visibleProjects.map((p) => {
+            const subjectCount = subjectRows.filter((s) => s.projectName === p.name).length;
+            return (
+            <div key={p.name} onClick={() => onSelect(p)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
+              <div className="flex flex-col gap-0.5 truncate">
+                <span className="flex items-center gap-2 min-w-0">
+                  {p.tag && <TagChip tag={p.tag} />}
+                  <span className="truncate">{p.name}</span>
+                </span>
+                <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">
+                  {t('planner.subject_count', { count: subjectCount })}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                {!isViewer && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground" title={t('tags.edit_title')}><Tag size={14} /></button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
+                      disabled={!isOwner}
+                      title={isOwner ? undefined : t('planner.owner_only_delete_tooltip', { defaultValue: 'Apenas o dono do workspace pode excluir projetos' })}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
+                    ><Trash2 size={14} /></button>
+                    <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
+                  </>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              {!isViewer && (
-                <>
-                  <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground" title={t('tags.edit_title')}><Tag size={14} /></button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
-                    disabled={!isOwner}
-                    title={isOwner ? undefined : t('planner.owner_only_delete_tooltip', { defaultValue: 'Apenas o dono do workspace pode excluir projetos' })}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
-                  ><Trash2 size={14} /></button>
-                  <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
-                </>
-              )}
-            </div>
-          </div>
-          );
-        })}
-        {projects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
-      </div>
-    </ScrollArea>
+            );
+          })}
+          {visibleProjects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
+        </div>
+      </ScrollArea>
+    </>
   );
 
   const renderSubjectsList = (onSelect: (s: string) => void) => (
@@ -1069,9 +1088,10 @@ export function PlannerTab() {
                 </div>
               </div>
               <div className="border-b border-border/50">
+                <SidebarSearch onJumpSubject={handleJumpSubject} />
                 <ScrollArea className="max-h-[120px]">
                   <div className="p-1.5 space-y-0.5">
-                    {projects.map((p) => (
+                    {visibleProjects.map((p) => (
                       <div key={p.name} onClick={() => setSelectedProject(p)} className={`group flex items-center justify-between px-2 py-1.5 text-xs rounded cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-muted text-foreground'}`}>
                         <div className="flex items-center gap-1.5 truncate">
                           <FolderOpen size={12} className="shrink-0 opacity-50" />
@@ -1085,7 +1105,7 @@ export function PlannerTab() {
                         </div>
                       </div>
                     ))}
-                    {projects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_projects')}</div>}
+                    {visibleProjects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_projects')}</div>}
                   </div>
                 </ScrollArea>
               </div>
