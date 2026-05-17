@@ -1,10 +1,18 @@
 # Tags, Search & Archive — Design Spec
 
-Date: 2026-05-14
+Date: 2026-05-14 (amended 2026-05-17 — see "Amendments" below)
 Author: Brainstorming session (Claude + user)
-Status: Draft pending user review.
-Baseline: post-Migration A (`supabase/migrations/2026-05-14-workspace-members.sql`). Builds on the multi-user workspaces model — every constraint scoped to `workspace_id`, all RLS through the existing `is_workspace_member`/`workspace_role` helpers.
-Relationship to other work: independent of the Phase 1 plan-review pivot and the MCP expansion spec, but produces stable subject identifiers (`flow-3`) that the MCP surface will benefit from quoting back to the model.
+Status: Approved for implementation 2026-05-17.
+Baseline: post-Migration A (`supabase/migrations/2026-05-14-workspace-members.sql`) + Migration B (workspace_invites). Multi-user workspaces Plan 2 (invites + UI) shipped 2026-05-15 — RLS substrate unchanged; spec assumptions still hold.
+Relationship to other work: independent of the Phase 1 plan-review pivot. MCP expansion (17/17 tools) shipped 2026-05-15 — this spec now includes its own MCP integration touches (see §13) rather than deferring them.
+
+### Amendments (2026-05-17)
+
+Three updates applied after the MCP expansion landed:
+
+1. **§4.6 / §6.4**: `gen_unique_tag` exposed to the client via `GRANT EXECUTE`; the new-project dialog calls it through PostgREST RPC for the auto-suggestion.
+2. **§13 (new)**: MCP integration moved from deferred to in-scope. `list_subjects` / `get_subject` / `post_subject_revision` enrich the response with `identifier: "flow-3"`. `save_subject` (current behavior: raw INSERT) is rerouted through `create_subject` RPC so the `seq` is server-assigned, mirroring the `save_workspace → create_workspace_with_owner` refactor done in commit `02b50bc`.
+3. **§4.5**: GRANT for `gen_unique_tag` added to the same migration that creates the RPC.
 
 ## 1. Goal
 
@@ -178,6 +186,7 @@ begin
 end $$;
 
 grant execute on function create_subject(uuid, text, text) to authenticated;
+grant execute on function gen_unique_tag(text, uuid) to authenticated;
 ```
 
 Notes:
@@ -459,7 +468,7 @@ This is the existing local-first pattern for board_tasks IDs; we reuse the same 
 | Archive cascade: user archives a project that's the active selection | UI selects the next active project (or empty state); editor closes. |
 | Unarchive a project whose tag collides with a tag now in use | Server returns unique-violation error. Client surfaces "Tag `flow` já está em uso. Edite a tag antes de reativar." |
 | Subject created on disconnected client gets tentative `seq=N`; on reconnect the server already has `seq=N` for a sibling | Local conflict retry (see §7) re-fetches and assigns `seq=N+1` locally. Editor preserves content; identifier label updates. |
-| MCP token holder lists subjects | They see `tag-seq` identifiers and can re-quote them. MCP server spec is unchanged; the identifier just appears in the response shape via a new `identifier: 'flow-3'` field on the subject row (delivered when the MCP expansion lands). |
+| MCP token holder lists subjects | They see `tag-seq` identifiers and can re-quote them. The identifier is enriched into `list_subjects` / `get_subject` / `post_subject_revision` responses as `identifier: 'flow-3'`. See §13 for the full MCP delta. |
 
 ## 10. Non-goals / deferred
 
@@ -495,3 +504,32 @@ All three open items raised during brainstorming are resolved by default in this
 - **`gen_unique_tag`**: known-input fixtures cover the empty/symbol-only/collision/reserved-word cases.
 - **Sync layer**: subject create offline → reconnect → server seq replaces tentative; second offline create on same project gets next tentative; conflict retry path covered.
 - **UI**: snapshot tests for archived-mode swap; search-mode result grouping; exact-identifier CTA visibility; tag chip color determinism.
+
+## 13. MCP integration delta
+
+When the MCP expansion spec was written, this section was deferred under the assumption that tags would land first. The order ended up reversed (MCP expansion shipped 2026-05-15), so the integration touches now live here:
+
+### 13.1 Enrich subject responses with `identifier`
+
+The TS helper `subjectIdentifier(subject, project)` (§4.3) is invoked by the Rust MCP layer at response-shaping time, fed from the joined `projects.tag` value that `list_subjects`/`get_subject`/`post_subject_revision` already select for workspace scoping.
+
+Affected tools (in `src-tauri/src/mcp/tools.rs`):
+- `list_subjects` — each row in the array gains `identifier: "flow-3"`.
+- `get_subject` — single row gains `identifier`.
+- `post_subject_revision` — returned subject row gains `identifier`.
+- `save_subject` — returned row (post-RPC) gains `identifier`.
+
+No new tool methods; existing JSON-RPC method names are unchanged. The smoke `scripts/smoke-mcp-v2.ps1` adds assertions for the `identifier` field.
+
+### 13.2 Reroute `save_subject` through `create_subject` RPC
+
+Current behavior (commit `ae7ffb2`): `save_subject` does direct INSERT with explicit `user_id` and `workspace_id`. With the new `subjects.seq NOT NULL` + `subjects_project_seq_uniq` index, that INSERT will fail without an explicit `seq`. The fix mirrors the `save_workspace → create_workspace_with_owner` refactor done in commit `02b50bc`:
+
+- `save_subject` no longer accepts arbitrary INSERT; it calls `create_subject(project_id, file_name, content)` RPC.
+- The RPC owns `seq` emission and `next_subject_seq` increment atomically.
+- `project_id` resolution: `save_subject` currently takes `project_name`; it now resolves `project_name + workspace_id → projects.id` via a `select id from projects where workspace_id = $1 and name = $2 limit 1` before calling the RPC.
+- The existing RPC error codes (`forbidden`, `project_not_found`, `project_archived`) map to MCP error responses with stable shapes for CLI consumers.
+
+### 13.3 No changes to other MCP tools
+
+`save_project` already takes the auto-generated tag implicitly (via §6.4's client-side `gen_unique_tag` suggestion, exposed to MCP CLIs as an optional `tag` param defaulting to server-generated). `list_projects` gains `tag` in the response shape — same enrichment pattern as `identifier`. `archive_resource` / `restore_resource` (which already exist in the smoke) start writing `projects.archived_at` directly; no new tool needed.
