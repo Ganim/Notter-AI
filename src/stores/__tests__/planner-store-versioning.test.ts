@@ -30,17 +30,31 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 const sync = vi.hoisted(() => ({
   commitSubjectVersion: vi.fn().mockResolvedValue('v-new'),
   renameSubjectInPlace: vi.fn().mockResolvedValue({ ok: true }),
-  pushSubject: vi.fn().mockResolvedValue(undefined),
+  createSubjectViaRpc: vi.fn().mockImplementation(async (projectName: string, fileName: string, content: string) => ({
+    ok: true,
+    subject: {
+      id: 'subj-rpc',
+      projectName,
+      fileName,
+      content,
+      currentVersionId: null,
+      seq: 1,
+      archivedAt: null,
+    },
+  })),
 }));
 vi.mock('@/lib/sync', () => ({
   pushProjects: vi.fn().mockResolvedValue(undefined),
-  pushSubject: sync.pushSubject,
   deleteRemoteSubject: vi.fn().mockResolvedValue(undefined),
   deleteRemoteSubjectsByProject: vi.fn().mockResolvedValue(undefined),
   renameRemoteSubjectsProject: vi.fn().mockResolvedValue(undefined),
   updateProjectWorkspace: vi.fn().mockResolvedValue(undefined),
   commitSubjectVersion: sync.commitSubjectVersion,
   renameSubjectInPlace: sync.renameSubjectInPlace,
+  createSubjectViaRpc: sync.createSubjectViaRpc,
+  archiveProject: vi.fn().mockResolvedValue({ ok: true }),
+  unarchiveProject: vi.fn().mockResolvedValue({ ok: true }),
+  updateProjectTag: vi.fn().mockResolvedValue({ ok: true }),
   fetchSubjectVersions: vi.fn().mockResolvedValue([]),
 }));
 
@@ -214,7 +228,7 @@ describe('planner-store — versioning overhaul', () => {
 
   it('createSubject commits the initial version through the RPC', async () => {
     await usePlannerStore.getState().createSubject('P', 'note.md', 'hello world');
-    expect(sync.pushSubject).toHaveBeenCalled();
+    expect(sync.createSubjectViaRpc).toHaveBeenCalledWith('P', 'note.md', 'hello world');
     expect(sync.commitSubjectVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'hello world',

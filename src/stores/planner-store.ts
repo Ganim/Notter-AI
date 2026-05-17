@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { BaseDirectory, readDir, mkdir, readTextFile, writeTextFile, exists, remove, rename } from '@tauri-apps/plugin-fs';
 import type { EditorTheme, Project } from '@/types';
 import {
-  pushProjects, pushSubject, deleteRemoteSubject,
+  pushProjects, deleteRemoteSubject,
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
   commitSubjectVersion, renameSubjectInPlace,
+  createSubjectViaRpc,
   archiveProject as remoteArchiveProject,
   unarchiveProject as remoteUnarchiveProject,
   updateProjectTag as remoteUpdateProjectTag,
@@ -515,15 +516,20 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const userId = useAuthStore.getState().user?.id;
     if (!userId) return;
 
-    // Pin down the subject id client-side so the version commit can reference
-    // it in the same flow without a refetch round-trip. Every subject must
-    // have at least one version row from creation onward — no orphans.
-    const subjectId = crypto.randomUUID();
     try {
-      // 1. Insert the subjects row (without current_version_id; the RPC
-      //    sets it in step 2). The RPC's ownership check needs the row to
-      //    exist, so we cannot collapse these two writes.
-      await pushSubject(userId, projectName, fileName, content, subjectId);
+      // 1. Create the subjects row via the atomic create_subject RPC. It owns
+      //    `seq` emission and bumps projects.next_subject_seq in one txn —
+      //    direct INSERT would race on the (project, seq) unique index AND
+      //    fail the NOT NULL constraint on seq added in the 2026-05-17
+      //    migration. The RPC returns the inserted row including the
+      //    server-assigned id and seq.
+      const rpcResult = await createSubjectViaRpc(projectName, fileName, content);
+      if (!rpcResult.ok || !rpcResult.subject) {
+        console.error('[planner] createSubject: RPC failed:', rpcResult.code, rpcResult.message);
+        return;
+      }
+      const subjectId = rpcResult.subject.id;
+      const serverSeq = rpcResult.subject.seq;
 
       // 2. Commit the initial version atomically: inserts subject_versions
       //    AND moves subjects.content + current_version_id. No coalesce
@@ -553,7 +559,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
       // Optimistic subjectRows update so SnapshotPanel renders the new
       // subject immediately, without waiting for the realtime UPDATE to
-      // round-trip back.
+      // round-trip back. The seq is the authoritative one from the RPC.
       set((s) => ({
         subjectRows: [
           ...s.subjectRows,
@@ -563,7 +569,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             fileName,
             content,
             currentVersionId: newVersionId,
-            seq: 1,
+            seq: serverSeq,
             archivedAt: null,
           },
         ],
