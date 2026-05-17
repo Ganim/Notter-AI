@@ -166,7 +166,7 @@ interface PlannerState {
   // Project actions
   setSelectedProject: (project: Project | null) => void;
   initFilesystem: () => Promise<void>;
-  createProject: (name: string, path: string) => Promise<void>;
+  createProject: (name: string, path: string, tag?: string) => Promise<void>;
   renameProject: (oldName: string, newName: string) => Promise<void>;
   updateProjectPath: (name: string, newPath: string) => Promise<void>;
   deleteProject: (name: string) => Promise<void>;
@@ -313,7 +313,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  createProject: async (name, path) => {
+  createProject: async (name, path, tag = '') => {
     // Phase E: stamp the project with the active workspace id. Pre-bootstrap
     // (no workspace yet) we bail rather than persist a project with an empty
     // workspaceId — the UI gates the "+ New project" button on a workspace
@@ -324,7 +324,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       return;
     }
     await mkdir(projectFsPath(name), { baseDir: BaseDirectory.AppLocalData, recursive: true });
-    const newProject: Project = { name, path, workspaceId: wsId, tag: '', nextSubjectSeq: 1, archivedAt: null };
+    const newProject: Project = { name, path, workspaceId: wsId, tag, nextSubjectSeq: 1, archivedAt: null };
     const newAll = [...get().allProjects, newProject];
     set({ allProjects: newAll, projects: recomputeProjects(newAll) });
     await writeTextFile(getProjectsFile(), JSON.stringify(newAll, null, 2), { baseDir: BaseDirectory.AppLocalData });

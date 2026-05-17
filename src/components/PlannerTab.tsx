@@ -35,7 +35,8 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
 import { TagChip } from '@/components/sidebar/TagChip';
-import { subjectIdentifier } from '@/lib/identifiers';
+import { subjectIdentifier, isValidTagShape, isReservedTag } from '@/lib/identifiers';
+import { genUniqueTag } from '@/lib/sync';
 
 type MobilePanel = 'projects' | 'subjects' | 'editor';
 
@@ -91,6 +92,9 @@ export function PlannerTab() {
   const [isSubjectDialogOpen, setIsSubjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newSubjectName, setNewSubjectName] = useState('');
+  const [newProjectTag, setNewProjectTag] = useState('');
+  const [tagSuggesting, setTagSuggesting] = useState(false);
+  const tagManuallyEditedRef = useRef(false);
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<string | null>(null);
   const [deleteSubjectTarget, setDeleteSubjectTarget] = useState<string | null>(null);
   const [renameProjectTarget, setRenameProjectTarget] = useState<string | null>(null);
@@ -102,6 +106,7 @@ export function PlannerTab() {
   // workspace owner during initial load. Once the store populates the row
   // for the active workspace, the real role takes effect.
   const currentRole = useWorkspacesStore((s) => s.currentRole);
+  const currentWorkspaceId = useWorkspacesStore((s) => s.currentWorkspaceId);
   const isViewer = currentRole === 'viewer';
   const isOwner = currentRole === 'owner' || currentRole === null;
 
@@ -316,6 +321,28 @@ export function PlannerTab() {
     return () => window.removeEventListener('notter:reveal-comment-anchor', handler);
   }, []);
 
+  // Auto-suggest tag from name with 250 ms debounce.
+  // Resets when the dialog closes; skips if the user has manually edited the tag.
+  useEffect(() => {
+    if (!isProjectDialogOpen) {
+      tagManuallyEditedRef.current = false;
+      setNewProjectTag('');
+      return;
+    }
+    if (!newProjectName.trim() || !currentWorkspaceId || tagManuallyEditedRef.current) {
+      return;
+    }
+    const handle = setTimeout(async () => {
+      setTagSuggesting(true);
+      const suggested = await genUniqueTag(newProjectName, currentWorkspaceId);
+      setTagSuggesting(false);
+      if (suggested && !tagManuallyEditedRef.current) {
+        setNewProjectTag(suggested);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [newProjectName, currentWorkspaceId, isProjectDialogOpen]);
+
   // --- Editor helpers ---
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -527,10 +554,13 @@ export function PlannerTab() {
   // --- CRUD handlers ---
   const handleCreateProjectSubmit = async () => {
     if (!newProjectName.trim()) return;
+    if (!newProjectTag || !isValidTagShape(newProjectTag) || isReservedTag(newProjectTag)) return;
     try {
-      await createProject(newProjectName, '');
+      await createProject(newProjectName, '', newProjectTag);
       setIsProjectDialogOpen(false);
       setNewProjectName('');
+      setNewProjectTag('');
+      tagManuallyEditedRef.current = false;
       toast.success(t('planner.project_created'));
     } catch (e: any) { toast.error(t('planner.error_create_project', { error: e })); }
   };
@@ -1184,6 +1214,11 @@ export function PlannerTab() {
 
   // --- Dialogs ---
   function renderDialogs() {
+    let tagError: string | null = null;
+    if (newProjectTag && !isValidTagShape(newProjectTag)) tagError = t('tags.edit_invalid_shape');
+    else if (newProjectTag && isReservedTag(newProjectTag)) tagError = t('tags.edit_reserved');
+    const createDisabled = !newProjectName.trim() || !newProjectTag || !!tagError;
+
     return (
       <>
         {/* Create Project */}
@@ -1194,10 +1229,29 @@ export function PlannerTab() {
               <DialogDescription>{t('planner.new_project_desc')}</DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3">
-              <input autoFocus type="text" placeholder={t('planner.project_name_placeholder')} value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newProjectName.trim() && handleCreateProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
+              <input autoFocus type="text" placeholder={t('planner.project_name_placeholder')} value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !createDisabled && handleCreateProjectSubmit()} className="w-full bg-background border border-input rounded-md p-2 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring" />
+              <div className="space-y-1.5">
+                <label htmlFor="newProjectTag" className="text-sm font-medium text-foreground">
+                  {t('tags.new_project_label')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="newProjectTag"
+                    value={newProjectTag}
+                    onChange={(e) => {
+                      tagManuallyEditedRef.current = true;
+                      setNewProjectTag(e.target.value);
+                    }}
+                    placeholder={tagSuggesting ? t('tags.new_project_suggesting') : t('tags.new_project_auto')}
+                    className="bg-background border border-input rounded-md px-2 py-1 text-sm font-mono w-36 text-foreground outline-none focus:ring-1 focus:ring-ring"
+                    maxLength={8}
+                  />
+                  {tagError && <span className="text-xs text-destructive">{tagError}</span>}
+                </div>
+              </div>
             </div>
             <DialogFooter>
-              <button onClick={handleCreateProjectSubmit} disabled={!newProjectName.trim()} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50">{t('planner.create')}</button>
+              <button onClick={handleCreateProjectSubmit} disabled={createDisabled} className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm transition-colors disabled:opacity-50">{t('planner.create')}</button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
