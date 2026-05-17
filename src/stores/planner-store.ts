@@ -5,6 +5,9 @@ import {
   pushProjects, pushSubject, deleteRemoteSubject,
   deleteRemoteSubjectsByProject, renameRemoteSubjectsProject,
   commitSubjectVersion, renameSubjectInPlace,
+  archiveProject as remoteArchiveProject,
+  unarchiveProject as remoteUnarchiveProject,
+  updateProjectTag as remoteUpdateProjectTag,
   type SubjectRecord,
 } from '@/lib/sync';
 import { deleteUserRow, makeDebouncedSync } from '@/lib/synced-store';
@@ -103,9 +106,10 @@ const subjectCommitSync = makeDebouncedSync<SubjectCommitPayload>(
  */
 function recomputeProjects(allProjects: Project[]): Project[] {
   const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
-  return currentWsId
+  const wsFiltered = currentWsId
     ? allProjects.filter((p) => p.workspaceId === currentWsId)
     : allProjects;
+  return wsFiltered.filter((p) => !p.archivedAt);
 }
 
 interface PlannerState {
@@ -116,6 +120,10 @@ interface PlannerState {
    * by `useWorkspacesStore.currentWorkspaceId`.
    */
   allProjects: Project[];
+
+  // Search / archive
+  searchQuery: string;
+  searchMode: 'active' | 'archived';
   /**
    * Derived view of `allProjects` filtered by `currentWorkspaceId`. Kept as a
    * state field (not a getter) so Zustand subscribers — including all
@@ -147,6 +155,13 @@ interface PlannerState {
   editorTheme: string;
   bgColors: EditorTheme[];
   _activeTheme: EditorTheme | null;
+
+  // Search / archive actions
+  setSearchQuery: (q: string) => void;
+  setSearchMode: (m: 'active' | 'archived') => void;
+  archiveProjectById: (projectId: string) => Promise<void>;
+  unarchiveProjectById: (projectId: string) => Promise<void>;
+  updateProjectTagById: (projectId: string, newTag: string) => Promise<void>;
 
   // Project actions
   setSelectedProject: (project: Project | null) => void;
@@ -226,12 +241,47 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   subjects: [],
   selectedSubject: null,
   subjectRows: [],
+  searchQuery: '',
+  searchMode: 'active' as const,
   subjectContent: '# Nova Anotação',
   isViewing: false,
   editorBgClass: BG_COLORS[0].value,
   editorTheme: `theme-${BG_COLORS[0].name}-light`,
   bgColors: BG_COLORS,
   _activeTheme: BG_COLORS[0],
+
+  // --- Search / Archive ---
+
+  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchMode: (m) => set({ searchMode: m, searchQuery: '' }),
+
+  archiveProjectById: async (projectId) => {
+    const result = await remoteArchiveProject(projectId);
+    if (!result.ok) throw new Error(result.message ?? result.code ?? 'archive_failed');
+    const stamp = new Date().toISOString();
+    const newAll = get().allProjects.map((p) =>
+      p.name === projectId ? { ...p, archivedAt: stamp } : p,
+    );
+    set({ allProjects: newAll, projects: recomputeProjects(newAll) });
+  },
+
+  unarchiveProjectById: async (projectId) => {
+    const result = await remoteUnarchiveProject(projectId);
+    if (!result.ok) throw new Error(result.message ?? result.code ?? 'unarchive_failed');
+    const newAll = get().allProjects.map((p) =>
+      p.name === projectId ? { ...p, archivedAt: null } : p,
+    );
+    set({ allProjects: newAll, projects: recomputeProjects(newAll) });
+  },
+
+  updateProjectTagById: async (projectId, newTag) => {
+    const result = await remoteUpdateProjectTag(projectId, newTag);
+    if (!result.ok) throw new Error(result.code ?? 'tag_update_failed');
+    const newAll = get().allProjects.map((p) =>
+      p.name === projectId ? { ...p, tag: newTag } : p,
+    );
+    set({ allProjects: newAll, projects: recomputeProjects(newAll) });
+  },
 
   // --- Projects ---
 
@@ -768,9 +818,7 @@ useWorkspacesStore.subscribe((state) => {
   _prevWorkspaceId = state.currentWorkspaceId;
 
   const planner = usePlannerStore.getState();
-  const filtered = state.currentWorkspaceId
-    ? planner.allProjects.filter((p) => p.workspaceId === state.currentWorkspaceId)
-    : planner.allProjects;
+  const filtered = recomputeProjects(planner.allProjects);
 
   const selected = planner.selectedProject;
   const stillSelected = selected && filtered.some((p) => p.name === selected.name)
@@ -784,3 +832,87 @@ useWorkspacesStore.subscribe((state) => {
     subjects: stillSelected ? planner.subjects : [],
   });
 });
+
+// ── Exported selectors ─────────────────────────────────────────────────────
+// These are pure functions over the store state. They are exported so
+// components and tests can import them directly without referencing the
+// store singleton.
+
+import { parseIdentifier } from '@/lib/identifiers';
+
+export function selectVisibleProjects(
+  state: ReturnType<typeof usePlannerStore.getState>,
+): Project[] {
+  const list =
+    state.searchMode === 'archived'
+      ? state.allProjects.filter((p) => p.archivedAt)
+      : state.allProjects.filter((p) => !p.archivedAt);
+  // Also scope to current workspace — matches how `projects` is derived.
+  const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
+  const wsFiltered = currentWsId
+    ? list.filter((p) => p.workspaceId === currentWsId)
+    : list;
+  const q = state.searchQuery.trim().toLowerCase();
+  if (!q) return wsFiltered;
+  return wsFiltered.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.tag && p.tag.toLowerCase().startsWith(q)),
+  );
+}
+
+export function selectArchivedCount(
+  state: ReturnType<typeof usePlannerStore.getState>,
+): number {
+  const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
+  return state.allProjects.filter(
+    (p) => p.archivedAt && (!currentWsId || p.workspaceId === currentWsId),
+  ).length;
+}
+
+export interface SubjectHit {
+  subject: SubjectRecord;
+  project: Project;
+}
+
+export function selectSubjectSearchHits(
+  state: ReturnType<typeof usePlannerStore.getState>,
+): SubjectHit[] {
+  const q = state.searchQuery.trim().toLowerCase();
+  if (!q || state.searchMode === 'archived') return [];
+  const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
+  const activeProjects = state.allProjects.filter(
+    (p) => !p.archivedAt && (!currentWsId || p.workspaceId === currentWsId),
+  );
+  const projectByName = new Map(activeProjects.map((p) => [p.name, p]));
+  const out: SubjectHit[] = [];
+  for (const s of state.subjectRows) {
+    if (!s.fileName?.toLowerCase().includes(q)) continue;
+    const project = projectByName.get(s.projectName);
+    if (!project) continue;
+    out.push({ subject: s, project });
+    if (out.length >= 100) return out;
+  }
+  return out;
+}
+
+export interface IdentifierMatch {
+  subject: SubjectRecord;
+  project: Project;
+}
+
+export function selectExactIdentifierMatch(
+  state: ReturnType<typeof usePlannerStore.getState>,
+): IdentifierMatch | null {
+  const parsed = parseIdentifier(state.searchQuery.trim().toLowerCase());
+  if (!parsed) return null;
+  const currentWsId = useWorkspacesStore.getState().currentWorkspaceId;
+  const project = state.allProjects.find(
+    (p) => p.tag === parsed.tag && (!currentWsId || p.workspaceId === currentWsId),
+  );
+  if (!project) return null;
+  const subject = state.subjectRows.find(
+    (s) => s.projectName === project.name && s.seq === parsed.seq,
+  );
+  return subject ? { subject, project } : null;
+}
