@@ -117,6 +117,15 @@ if ($settings) { Write-Host "  settings: $($settings | ConvertTo-Json -Compress)
 
 $wsList = Call-Mcp 'list_workspaces' @{}
 $projList = Call-Mcp 'list_projects' @{}
+# Post-tags-migration: every project row must carry a `tag`.
+if ($projList) {
+    foreach ($p in $projList) {
+        if (-not ($p.tag -and ($p.tag -match '^[a-z0-9]{2,8}$'))) {
+            Fail "list_projects row '$($p.name)' missing or invalid tag (got: $($p.tag))"
+        }
+    }
+    Write-Host "  list_projects: $($projList.Count) row(s), all with valid tags" -ForegroundColor DarkGray
+}
 
 # update_account_settings round-trip (toggle theme then restore)
 Write-Host "`n  --- account_settings round-trip ---" -ForegroundColor DarkGray
@@ -140,12 +149,23 @@ else {
     if (-not ($proj -and $proj.name)) { Fail "save_project did not return name" }
     else {
         $projName = $proj.name
+        # Tag must be a 2-8 lowercase alphanumeric string per the post-tags-migration schema.
+        if (-not ($proj.tag -and ($proj.tag -match '^[a-z0-9]{2,8}$'))) {
+            Fail "save_project did not return a valid tag (got: $($proj.tag))"
+        } else { Write-Host "    tag: $($proj.tag)" -ForegroundColor DarkGray }
         $subj = Call-Mcp 'save_subject' @{ project_name = $projName; file_name = "smoke-$stamp.md" }
         if (-not ($subj -and $subj.id)) { Fail "save_subject did not return id" }
         else {
             $subjId = $subj.id
+            # Identifier was added by Phase 10.1 — must be present and well-formed.
+            if (-not ($subj.identifier -and ($subj.identifier -match '^[a-z0-9]{2,8}-\d+$'))) {
+                Fail "save_subject did not return a valid identifier (got: $($subj.identifier))"
+            } else { Write-Host "    identifier: $($subj.identifier)" -ForegroundColor DarkGray }
             $fetched = Call-Mcp 'get_subject' @{ subject_id = $subjId }
             if (-not ($fetched -and $fetched.id -eq $subjId)) { Fail "get_subject mismatch" }
+            if (-not ($fetched.identifier -eq $subj.identifier)) {
+                Fail "get_subject identifier mismatch (save: $($subj.identifier), get: $($fetched.identifier))"
+            }
             $v2Body = "anchor-target $stamp middle-text trailing-words"
             $rev = Call-Mcp 'post_subject_revision' @{ subject_id = $subjId; content_markdown = $v2Body; source_actor = 'smoke-mcp-v2'; label = 'smoke v2' }
             if (-not ($rev -and $rev.version_id)) { Fail "post_subject_revision did not return version_id" }
