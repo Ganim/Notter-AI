@@ -330,5 +330,40 @@
       "unknown": "Failed to send invite"
     },
     "viewer_readonly_tooltip": "You're a viewer; cannot edit"
+  },
+  "tags": {
+    "edit_title": "Edit tag",
+    "edit_current": "Current tag:",
+    "edit_new_label": "New tag:",
+    "edit_warning": "Warning: external links to {{old}}-N will stop resolving.",
+    "edit_save": "Save",
+    "edit_cancel": "Cancel",
+    "edit_failed": "Failed to update tag",
+    "edit_invalid_shape": "Tag must be 2–8 lowercase characters (a-z, 0-9)",
+    "edit_reserved": "Reserved tag — pick another",
+    "edit_duplicate": "This tag is already in use in this workspace",
+    "new_project_label": "Tag:",
+    "new_project_auto": "auto",
+    "new_project_suggesting": "Suggesting…"
+  },
+  "search": {
+    "placeholder": "Search…",
+    "results_projects": "Projects ({{count}})",
+    "results_subjects": "Subjects ({{count}})",
+    "results_empty": "Nothing found for \"{{query}}\"",
+    "open_identifier": "Open {{id}} →",
+    "identifier_not_found": "{{id}} not found"
+  },
+  "archive": {
+    "footer_label": "Archived ({{count}})",
+    "header_back": "← Archived",
+    "row_reactivate": "Reactivate",
+    "row_delete_permanent": "Delete permanently",
+    "reactivated": "Project reactivated",
+    "reactivate_failed": "Failed to reactivate project",
+    "archive_action": "Archive",
+    "archived_toast": "Project archived",
+    "archive_failed": "Failed to archive project",
+    "editor_banner": "Archived project — reactivate to edit"
   }
 }

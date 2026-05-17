@@ -328,5 +328,40 @@
       "unknown": "Falha ao enviar convite"
     },
     "viewer_readonly_tooltip": "Você é viewer; não pode editar"
+  },
+  "tags": {
+    "edit_title": "Editar tag",
+    "edit_current": "Tag atual:",
+    "edit_new_label": "Nova tag:",
+    "edit_warning": "Atenção: links externos a {{old}}-N deixarão de resolver.",
+    "edit_save": "Salvar",
+    "edit_cancel": "Cancelar",
+    "edit_failed": "Falha ao atualizar tag",
+    "edit_invalid_shape": "Tag deve ser 2–8 caracteres minúsculos (a-z, 0-9)",
+    "edit_reserved": "Tag reservada — escolha outra",
+    "edit_duplicate": "Esta tag já está em uso neste workspace",
+    "new_project_label": "Tag:",
+    "new_project_auto": "auto",
+    "new_project_suggesting": "Sugerindo…"
+  },
+  "search": {
+    "placeholder": "Buscar…",
+    "results_projects": "Projetos ({{count}})",
+    "results_subjects": "Assuntos ({{count}})",
+    "results_empty": "Nada encontrado para \"{{query}}\"",
+    "open_identifier": "Abrir {{id}} →",
+    "identifier_not_found": "{{id}} não encontrado"
+  },
+  "archive": {
+    "footer_label": "Arquivados ({{count}})",
+    "header_back": "← Arquivados",
+    "row_reactivate": "Reativar",
+    "row_delete_permanent": "Excluir permanentemente",
+    "reactivated": "Projeto reativado",
+    "reactivate_failed": "Falha ao reativar projeto",
+    "archive_action": "Arquivar",
+    "archived_toast": "Projeto arquivado",
+    "archive_failed": "Falha ao arquivar projeto",
+    "editor_banner": "Projeto arquivado — reativar para editar"
   }
 }
