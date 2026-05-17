@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
+import { TagChip } from '@/components/sidebar/TagChip';
+import { subjectIdentifier } from '@/lib/identifiers';
 
 type MobilePanel = 'projects' | 'subjects' | 'editor';
 
@@ -583,7 +585,10 @@ export function PlannerTab() {
           return (
           <div key={p.name} onClick={() => onSelect(p)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedProject?.name === p.name ? 'bg-accent text-accent-foreground' : 'hover:bg-muted font-normal'}`}>
             <div className="flex flex-col gap-0.5 truncate">
-              <span className="truncate">{p.name}</span>
+              <span className="flex items-center gap-2 min-w-0">
+                {p.tag && <TagChip tag={p.tag} />}
+                <span className="truncate">{p.name}</span>
+              </span>
               <span className="text-[10px] text-muted-foreground truncate font-normal opacity-70">
                 {t('planner.subject_count', { count: subjectCount })}
               </span>
@@ -613,9 +618,22 @@ export function PlannerTab() {
   const renderSubjectsList = (onSelect: (s: string) => void) => (
     <ScrollArea className="flex-1">
       <div className="p-2 space-y-2">
-        {subjects.map((subject) => (
+        {subjects.map((subject) => {
+          const subjectRow = subjectRows.find(
+            (s) => s.fileName === subject && s.projectName === selectedProject?.name,
+          );
+          const id =
+            selectedProject && subjectRow
+              ? subjectIdentifier(subjectRow, selectedProject)
+              : '';
+          return (
           <div key={subject} onClick={() => onSelect(subject)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === subject ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
-            <span className="truncate font-normal">{subject.replace('.md', '')}</span>
+            <span className="flex items-center gap-2 min-w-0 font-normal">
+              {id && (
+                <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">{id}</span>
+              )}
+              <span className="truncate">{subject.replace('.md', '')}</span>
+            </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               {!isViewer && (
                 <>
@@ -625,7 +643,8 @@ export function PlannerTab() {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
         {subjects.length === 0 && selectedProject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.create_first_subject')}</div>}
         {!selectedProject && <div className="text-xs p-2 normal-case font-normal text-muted-foreground">{t('planner.select_project')}</div>}
       </div>
