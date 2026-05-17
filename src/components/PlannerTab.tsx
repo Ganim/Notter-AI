@@ -31,11 +31,13 @@ import { Loader2, History, RefreshCw, MessageSquare, Upload, Download, Copy, Che
 import {
   Plus, Trash2, Pen, Eye, PencilLine, ChevronDown, ArrowLeft, FolderOpen, PanelLeftClose, PanelLeftOpen,
   Heading1, Heading2, Heading3, Bold, Italic, Underline, List, ListOrdered, Code, Quote, Minus, Tag,
+  Archive, ArchiveRestore,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { syncOnLogin } from '@/stores/auth-store';
 import { TagChip } from '@/components/sidebar/TagChip';
 import { SidebarSearch } from '@/components/sidebar/SidebarSearch';
+import { ArchivedToggle } from '@/components/sidebar/ArchivedToggle';
 import { EditTagDialog } from '@/components/dialogs/EditTagDialog';
 import { subjectIdentifier, isValidTagShape, isReservedTag } from '@/lib/identifiers';
 import { genUniqueTag } from '@/lib/sync';
@@ -91,6 +93,8 @@ export function PlannerTab() {
 
   // Visible projects after search/archive filter — used in sidebar project lists.
   const visibleProjects = usePlannerStore(selectVisibleProjects);
+  // Current sidebar mode (active vs archived).
+  const searchMode = usePlannerStore((s) => s.searchMode);
 
   // Jump to a subject from SidebarSearch: select the project, then select the subject.
   const handleJumpSubject = (projectName: string, fileName: string) => {
@@ -627,6 +631,7 @@ export function PlannerTab() {
 
   const renderProjectsList = (onSelect: (p: Project) => void) => (
     <>
+      {searchMode === 'archived' && <ArchivedToggle />}
       <SidebarSearch onJumpSubject={handleJumpSubject} />
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">
@@ -646,15 +651,67 @@ export function PlannerTab() {
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                 {!isViewer && (
                   <>
-                    <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground" title={t('tags.edit_title')}><Tag size={14} /></button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
-                      disabled={!isOwner}
-                      title={isOwner ? undefined : t('planner.owner_only_delete_tooltip', { defaultValue: 'Apenas o dono do workspace pode excluir projetos' })}
-                      className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
-                    ><Trash2 size={14} /></button>
-                    <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
+                    {searchMode !== 'archived' && (
+                      <>
+                        <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground"><PencilLine size={14} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground" title={t('tags.edit_title')}><Tag size={14} /></button>
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await usePlannerStore.getState().archiveProjectById(p.name);
+                              toast.success(t('archive.archived_toast'));
+                              if (selectedProject?.name === p.name) setSelectedProject(null);
+                            } catch {
+                              toast.error(t('archive.archive_failed'));
+                            }
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                          title={t('archive.archive_action')}
+                          aria-label={t('archive.archive_action')}
+                        >
+                          <Archive size={14} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if (!isOwner) return; setDeleteProjectTarget(p.name); }}
+                          disabled={!isOwner}
+                          title={isOwner ? undefined : t('planner.owner_only_delete_tooltip', { defaultValue: 'Apenas o dono do workspace pode excluir projetos' })}
+                          className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
+                        ><Trash2 size={14} /></button>
+                        <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={14} />
+                      </>
+                    )}
+                    {searchMode === 'archived' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await usePlannerStore.getState().unarchiveProjectById(p.name);
+                              toast.success(t('archive.reactivated'));
+                            } catch {
+                              toast.error(t('archive.reactivate_failed'));
+                            }
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                          title={t('archive.row_reactivate')}
+                          aria-label={t('archive.row_reactivate')}
+                        >
+                          <ArchiveRestore size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }}
+                          className="text-muted-foreground hover:text-destructive"
+                          title={t('archive.row_delete_permanent')}
+                          aria-label={t('archive.row_delete_permanent')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -664,6 +721,7 @@ export function PlannerTab() {
           {visibleProjects.length === 0 && <div className="text-xs p-2 normal-case text-muted-foreground">{t('planner.no_projects')}</div>}
         </div>
       </ScrollArea>
+      {searchMode === 'active' && <ArchivedToggle />}
     </>
   );
 
@@ -932,13 +990,19 @@ export function PlannerTab() {
   // editorReadOnly drives Monaco AND the comment trigger. Preview always
   // locks Monaco. Viewer role ALSO locks Monaco (no edits allowed), but
   // the comment trigger stays enabled — viewers can still anchor comments
-  // (spec §3.2).
+  // (spec §3.2). Archived projects are also read-only.
+  const isProjectArchived = Boolean(selectedProject?.archivedAt);
   const editorReadOnly = previewVersion !== null;
-  const monacoReadOnly = editorReadOnly || isViewer;
+  const monacoReadOnly = editorReadOnly || isViewer || isProjectArchived;
 
   const renderEditorContent = () => (
     <>
       {renderPreviewBanner()}
+      {isProjectArchived && (
+        <div className="px-3 py-2 text-xs bg-amber-500/10 border-b border-amber-500/30 text-amber-700 dark:text-amber-300 shrink-0">
+          {t('archive.editor_banner')}
+        </div>
+      )}
       <div className={`flex-1 w-full relative overflow-y-auto transition-colors duration-300 ${editorBgClass}`}>
         {!isViewing ? (
           <Editor
@@ -1088,6 +1152,7 @@ export function PlannerTab() {
                 </div>
               </div>
               <div className="border-b border-border/50">
+                {searchMode === 'archived' && <ArchivedToggle />}
                 <SidebarSearch onJumpSubject={handleJumpSubject} />
                 <ScrollArea className="max-h-[120px]">
                   <div className="p-1.5 space-y-0.5">
@@ -1098,16 +1163,66 @@ export function PlannerTab() {
                           <span className="truncate">{p.name}</span>
                         </div>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground p-0.5" title={t('tags.edit_title')}><Tag size={12} /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
-                          <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={12} />
+                          {searchMode !== 'archived' && (
+                            <>
+                              <button onClick={(e) => { e.stopPropagation(); setRenameValue(p.name); setRenameProjectTarget(p.name); }} className="text-muted-foreground hover:text-foreground p-0.5"><PencilLine size={12} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setEditTagFor(p); }} className="text-muted-foreground hover:text-foreground p-0.5" title={t('tags.edit_title')}><Tag size={12} /></button>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await usePlannerStore.getState().archiveProjectById(p.name);
+                                    toast.success(t('archive.archived_toast'));
+                                    if (selectedProject?.name === p.name) setSelectedProject(null);
+                                  } catch {
+                                    toast.error(t('archive.archive_failed'));
+                                  }
+                                }}
+                                className="text-muted-foreground hover:text-foreground p-0.5"
+                                title={t('archive.archive_action')}
+                              >
+                                <Archive size={12} />
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }} className="text-muted-foreground hover:text-destructive p-0.5"><Trash2 size={12} /></button>
+                              <MoveProjectToWorkspaceMenu projectName={p.name} iconSize={12} />
+                            </>
+                          )}
+                          {searchMode === 'archived' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await usePlannerStore.getState().unarchiveProjectById(p.name);
+                                    toast.success(t('archive.reactivated'));
+                                  } catch {
+                                    toast.error(t('archive.reactivate_failed'));
+                                  }
+                                }}
+                                className="text-muted-foreground hover:text-foreground p-0.5"
+                                title={t('archive.row_reactivate')}
+                              >
+                                <ArchiveRestore size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setDeleteProjectTarget(p.name); }}
+                                className="text-muted-foreground hover:text-destructive p-0.5"
+                                title={t('archive.row_delete_permanent')}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
                     {visibleProjects.length === 0 && <div className="text-xs p-2 text-muted-foreground">{t('planner.no_projects')}</div>}
                   </div>
                 </ScrollArea>
+                {searchMode === 'active' && <ArchivedToggle />}
               </div>
               <div className="p-2 border-b border-border/50 flex items-center justify-between px-3">
                 <span className="uppercase font-semibold text-xs text-muted-foreground">{t('planner.subjects')}</span>
