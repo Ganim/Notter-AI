@@ -4,7 +4,6 @@ import {
   parseIdentifier,
   isValidTagShape,
   isReservedTag,
-  tagChipColor,
   type SubjectLike,
   type ProjectLike,
 } from '../identifiers';
@@ -206,63 +205,4 @@ describe('identifiers', () => {
     });
   });
 
-  describe('tagChipColor', () => {
-    it('returns a number in range 0..7', () => {
-      const colors = [
-        tagChipColor('flow'),
-        tagChipColor('archive'),
-        tagChipColor('test'),
-      ];
-      colors.forEach(color => {
-        expect(color).toBeGreaterThanOrEqual(0);
-        expect(color).toBeLessThanOrEqual(7);
-      });
-    });
-
-    it('is deterministic for the same input', () => {
-      const color1 = tagChipColor('flow');
-      const color2 = tagChipColor('flow');
-      expect(color1).toBe(color2);
-    });
-
-    it('is deterministic across many calls', () => {
-      const color1 = tagChipColor('myproject');
-      const color2 = tagChipColor('myproject');
-      const color3 = tagChipColor('myproject');
-      expect(color1).toBe(color2);
-      expect(color2).toBe(color3);
-    });
-
-    it('usually produces different colors for different inputs', () => {
-      const tags = ['flow', 'archive', 'test', 'work', 'home', 'ideas', 'notes', 'urgent'];
-      const colors = tags.map(tag => tagChipColor(tag));
-      // Not all 8 colors guaranteed, but most should be different
-      const uniqueColors = new Set(colors);
-      expect(uniqueColors.size).toBeGreaterThan(1);
-    });
-
-    it('handles single-char input', () => {
-      const color = tagChipColor('a');
-      expect(color).toBeGreaterThanOrEqual(0);
-      expect(color).toBeLessThanOrEqual(7);
-    });
-
-    it('handles very long input', () => {
-      const color = tagChipColor('verylongtagnamethatshouldstillworkfine');
-      expect(color).toBeGreaterThanOrEqual(0);
-      expect(color).toBeLessThanOrEqual(7);
-    });
-
-    it('handles empty string', () => {
-      const color = tagChipColor('');
-      expect(color).toBeGreaterThanOrEqual(0);
-      expect(color).toBeLessThanOrEqual(7);
-    });
-
-    it('handles numbers in tag', () => {
-      const color = tagChipColor('flow123');
-      expect(color).toBeGreaterThanOrEqual(0);
-      expect(color).toBeLessThanOrEqual(7);
-    });
-  });
 });

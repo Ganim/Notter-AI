@@ -10,10 +10,6 @@ const RESERVED_TAGS = new Set(['new', 'archived', 'settings', 'inbox', 'all']);
 const TAG_SHAPE = /^[a-z0-9]{2,8}$/;
 const IDENTIFIER_SHAPE = /^([a-z0-9]{2,8})-(\d+)$/;
 
-// FNV-1a constants for 32-bit hash
-const FNV_OFFSET_BASIS = 0x811c9dc5;
-const FNV_PRIME = 0x01000193;
-
 /**
  * Renders "tag-seq" or "" if either tag or seq is missing/falsy.
  */
@@ -52,14 +48,3 @@ export function isReservedTag(s: string): boolean {
   return RESERVED_TAGS.has(s);
 }
 
-/**
- * Deterministic chip color index 0..7 using FNV-1a 32-bit hash.
- */
-export function tagChipColor(tag: string): number {
-  let hash = FNV_OFFSET_BASIS;
-  for (let i = 0; i < tag.length; i++) {
-    hash ^= tag.charCodeAt(i);
-    hash = Math.imul(hash, FNV_PRIME);
-  }
-  return Math.abs(hash) % 8;
-}

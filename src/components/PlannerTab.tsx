@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlannerStore, selectVisibleProjects } from '@/stores/planner-store';
 import { useSubjectVersionsStore } from '@/stores/subject-versions-store';
 import { useWorkspacesStore } from '@/stores/workspaces-store';
@@ -92,7 +93,10 @@ export function PlannerTab() {
   const subjectRows = usePlannerStore((s) => s.subjectRows);
 
   // Visible projects after search/archive filter — used in sidebar project lists.
-  const visibleProjects = usePlannerStore(selectVisibleProjects);
+  // useShallow keeps the array reference stable when filtered contents are
+  // unchanged; without it the fresh .filter() result triggers an infinite
+  // useSyncExternalStore loop in Zustand v5 (Object.is sees a new array).
+  const visibleProjects = usePlannerStore(useShallow(selectVisibleProjects));
   // Current sidebar mode (active vs archived).
   const searchMode = usePlannerStore((s) => s.searchMode);
 
@@ -576,9 +580,10 @@ export function PlannerTab() {
   // --- CRUD handlers ---
   const handleCreateProjectSubmit = async () => {
     if (!newProjectName.trim()) return;
-    if (!newProjectTag || !isValidTagShape(newProjectTag) || isReservedTag(newProjectTag)) return;
+    const normalizedTag = newProjectTag.trim().toLowerCase();
+    if (!normalizedTag || !isValidTagShape(normalizedTag) || isReservedTag(normalizedTag)) return;
     try {
-      await createProject(newProjectName, '', newProjectTag);
+      await createProject(newProjectName, '', normalizedTag);
       setIsProjectDialogOpen(false);
       setNewProjectName('');
       setNewProjectTag('');
@@ -738,12 +743,24 @@ export function PlannerTab() {
               : '';
           return (
           <div key={subject} onClick={() => onSelect(subject)} className={`group flex items-center justify-between p-2 text-sm rounded-md cursor-pointer ${selectedSubject === subject ? 'bg-accent text-accent-foreground' : 'hover:bg-muted text-foreground'}`}>
-            <span className="flex items-center gap-2 min-w-0 font-normal">
-              {id && (
-                <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">{id}</span>
+            <div className="flex flex-col min-w-0 font-normal gap-1 items-start">
+              {id && selectedProject?.tag && (
+                <TagChip
+                  tag={id.toUpperCase()}
+                  title={t('tags.copy_tooltip', { id })}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await navigator.clipboard.writeText(id);
+                      toast.success(t('tags.copied', { id }));
+                    } catch {
+                      toast.error(t('tags.copy_failed'));
+                    }
+                  }}
+                />
               )}
               <span className="truncate">{subject.replace('.md', '')}</span>
-            </span>
+            </div>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               {!isViewer && (
                 <>
@@ -809,15 +826,39 @@ export function PlannerTab() {
     </div>
   );
 
-  const renderEditorHeader = () => (
+  const renderEditorHeader = () => {
+    // Resolve the current subject's identifier (e.g. "novo-1") so we can render
+    // it as a click-to-copy chip beside the subject title — replacing the older
+    // "Anotações sobre …" label.
+    const headerRow = selectedProject && selectedSubject
+      ? subjectRows.find((s) => s.fileName === selectedSubject && s.projectName === selectedProject.name)
+      : null;
+    const headerId = headerRow && selectedProject ? subjectIdentifier(headerRow, selectedProject) : '';
+
+    return (
     <div className="h-10 sm:h-12 border-b border-border flex items-center justify-between px-2 sm:px-4 bg-background z-10 shrink-0 gap-2">
       {isSmall && (
         <button onClick={goBackToSubjects} className="shrink-0 p-1 rounded-sm hover:bg-muted transition-colors">
           <ArrowLeft size={16} />
         </button>
       )}
-      <span className="font-semibold text-xs sm:text-sm text-foreground truncate min-w-0">
-        {t('planner.notes_about')} <span className="text-primary">{selectedSubject?.replace('.md', '')}</span>
+      <span className="font-semibold text-xs sm:text-sm text-foreground truncate min-w-0 flex items-center gap-2">
+        {headerId && (
+          <TagChip
+            tag={headerId.toUpperCase()}
+            title={t('tags.copy_tooltip', { id: headerId })}
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                await navigator.clipboard.writeText(headerId);
+                toast.success(t('tags.copied', { id: headerId }));
+              } catch {
+                toast.error(t('tags.copy_failed'));
+              }
+            }}
+          />
+        )}
+        <span className="truncate">{selectedSubject?.replace('.md', '')}</span>
       </span>
       <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
         {renderColorPicker()}
@@ -942,7 +983,8 @@ export function PlannerTab() {
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   const renderPreviewBanner = () => {
     if (!previewVersion) return null;
@@ -1355,10 +1397,13 @@ export function PlannerTab() {
 
   // --- Dialogs ---
   function renderDialogs() {
+    // Validate the normalised (lowercased) tag so users can type any case
+    // freely; we only enforce the canonical shape, not the keyboard case.
+    const normalizedProjectTag = newProjectTag.trim().toLowerCase();
     let tagError: string | null = null;
-    if (newProjectTag && !isValidTagShape(newProjectTag)) tagError = t('tags.edit_invalid_shape');
-    else if (newProjectTag && isReservedTag(newProjectTag)) tagError = t('tags.edit_reserved');
-    const createDisabled = !newProjectName.trim() || !newProjectTag || !!tagError;
+    if (normalizedProjectTag && !isValidTagShape(normalizedProjectTag)) tagError = t('tags.edit_invalid_shape');
+    else if (normalizedProjectTag && isReservedTag(normalizedProjectTag)) tagError = t('tags.edit_reserved');
+    const createDisabled = !newProjectName.trim() || !normalizedProjectTag || !!tagError;
 
     return (
       <>

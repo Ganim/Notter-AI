@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { isValidTagShape, isReservedTag } from '@/lib/identifiers';
 import { usePlannerStore } from '@/stores/planner-store';
+import { Input } from '@/components/ui/input';
 
 export interface EditTagDialogProps {
   open: boolean;
@@ -18,17 +19,22 @@ export function EditTagDialog({ open, project, onClose }: EditTagDialogProps) {
 
   if (!open) return null;
 
-  let error: string | null = null;
-  if (value && !isValidTagShape(value)) error = t('tags.edit_invalid_shape');
-  else if (value && isReservedTag(value)) error = t('tags.edit_reserved');
+  // Accept any case while typing; the canonical form is lowercase, so we
+  // validate (and persist) the normalised version. This avoids surfacing a
+  // "lowercase only" error mid-typing for users who naturally capitalise.
+  const normalized = value.trim().toLowerCase();
 
-  const canSave = !error && value && value !== project.tag && !saving;
+  let error: string | null = null;
+  if (normalized && !isValidTagShape(normalized)) error = t('tags.edit_invalid_shape');
+  else if (normalized && isReservedTag(normalized)) error = t('tags.edit_reserved');
+
+  const canSave = !error && normalized && normalized !== project.tag && !saving;
 
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      await usePlannerStore.getState().updateProjectTagById(project.name, value);
+      await usePlannerStore.getState().updateProjectTagById(project.name, normalized);
       onClose();
     } catch (e: unknown) {
       const msg = String((e as Error)?.message ?? '');
@@ -48,13 +54,13 @@ export function EditTagDialog({ open, project, onClose }: EditTagDialogProps) {
         </div>
         <div className="space-y-1">
           <label htmlFor="newTag" className="text-xs block">{t('tags.edit_new_label')}</label>
-          <input
+          <Input
             id="newTag"
             aria-label={t('tags.edit_new_label')}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             maxLength={8}
-            className="w-full border rounded px-2 py-1 text-sm font-mono"
+            className="font-mono"
             autoFocus
           />
           {error && <div className="text-xs text-destructive">{error}</div>}

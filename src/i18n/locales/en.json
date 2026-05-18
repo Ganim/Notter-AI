@@ -95,7 +95,6 @@
     "select_project": "Select a Project first.",
     "create_first_subject": "Press '+' to create the first subject.",
     "select_subject_hint": "Select or create a subject to open the editor.",
-    "notes_about": "Notes about",
     "edit": "Edit",
     "view": "View",
     "new_project": "New Project",
@@ -339,12 +338,15 @@
     "edit_save": "Save",
     "edit_cancel": "Cancel",
     "edit_failed": "Failed to update tag",
-    "edit_invalid_shape": "Tag must be 2–8 lowercase characters (a-z, 0-9)",
+    "edit_invalid_shape": "Tag must be 2–8 alphanumeric characters (a-z, 0-9)",
     "edit_reserved": "Reserved tag — pick another",
     "edit_duplicate": "This tag is already in use in this workspace",
     "new_project_label": "Tag:",
     "new_project_auto": "auto",
-    "new_project_suggesting": "Suggesting…"
+    "new_project_suggesting": "Suggesting…",
+    "copy_tooltip": "Copy {{id}}",
+    "copied": "Copied: {{id}}",
+    "copy_failed": "Could not copy"
   },
   "search": {
     "placeholder": "Search…",
