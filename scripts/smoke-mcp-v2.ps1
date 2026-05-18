@@ -1,6 +1,6 @@
 # scripts/smoke-mcp-v2.ps1
 #
-# OAuth 2.1 + 17-tool surface smoke. Adapted from smoke-m3.ps1.
+# OAuth 2.1 + 18-tool surface smoke. Adapted from smoke-m3.ps1.
 #
 # Usage:
 #   $env:MCP_URL = 'http://127.0.0.1:54781/mcp'
@@ -95,7 +95,7 @@ if (-not $access) { Fail "token did not return access_token"; exit 1 }
 OK "access_token (len=$($access.Length)), refresh_token (len=$($refresh.Length))"
 
 # Step 4 — exercise every tool
-Write-Host "`n[4/6] Exercise 17 tools..." -ForegroundColor Cyan
+Write-Host "`n[4/6] Exercise 18 tools..." -ForegroundColor Cyan
 function Call-Mcp($method, $params) {
     $body = @{ jsonrpc = '2.0'; id = (Get-Random); method = $method; params = $params } | ConvertTo-Json -Depth 10 -Compress
     $h = @{ Authorization = "Bearer $access"; 'Content-Type' = 'application/json' }
@@ -165,6 +165,41 @@ else {
             if (-not ($fetched -and $fetched.id -eq $subjId)) { Fail "get_subject mismatch" }
             if (-not ($fetched.identifier -eq $subj.identifier)) {
                 Fail "get_subject identifier mismatch (save: $($subj.identifier), get: $($fetched.identifier))"
+            }
+            # find_subject_by_tag: exact (tag-seq), project (tag), and not-found paths.
+            # Pass workspace_id explicitly so the lookup is deterministic even if
+            # the auto-tag happens to collide with another workspace's tag.
+            Write-Host "    --- find_subject_by_tag ---" -ForegroundColor DarkGray
+            $findExact = Call-Mcp 'find_subject_by_tag' @{ query = $subj.identifier; workspace_id = $wsId }
+            if (-not ($findExact -and $findExact.status -eq 'exact')) {
+                Fail "find_subject_by_tag '$($subj.identifier)' expected status=exact (got: $($findExact.status))"
+            } elseif ($findExact.subject.id -ne $subjId) {
+                Fail "find_subject_by_tag exact returned subject.id $($findExact.subject.id), want $subjId"
+            } elseif ($findExact.subject.identifier -ne $subj.identifier) {
+                Fail "find_subject_by_tag exact returned identifier $($findExact.subject.identifier), want $($subj.identifier)"
+            } else {
+                Write-Host "    find_subject_by_tag exact: identifier=$($findExact.subject.identifier)" -ForegroundColor DarkGray
+            }
+            $findProj = Call-Mcp 'find_subject_by_tag' @{ query = $proj.tag; workspace_id = $wsId }
+            if (-not ($findProj -and $findProj.status -eq 'project')) {
+                Fail "find_subject_by_tag '$($proj.tag)' expected status=project (got: $($findProj.status))"
+            } elseif (-not ($findProj.subjects | Where-Object { $_.id -eq $subjId })) {
+                Fail "find_subject_by_tag project response did not include subject $subjId"
+            } else {
+                Write-Host "    find_subject_by_tag project: subjects=$($findProj.subjects.Count)" -ForegroundColor DarkGray
+            }
+            # NotFound: send the request directly so Call-Mcp's auto-Fail on error doesn't trip.
+            $nfBody = @{ jsonrpc='2.0'; id=(Get-Random); method='find_subject_by_tag'; params=@{ query='zzzz9999' } } | ConvertTo-Json -Depth 10 -Compress
+            $nfHdr = @{ Authorization = "Bearer $access"; 'Content-Type' = 'application/json' }
+            try {
+                $nfResp = Invoke-RestMethod -Method Post -Uri $Url -Headers $nfHdr -Body $nfBody -ErrorAction Stop
+                if ($nfResp.error -and $nfResp.error.code -eq -32003) {
+                    OK "find_subject_by_tag returns NotFound for unknown tag"
+                } else {
+                    Fail "find_subject_by_tag for unknown tag should error -32003 (got: $($nfResp | ConvertTo-Json -Compress))"
+                }
+            } catch {
+                Fail "find_subject_by_tag unknown-tag request failed: $($_.Exception.Message)"
             }
             $v2Body = "anchor-target $stamp middle-text trailing-words"
             $rev = Call-Mcp 'post_subject_revision' @{ subject_id = $subjId; content_markdown = $v2Body; source_actor = 'smoke-mcp-v2'; label = 'smoke v2' }

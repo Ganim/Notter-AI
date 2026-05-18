@@ -64,6 +64,7 @@ pub async fn dispatch(
         "delete_comment" => delete_comment(params, auth, state).await,
         "archive_resource" => archive_resource(params, auth, state).await,
         "restore_resource" => restore_resource(params, auth, state).await,
+        "find_subject_by_tag" => find_subject_by_tag(params, auth, state).await,
         // MCP "ping" is sometimes used by clients as a liveness check;
         // accept it as an empty-result success.
         "ping" => Ok(Value::Object(Default::default())),
@@ -943,6 +944,184 @@ async fn restore_resource(
     set_archived(state, auth, &p.kind, &p.id, false).await
 }
 
+// ── find_subject_by_tag ──────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct FindSubjectByTagParams {
+    /// Tag (e.g. `"novo"`) or full identifier (`"novo-1"`). Whitespace-trimmed
+    /// and lowercased before lookup so callers can pass either case freely.
+    query: String,
+    /// Disambiguator when the same tag exists in multiple workspaces the user
+    /// owns. Omit on the first call; if the response is `status: "ambiguous"`,
+    /// the client picks a `workspace_id` from `candidates` and re-issues.
+    #[serde(default)]
+    workspace_id: Option<String>,
+    /// Mirror `list_subjects`: include archived rows in the project listing.
+    /// Has no effect on the exact-identifier path (archived subjects are still
+    /// looked up by seq — the caller already knew what they wanted).
+    #[serde(default)]
+    include_archived: bool,
+}
+
+/// Resolve a tag or full identifier to one or more subjects.
+///
+/// Response shapes (success):
+///   `{ status: "exact",     workspace_id, project: { name, tag }, subject }`
+///   `{ status: "project",   workspace_id, project: { name, tag }, subjects: [...] }`
+///   `{ status: "ambiguous", reason: "tag_in_multiple_workspaces",
+///       tag, candidates: [{ workspace_id, workspace_name, project }, ...] }`
+///
+/// Returns `NotFound` when no project matches the (tag, workspace_id) filter,
+/// and `NotFound` again when an exact `tag-seq` resolves to a project with no
+/// such seq.
+async fn find_subject_by_tag(
+    params: &Value,
+    auth: &AuthContext,
+    state: &McpState,
+) -> Result<Value, McpError> {
+    let p: FindSubjectByTagParams = serde_json::from_value(params.clone())
+        .map_err(|e| McpError::InvalidParams(format!("find_subject_by_tag: {e}")))?;
+
+    let q = p.query.trim().to_lowercase();
+    if q.is_empty() {
+        return Err(McpError::InvalidParams("query is required".into()));
+    }
+
+    // Parse "tag" or "tag-seq". The seq half must be all digits to count as an
+    // identifier — otherwise treat the whole string as a tag (which will fail
+    // shape validation below if it contains '-').
+    let (tag, seq): (String, Option<i64>) = match q.split_once('-') {
+        Some((t, rest)) if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) => {
+            let n: i64 = rest
+                .parse()
+                .map_err(|_| McpError::InvalidParams(format!("invalid seq in '{q}'")))?;
+            (t.to_string(), Some(n))
+        }
+        _ => (q.clone(), None),
+    };
+
+    // Tag shape mirrors `src/lib/identifiers.ts` (TAG_SHAPE) — 2–8 chars [a-z0-9].
+    if tag.len() < 2
+        || tag.len() > 8
+        || !tag.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Err(McpError::InvalidParams(format!(
+            "invalid tag '{tag}' — must be 2–8 characters of [a-z0-9]"
+        )));
+    }
+
+    let (sb, token) = crate::mcp::supabase::supabase_for(state, &auth.account_id).await?;
+
+    // Fetch every project the user can see (RLS-scoped), then filter by tag
+    // and optionally by workspace_id. Tags are unique per workspace by schema
+    // invariant, so >1 match always means the tag exists in multiple workspaces.
+    let info_map = fetch_project_info_map(&sb, &token).await?;
+    let candidates: Vec<(String, ProjectInfo)> = info_map
+        .into_iter()
+        .filter(|(_name, info)| {
+            info.tag == tag
+                && p.workspace_id
+                    .as_ref()
+                    .map_or(true, |ws| info.workspace_id == *ws)
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        let scope = p
+            .workspace_id
+            .as_ref()
+            .map(|w| format!(" in workspace {w}"))
+            .unwrap_or_default();
+        return Err(McpError::NotFound(format!(
+            "no project found for tag '{tag}'{scope}"
+        )));
+    }
+
+    if candidates.len() > 1 {
+        // Hydrate workspace names for a human-friendly disambiguation prompt.
+        let ws_ids: Vec<String> = candidates
+            .iter()
+            .map(|(_n, i)| i.workspace_id.clone())
+            .collect();
+        let ws_names = fetch_workspace_names(&sb, &token, &ws_ids).await?;
+        let payload = serde_json::json!({
+            "status": "ambiguous",
+            "reason": "tag_in_multiple_workspaces",
+            "tag": tag,
+            "candidates": candidates.iter().map(|(name, info)| {
+                serde_json::json!({
+                    "workspace_id": info.workspace_id,
+                    "workspace_name": ws_names.get(&info.workspace_id).cloned().unwrap_or_default(),
+                    "project": { "name": name, "tag": info.tag },
+                })
+            }).collect::<Vec<_>>(),
+        });
+        return Ok(payload);
+    }
+
+    // Single match — resolve subjects.
+    let (project_name, info) = candidates.into_iter().next().unwrap();
+    let workspace_id = info.workspace_id;
+    let project_tag = info.tag;
+
+    match seq {
+        Some(n) => {
+            let body = sb
+                .get(
+                    "subjects",
+                    &format!(
+                        "select=id,project_name,file_name,seq,content,current_version_id,updated_at,archived_at&project_name=eq.{}&seq=eq.{}&limit=1",
+                        url_encode(&project_name),
+                        n,
+                    ),
+                    &token,
+                )
+                .await?;
+            let row = body
+                .as_array()
+                .and_then(|a| a.first().cloned())
+                .ok_or_else(|| McpError::NotFound(format!("subject {tag}-{n} not found")))?;
+            let mut subject = row;
+            if let Some(obj) = subject.as_object_mut() {
+                obj.insert("workspace_id".into(), Value::String(workspace_id.clone()));
+            }
+            enrich_with_identifier(&mut subject, Some(&project_tag));
+            Ok(serde_json::json!({
+                "status": "exact",
+                "workspace_id": workspace_id,
+                "project": { "name": project_name, "tag": project_tag },
+                "subject": subject,
+            }))
+        }
+        None => {
+            let mut qstr = format!(
+                "select=id,project_name,file_name,seq,current_version_id,updated_at,archived_at&project_name=eq.{}&order=seq.asc",
+                url_encode(&project_name),
+            );
+            if !p.include_archived {
+                qstr.push_str("&archived_at=is.null");
+            }
+            let body = sb.get("subjects", &qstr, &token).await?;
+            let mut rows = match body {
+                Value::Array(a) => a,
+                _ => vec![],
+            };
+            for row in rows.iter_mut() {
+                if let Some(obj) = row.as_object_mut() {
+                    obj.insert("workspace_id".into(), Value::String(workspace_id.clone()));
+                }
+                enrich_with_identifier(row, Some(&project_tag));
+            }
+            Ok(serde_json::json!({
+                "status": "project",
+                "workspace_id": workspace_id,
+                "project": { "name": project_name, "tag": project_tag },
+                "subjects": rows,
+            }))
+        }
+    }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 /// Combined project info used by subject enrichment.
@@ -975,6 +1154,32 @@ async fn fetch_project_info_map(
                 .unwrap_or_default();
             if let (Some(n), Some(w)) = (name, ws) {
                 map.insert(n, ProjectInfo { workspace_id: w, tag });
+            }
+        }
+    }
+    Ok(map)
+}
+
+/// Fetch a subset of workspace rows by id and return an `id -> name` map.
+/// Used by `find_subject_by_tag` to hydrate the ambiguity response with
+/// human-readable workspace names so the agent can prompt the user.
+async fn fetch_workspace_names(
+    sb: &crate::mcp::supabase::SupabaseClient,
+    token: &str,
+    ws_ids: &[String],
+) -> Result<HashMap<String, String>, McpError> {
+    if ws_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let q = format!("select=id,name&id={}", build_in_clause(ws_ids));
+    let body = sb.get("workspaces", &q, token).await?;
+    let mut map = HashMap::new();
+    if let Some(rows) = body.as_array() {
+        for row in rows {
+            let id = row.get("id").and_then(|v| v.as_str()).map(String::from);
+            let name = row.get("name").and_then(|v| v.as_str()).map(String::from);
+            if let (Some(i), Some(n)) = (id, name) {
+                map.insert(i, n);
             }
         }
     }
