@@ -34,3 +34,9 @@ dist-ssr
 
 # Git worktrees
 .worktrees/
+
+# Local Claude Code config (per-project, machine-specific)
+.claude/
+
+# Scratch clone/worktree leftovers
+.clone/
